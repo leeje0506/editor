@@ -1,3 +1,28 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
 # Created by https://www.toptal.com/developers/gitignore/api/python,pycharm+all,visualstudiocode,linux
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,pycharm+all,visualstudiocode,linux
 
@@ -254,6 +279,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.edit_venv
 
 # Spyder project settings
 .spyderproject
@@ -342,12 +368,8 @@ wheels/
 # 환경
 .env
 .venv
-env/
 venv/
 ENV/
-env.bak/
-venv.bak/
-.edit_venv
 
 # IDE
 .vscode/
@@ -380,28 +402,3 @@ docker-compose.override.yml
 Thumbs.db
 temp/
 data/
-
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?

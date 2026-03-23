@@ -1,0 +1,137 @@
+import { useRef, useEffect, useMemo, useState } from "react";
+import { Check } from "lucide-react";
+import { useSubtitleStore } from "../../store/useSubtitleStore";
+import { usePlayerStore } from "../../store/usePlayerStore";
+import { msToTimecode } from "../../utils/time";
+import { GridToolbar } from "./GridToolbar";
+import { GridFilters, type Filters } from "./GridFilters";
+
+interface Props {
+  dark: boolean;
+}
+
+export function SubtitleGrid({ dark }: Props) {
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [filters, setFilters] = useState<Filters>({ type: "전체", textPos: "전체", error: "전체", search: "" });
+
+  const { subtitles, selectedId, multiSelect, selectSingle, toggleMulti, selectRange } = useSubtitleStore();
+  const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
+
+  const dm = dark;
+  const card = dm ? "bg-gray-800" : "bg-white";
+  const tp = dm ? "text-gray-100" : "text-gray-800";
+  const ts = dm ? "text-gray-400" : "text-gray-500";
+  const bd = dm ? "border-gray-700" : "border-gray-200";
+  const bdl = dm ? "border-gray-700" : "border-gray-100";
+  const hr = dm ? "hover:bg-gray-700/50" : "hover:bg-gray-50";
+  const sr = dm ? "bg-blue-900/40" : "bg-blue-50/70";
+  const mr = dm ? "bg-blue-900/20" : "bg-blue-50/30";
+
+  const filtered = useMemo(() => {
+    return subtitles.filter((s) => {
+      if (filters.type !== "전체" && s.type !== filters.type) return false;
+      if (filters.textPos !== "전체" && s.text_pos !== filters.textPos) return false;
+      if (filters.error === "오류만" && !s.error) return false;
+      if (filters.error === "정상만" && s.error) return false;
+      if (filters.search && !s.text.includes(filters.search) && !s.speaker.includes(filters.search)) return false;
+      return true;
+    });
+  }, [subtitles, filters]);
+
+  // 선택 행 자동 스크롤
+  useEffect(() => {
+    const row = document.getElementById(`row-${selectedId}`);
+    if (row && gridRef.current) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedId]);
+
+  // 싱글클릭: 재생 위치만 이동 / 더블클릭: 자막 선택
+  const handleClick = (id: number) => {
+    const sub = subtitles.find((s) => s.id === id);
+    if (sub) setCurrentMs(sub.start_ms);
+  };
+
+  const handleDblClick = (id: number, e: React.MouseEvent) => {
+    if (e.shiftKey) selectRange(id);
+    else if (e.ctrlKey || e.metaKey) toggleMulti(id);
+    else selectSingle(id);
+  };
+
+  const posLabel = (v: string) => (v === "top" ? "상단이동" : "-");
+
+  return (
+    <div className={`flex-1 flex flex-col min-h-0 border-b ${bd}`}>
+      <div className={`shrink-0 border-b ${bd}`}>
+        <GridToolbar dark={dm} filteredCount={filtered.length} totalCount={subtitles.length} />
+        <GridFilters dark={dm} filters={filters} onChange={setFilters} />
+      </div>
+
+      <div ref={gridRef} className={`flex-1 overflow-auto ${card} min-h-0`}>
+        <table className={`w-full text-center text-[11px] ${ts}`}>
+          <thead className={`${card} sticky top-0 border-b ${bd} z-10`}>
+            <tr>
+              <th className={`py-2 font-medium w-10 border-r ${bdl}`}>#</th>
+              <th className={`py-2 font-medium w-28 border-r ${bdl}`}>시작</th>
+              <th className={`py-2 font-medium w-28 border-r ${bdl}`}>종료</th>
+              <th className={`py-2 font-medium w-12 border-r ${bdl}`}>유형</th>
+              <th className={`py-2 font-medium w-14 border-r ${bdl}`}>화자 위치</th>
+              <th className={`py-2 font-medium w-14 border-r ${bdl}`}>대사 위치</th>
+              <th className={`py-2 font-medium w-14 border-r ${bdl}`}>화자</th>
+              <th className={`py-2 font-medium text-left px-3 border-r ${bdl}`}>대사</th>
+              <th className="py-2 font-medium w-16">검수</th>
+            </tr>
+          </thead>
+          <tbody className={`divide-y ${dm ? "divide-gray-700/40" : "divide-gray-100"}`}>
+            {filtered.map((sub) => {
+              const isSel = selectedId === sub.id;
+              const isMulti = multiSelect.has(sub.id) && !isSel;
+              return (
+                <tr
+                  key={sub.id}
+                  id={`row-${sub.id}`}
+                  onClick={() => handleClick(sub.id)}
+                  onDoubleClick={(e) => handleDblClick(sub.id, e)}
+                  className={`cursor-pointer transition-colors ${isSel ? sr : isMulti ? mr : hr}`}
+                >
+                  <td className="py-2 relative">
+                    {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
+                    {sub.seq}
+                  </td>
+                  <td className={`py-2 font-mono text-[10px] ${tp}`}>{msToTimecode(sub.start_ms)}</td>
+                  <td className={`py-2 font-mono text-[10px] ${tp}`}>{msToTimecode(sub.end_ms)}</td>
+                  <td className="py-2">
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[9px] ${
+                        sub.type === "effect"
+                          ? "bg-purple-100 text-purple-600 border border-purple-200"
+                          : dm
+                            ? "bg-gray-700 text-gray-300 border border-gray-600"
+                            : "bg-gray-100 text-gray-600 border border-gray-200"
+                      }`}
+                    >
+                      {sub.type === "effect" ? "효과" : "대사"}
+                    </span>
+                  </td>
+                  <td className={`py-2 ${sub.speaker_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.speaker_pos)}</td>
+                  <td className={`py-2 ${sub.text_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.text_pos)}</td>
+                  <td className={`py-2 ${tp} font-bold`}>{sub.speaker || ""}</td>
+                  <td className={`py-2 text-left px-3 ${tp} truncate max-w-[250px]`} title={sub.text}>
+                    {sub.text}
+                  </td>
+                  <td className="py-2">
+                    {sub.error ? (
+                      <span className="text-red-500 bg-red-50 px-1.5 py-0.5 rounded text-[9px] border border-red-100 font-medium">
+                        {sub.error}
+                      </span>
+                    ) : (
+                      <span className={ts}>-</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
