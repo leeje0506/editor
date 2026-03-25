@@ -1,18 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X, Film, FileText, Monitor } from "lucide-react";
 import { projectsApi } from "../../api/projects";
+import { useBroadcasterStore } from "../../store/useBroadcasterStore";
 import type { Project } from "../../types";
-
-const BROADCASTER_RULES: Record<string, { max_lines: number; max_chars_per_line: number; bracket_chars: number }> = {
-  "TVING":  { max_lines: 2, max_chars_per_line: 20, bracket_chars: 5 },
-  "LGHV":   { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5 },
-  "SKBB":   { max_lines: 1, max_chars_per_line: 20, bracket_chars: 5 },
-  "JTBC":   { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5 },
-  "KBS":    { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5 },
-  "자유작업": { max_lines: 99, max_chars_per_line: 999, bracket_chars: 0 },
-};
-
-const BROADCASTER_OPTIONS = Object.keys(BROADCASTER_RULES);
 
 interface Props {
   dark: boolean;
@@ -22,7 +12,7 @@ interface Props {
 
 export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const [name, setName] = useState("");
-  const [broadcaster, setBroadcaster] = useState("TVING");
+  const [broadcaster, setBroadcaster] = useState("");
   const [description, setDescription] = useState("");
   const [deadline, setDeadline] = useState("");
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -31,8 +21,18 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const [error, setError] = useState("");
   const videoRef = useRef<HTMLInputElement>(null);
   const subRef = useRef<HTMLInputElement>(null);
+  const bcStore = useBroadcasterStore();
 
-  const rules = BROADCASTER_RULES[broadcaster];
+  // 마운트 시 최신 방송사 규칙 가져오기
+  useEffect(() => {
+    bcStore.fetch().then(() => {
+      if (!broadcaster && bcStore.names.length > 0) {
+        setBroadcaster(bcStore.names[0]);
+      }
+    });
+  }, []);
+
+  const rules = bcStore.rules[broadcaster];
   const dm = dark;
   const card = dm ? "bg-gray-900" : "bg-white";
   const tp = dm ? "text-gray-100" : "text-gray-900";
@@ -40,6 +40,7 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const bd = dm ? "border-gray-700" : "border-gray-200";
   const inp = dm ? "bg-gray-800 text-gray-100 border-gray-700" : "bg-white text-gray-800 border-gray-300";
   const inpF = "focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
+  const today = new Date().toISOString().split("T")[0];
 
   const handleCreate = async () => {
     if (!name.trim()) { setError("프로젝트 명칭을 입력해주세요."); return; }
@@ -75,9 +76,8 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
           <div>
             <label className={`block text-xs font-medium ${ts} mb-1.5`}>방송사 <span className="text-red-500">*</span></label>
             <select value={broadcaster} onChange={(e) => setBroadcaster(e.target.value)} className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none ${inp} ${inpF}`}>
-              {BROADCASTER_OPTIONS.map((bc) => <option key={bc} value={bc}>{bc}</option>)}
+              {bcStore.names.map((bc) => <option key={bc} value={bc}>{bc}</option>)}
             </select>
-            {/* 방송사 기준 읽기 전용 표시 */}
             {rules && (
               <div className={`mt-1.5 text-[11px] ${ts} ${dm ? "bg-gray-800" : "bg-gray-50"} rounded px-3 py-1.5`}>
                 자막 기준: 최대 {rules.max_lines}줄 / 줄당 {rules.max_chars_per_line}자 / 화자 예약 {rules.bracket_chars}자
@@ -91,7 +91,15 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
           </div>
           <div>
             <label className={`block text-xs font-medium ${ts} mb-1.5`}>마감일 (선택)</label>
-            <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none ${inp} ${inpF}`} />
+            <input
+              type="date"
+              value={deadline}
+              min={today}
+              onChange={(e) => setDeadline(e.target.value)}
+              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+              style={{ colorScheme: dm ? "dark" : "light" }}
+              className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none ${inp} ${inpF} cursor-pointer`}
+            />
           </div>
           <div>
             <label className={`block text-xs font-medium ${ts} mb-1.5`}>영상 파일 <span className="text-red-500">*</span></label>

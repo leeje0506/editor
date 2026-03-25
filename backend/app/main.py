@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base, SessionLocal
 from app.models import User
 from app.services.auth import hash_password
-from app.routers import projects, subtitles, auth
+from app.routers import projects, subtitles, auth, settings
 
 Base.metadata.create_all(bind=engine)
 
@@ -25,6 +25,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(subtitles.router, prefix="/api/projects/{project_id}/subtitles", tags=["subtitles"])
+app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 
 
 @app.on_event("startup")

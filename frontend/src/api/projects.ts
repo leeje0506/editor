@@ -22,6 +22,8 @@ export const projectsApi = {
     api.post<Project>(`/projects/${id}/timer`, { elapsed_seconds: elapsedSeconds }).then((r) => r.data),
   markSaved: (id: number) => api.post<Project>(`/projects/${id}/save`).then((r) => r.data),
   getBroadcasterRules: () => api.get("/projects/rules/broadcasters").then((r) => r.data),
+  saveBroadcasterRules: (rules: Record<string, { max_lines: number; max_chars_per_line: number; bracket_chars: number }>) =>
+    api.put("/settings/broadcaster-rules", rules).then((r) => r.data),
   uploadSubtitle: (id: number, file: File) => {
     const form = new FormData();
     form.append("file", file);

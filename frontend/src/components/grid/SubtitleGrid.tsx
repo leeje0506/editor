@@ -5,17 +5,20 @@ import { usePlayerStore } from "../../store/usePlayerStore";
 import { msToTimecode } from "../../utils/time";
 import { GridToolbar } from "./GridToolbar";
 import { GridFilters, type Filters } from "./GridFilters";
+import { useTimelineStore } from "../../store/useTimelineStore";
 
 interface Props {
   dark: boolean;
+  readOnly?: boolean;
 }
 
-export function SubtitleGrid({ dark }: Props) {
+export function SubtitleGrid({ dark, readOnly }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
   const [filters, setFilters] = useState<Filters>({ type: "전체", textPos: "전체", error: "전체", search: "" });
 
   const { subtitles, selectedId, multiSelect, selectSingle, toggleMulti, selectRange } = useSubtitleStore();
   const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
+  const ensureVisible = useTimelineStore((s) => s.ensureVisible);
 
   const dm = dark;
   const card = dm ? "bg-gray-800" : "bg-white";
@@ -38,13 +41,11 @@ export function SubtitleGrid({ dark }: Props) {
     });
   }, [subtitles, filters]);
 
-  // 선택 행 자동 스크롤
   useEffect(() => {
     const row = document.getElementById(`row-${selectedId}`);
     if (row && gridRef.current) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedId]);
 
-  // 싱글클릭: 재생 위치만 이동 / 더블클릭: 자막 선택
   const handleClick = (id: number) => {
     const sub = subtitles.find((s) => s.id === id);
     if (sub) setCurrentMs(sub.start_ms);
@@ -54,6 +55,12 @@ export function SubtitleGrid({ dark }: Props) {
     if (e.shiftKey) selectRange(id);
     else if (e.ctrlKey || e.metaKey) toggleMulti(id);
     else selectSingle(id);
+
+    const sub = subtitles.find((s) => s.id === id);
+    if (sub) {
+      setCurrentMs(sub.start_ms);
+      ensureVisible(sub.start_ms);
+    }
   };
 
   const posLabel = (v: string) => (v === "top" ? "상단이동" : "-");
@@ -61,7 +68,7 @@ export function SubtitleGrid({ dark }: Props) {
   return (
     <div className={`flex-1 flex flex-col min-h-0 border-b ${bd}`}>
       <div className={`shrink-0 border-b ${bd}`}>
-        <GridToolbar dark={dm} filteredCount={filtered.length} totalCount={subtitles.length} />
+        <GridToolbar dark={dm} filteredCount={filtered.length} totalCount={subtitles.length} readOnly={readOnly} />
         <GridFilters dark={dm} filters={filters} onChange={setFilters} />
       </div>
 
@@ -114,8 +121,10 @@ export function SubtitleGrid({ dark }: Props) {
                   <td className={`py-2 ${sub.speaker_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.speaker_pos)}</td>
                   <td className={`py-2 ${sub.text_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.text_pos)}</td>
                   <td className={`py-2 ${tp} font-bold`}>{sub.speaker || ""}</td>
-                  <td className={`py-2 text-left px-3 ${tp} truncate max-w-[250px]`} title={sub.text}>
-                    {sub.text}
+                  <td className={`py-2 text-left px-3 ${tp} max-w-[250px]`} title={sub.text}>
+                    <div className="text-[12px] leading-snug whitespace-pre-wrap break-all line-clamp-3">
+                      {sub.text}
+                    </div>
                   </td>
                   <td className="py-2">
                     {sub.error ? (

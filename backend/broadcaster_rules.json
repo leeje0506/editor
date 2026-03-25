@@ -1,0 +1,32 @@
+{
+  "TVING": {
+    "max_lines": 2,
+    "max_chars_per_line": 20,
+    "bracket_chars": 5
+  },
+  "LGHV": {
+    "max_lines": 2,
+    "max_chars_per_line": 18,
+    "bracket_chars": 5
+  },
+  "SKBB": {
+    "max_lines": 1,
+    "max_chars_per_line": 20,
+    "bracket_chars": 5
+  },
+  "JTBC": {
+    "max_lines": 2,
+    "max_chars_per_line": 18,
+    "bracket_chars": 5
+  },
+  "KBS": {
+    "max_lines": 2,
+    "max_chars_per_line": 18,
+    "bracket_chars": 5
+  },
+  "자유작업": {
+    "max_lines": 99,
+    "max_chars_per_line": 999,
+    "bracket_chars": 0
+  }
+}

@@ -20,7 +20,7 @@ export function SubtitleOverlay({ subtitles }: Props) {
               </span>
             )}
             <span
-              className={`font-bold text-base drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] ${
+              className={`font-bold text-base drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] whitespace-pre-wrap ${
                 s.type === "effect" ? "text-yellow-300 italic" : "text-white"
               }`}
             >
@@ -41,8 +41,13 @@ export function SubtitleOverlay({ subtitles }: Props) {
       <div className="absolute bottom-14 inset-x-0 flex flex-col items-center gap-0.5 z-10 px-6">
         {btmSubs.map((s) => (
           <div key={s.id} className="text-center">
+            {s.speaker && (
+              <span className="text-blue-400 font-bold text-base drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+                ({s.speaker}){" "}
+              </span>
+            )}
             <span
-              className={`font-bold text-base drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] ${
+              className={`font-bold text-base drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] whitespace-pre-wrap ${
                 s.type === "effect" ? "text-yellow-300 italic" : "text-white"
               }`}
             >
