@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, Moon, Sun, Save, Send, Undo, Redo, Settings, Clock } from "lucide-react";
+import { Home, Moon, Sun, Save, Send, Undo, Redo, Settings, Clock, Download, Lock } from "lucide-react";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { ProjectSettingsModal } from "../modals/ProjectSettingsModal";
 import type { Project } from "../../types";
@@ -9,9 +9,12 @@ interface Props {
   setDark: (v: boolean) => void;
   savedMsg: string;
   onSave: () => void;
+  onSubmit: () => void;
+  onDownload: () => void;
   onHome: () => void;
   project: Project | null;
   elapsed: number;
+  readOnly: boolean;
 }
 
 function formatElapsed(seconds: number): string {
@@ -21,7 +24,7 @@ function formatElapsed(seconds: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export function TopNav({ dark, setDark, savedMsg, onSave, onHome, project, elapsed }: Props) {
+export function TopNav({ dark, setDark, savedMsg, onSave, onSubmit, onDownload, onHome, project, elapsed, readOnly }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const undo = useSubtitleStore((s) => s.undo);
 
@@ -30,6 +33,9 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onHome, project, elaps
   const tp = dm ? "text-gray-100" : "text-gray-800";
   const ts = dm ? "text-gray-400" : "text-gray-500";
   const bd = dm ? "border-gray-700" : "border-gray-200";
+
+  const statusLabel = project?.status === "submitted" ? "제출됨" : project?.status === "approved" ? "승인됨" : "";
+  const statusColor = project?.status === "submitted" ? "text-yellow-500 bg-yellow-500/10" : project?.status === "approved" ? "text-green-500 bg-green-500/10" : "";
 
   return (
     <>
@@ -40,11 +46,20 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onHome, project, elaps
           </button>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-blue-500 font-bold bg-blue-500/10 px-1.5 py-0.5 rounded text-[10px]">tv</span>
+              <span className="text-blue-500 font-bold bg-blue-500/10 px-1.5 py-0.5 rounded text-[10px]">
+                {project?.broadcaster || "tv"}
+              </span>
               <h1 className={`text-sm font-bold ${tp}`}>{project?.name || "로딩 중..."}</h1>
-              <button onClick={() => setShowSettings(true)} className={`${ts} hover:opacity-60`}>
-                <Settings size={13} />
-              </button>
+              {readOnly && (
+                <span className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${statusColor}`}>
+                  <Lock size={10} /> {statusLabel} (읽기전용)
+                </span>
+              )}
+              {!readOnly && (
+                <button onClick={() => setShowSettings(true)} className={`${ts} hover:opacity-60`}>
+                  <Settings size={13} />
+                </button>
+              )}
             </div>
             <div className={`text-[10px] ${ts} flex gap-2 items-center`}>
               <span>방송사: <strong className="text-blue-500">{project?.broadcaster || "-"}</strong></span>
@@ -57,26 +72,47 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onHome, project, elaps
         </div>
 
         <div className="flex items-center gap-1.5">
-          {savedMsg && <span className="text-emerald-500 text-xs font-medium mr-1">{savedMsg}</span>}
-          <button onClick={() => undo()} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`} title="Ctrl+Z">
-            <Undo size={14} />
+          {savedMsg && (
+            <span className={`text-xs font-medium mr-1 ${
+              savedMsg.includes("실패") || savedMsg.includes("불가") ? "text-red-500" : "text-emerald-500"
+            }`}>
+              {savedMsg}
+            </span>
+          )}
+
+          {/* 다운로드 (항상 가능) */}
+          <button
+            onClick={onDownload}
+            className={`flex items-center gap-1 border ${bd} ${card} ${ts} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
+            title="SRT 다운로드"
+          >
+            <Download size={13} /> 다운로드
           </button>
-          <button className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80 opacity-30`} title="Ctrl+Y">
-            <Redo size={14} />
-          </button>
-          <button onClick={() => setDark(!dm)} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`}>
-            {dm ? <Sun size={14} /> : <Moon size={14} />}
-          </button>
-          <button onClick={onSave} className={`flex items-center gap-1 border ${bd} ${card} ${tp} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}>
-            <Save size={13} /> 임시저장
-          </button>
-          <button className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded text-xs font-medium hover:bg-blue-700">
-            <Send size={13} /> 제출 (완료)
-          </button>
+
+          {readOnly ? (
+            /* 읽기전용: 검수만 가능, 수정 불가 */
+            <span className={`text-[10px] ${ts} px-2`}>검수 모드 — 수정 불가</span>
+          ) : (
+            /* 편집 모드: Undo, 저장, 제출 */
+            <>
+              <button onClick={() => undo()} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`} title="Ctrl+Z">
+                <Undo size={14} />
+              </button>
+              <button onClick={() => setDark(!dm)} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`}>
+                {dm ? <Sun size={14} /> : <Moon size={14} />}
+              </button>
+              <button onClick={onSave} className={`flex items-center gap-1 border ${bd} ${card} ${tp} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}>
+                <Save size={13} /> 임시저장
+              </button>
+              <button onClick={onSubmit} className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded text-xs font-medium hover:bg-blue-700">
+                <Send size={13} /> 제출
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {showSettings && <ProjectSettingsModal dark={dm} onClose={() => setShowSettings(false)} />}
+      {showSettings && !readOnly && <ProjectSettingsModal dark={dm} onClose={() => setShowSettings(false)} />}
     </>
   );
 }

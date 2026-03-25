@@ -12,9 +12,8 @@ import os
 
 from app.database import get_db
 from app.models import Project, Subtitle, User
-from app.schemas import (
-    ProjectCreate, ProjectUpdate, ProjectResponse, TimerUpdate, BROADCASTER_RULES,
-)
+from app.schemas import ProjectCreate, ProjectUpdate, ProjectResponse, TimerUpdate
+from app.routers.settings import load_rules
 from app.services.subtitle_service import (
     parse_srt, export_srt, resequence_and_validate, save_snapshot,
 )
@@ -70,7 +69,6 @@ def list_projects(
     db: Session = Depends(get_db),
 ):
     q = db.query(Project)
-    # worker: 본인 생성 + 배정분만
     if current_user.role == "worker":
         q = q.filter(or_(Project.created_by == current_user.id, Project.assigned_to == current_user.id))
     if status:
@@ -84,7 +82,8 @@ def list_projects(
 
 @router.post("", response_model=ProjectResponse, status_code=201)
 def create_project(data: ProjectCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    rules = BROADCASTER_RULES.get(data.broadcaster, {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5})
+    bc = data.broadcaster or ""
+    rules = load_rules().get(bc, {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5})
     max_lines = data.max_lines if data.max_lines is not None else rules["max_lines"]
     max_chars = data.max_chars_per_line if data.max_chars_per_line is not None else rules["max_chars_per_line"]
     bracket_chars = data.bracket_chars if data.bracket_chars is not None else rules.get("bracket_chars", 5)
@@ -95,7 +94,7 @@ def create_project(data: ProjectCreate, current_user: User = Depends(get_current
         except ValueError:
             pass
     project = Project(
-        name=data.name, broadcaster=data.broadcaster, description=data.description,
+        name=data.name, broadcaster=bc, description=data.description,
         max_lines=max_lines, max_chars_per_line=max_chars, bracket_chars=bracket_chars,
         deadline=deadline, created_by=current_user.id,
         assigned_to=data.assigned_to,
@@ -104,6 +103,11 @@ def create_project(data: ProjectCreate, current_user: User = Depends(get_current
     db.commit()
     db.refresh(project)
     return _to_response(project, db)
+
+
+@router.get("/rules/broadcasters")
+def get_broadcaster_rules():
+    return load_rules()
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -120,12 +124,11 @@ def update_project(project_id: int, data: ProjectUpdate, current_user: User = De
     if not p:
         raise HTTPException(404)
     update_data = data.model_dump(exclude_unset=True)
-    # 작업자 변경은 master/manager만
     if "assigned_to" in update_data and current_user.role == "worker":
         raise HTTPException(403, "작업자 변경 권한이 없습니다")
     if "broadcaster" in update_data:
         bc = update_data["broadcaster"]
-        rules = BROADCASTER_RULES.get(bc, {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5})
+        rules = load_rules().get(bc, {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5})
         if "max_lines" not in update_data:
             update_data["max_lines"] = rules["max_lines"]
         if "max_chars_per_line" not in update_data:
@@ -214,11 +217,6 @@ def save_project(project_id: int, current_user: User = Depends(get_current_user)
     return _to_response(p, db)
 
 
-@router.get("/rules/broadcasters")
-def get_broadcaster_rules():
-    return BROADCASTER_RULES
-
-
 # ── 파일 ──
 
 @router.post("/{project_id}/upload/subtitle")
@@ -274,11 +272,13 @@ def stream_video(project_id: int, db: Session = Depends(get_db)):
     p = db.query(Project).get(project_id)
     if not p or not p.video_file or not os.path.exists(p.video_file):
         raise HTTPException(404, "Video not found")
-    def iterfile():
-        with open(p.video_file, "rb") as f:
-            while True:
-                chunk = f.read(1024 * 1024)
-                if not chunk:
-                    break
-                yield chunk
-    return StreamingResponse(iterfile(), media_type="video/mp4")
+    import mimetypes
+    from starlette.responses import FileResponse
+    content_type, _ = mimetypes.guess_type(p.video_file)
+    if not content_type:
+        content_type = "video/mp4"
+    return FileResponse(
+        path=p.video_file,
+        media_type=content_type,
+        filename=os.path.basename(p.video_file),
+    )

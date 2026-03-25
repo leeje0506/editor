@@ -1,10 +1,10 @@
 /**
  * 텍스트 글자수 카운트
- * - 공백 제외, 나머지 모든 문자 포함 ([], () 등)
- * - 효과음이면 [] 포함하여 세어야 함
+ * - 공백 포함 (줄바꿈만 제외)
+ * - NFD → NFC 정규화 후 카운트
  */
 export function countTextChars(text: string): number {
-  return text.replace(/\s/g, "").length;
+  return text.normalize("NFC").replace(/\n/g, "").length;
 }
 
 /**
@@ -31,10 +31,11 @@ export function validateSubtitle(
   bracketChars: number,
   hasSpeaker: boolean,
 ): string {
-  const lines = text.split("\n");
+  const normalized = text.normalize("NFC");
+  const lines = normalized.split("\n");
   const effectiveMax = getEffectiveMaxChars(maxChars, bracketChars, hasSpeaker);
   for (const line of lines) {
-    if (countTextChars(line) > effectiveMax) return "글자초과";
+    if (line.length > effectiveMax) return "글자초과";
   }
   if (lines.length > maxLines) return "줄초과";
   if (endMs <= startMs) return "시간오류";
