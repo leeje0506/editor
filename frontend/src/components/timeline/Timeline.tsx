@@ -1,5 +1,5 @@
-import { useRef, useMemo, useCallback } from "react";
-import { Play, Pause, SkipBack, SkipForward, Trash2 } from "lucide-react";
+import { useRef, useMemo, useCallback, useEffect } from "react";
+import { Play, Pause, SkipBack, SkipForward, Trash2, RefreshCw } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { useTimelineStore } from "../../store/useTimelineStore";
@@ -10,13 +10,27 @@ import { Playhead } from "./Playhead";
 
 interface Props {
   dark: boolean;
+  onReload?: () => void;
 }
 
-export function Timeline({ dark }: Props) {
+export function Timeline({ dark, onReload }: Props) {
   const tlRef = useRef<HTMLDivElement>(null);
-  const { currentMs, playing, togglePlay, seekForward, seekBackward, setCurrentMs } = usePlayerStore();
-  const { subtitles, selectedId, multiSelect, selectSingle, deleteSelected, updateOne } = useSubtitleStore();
-  const { scrollMs, visibleDuration } = useTimelineStore();
+  const currentMs = usePlayerStore((s) => s.currentMs);
+  const playing = usePlayerStore((s) => s.playing);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
+  const seekForward = usePlayerStore((s) => s.seekForward);
+  const seekBackward = usePlayerStore((s) => s.seekBackward);
+  const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
+
+  const subtitles = useSubtitleStore((s) => s.subtitles);
+  const selectedId = useSubtitleStore((s) => s.selectedId);
+  const multiSelect = useSubtitleStore((s) => s.multiSelect);
+  const selectSingle = useSubtitleStore((s) => s.selectSingle);
+  const deleteSelected = useSubtitleStore((s) => s.deleteSelected);
+  const updateOne = useSubtitleStore((s) => s.updateOne);
+
+  const scrollMs = useTimelineStore((s) => s.scrollMs);
+  const visibleDuration = useTimelineStore((s) => s.visibleDuration);
   const { handleWheel } = useTimelineZoom();
   const totalMs = usePlayerStore((s) => s.totalMs);
 
@@ -38,24 +52,23 @@ export function Timeline({ dark }: Props) {
   const tickCount = visDur <= 10000 ? 10 : visDur <= 30000 ? 8 : visDur <= 120000 ? 6 : 10;
   const ticks = Array.from({ length: tickCount + 1 }, (_, i) => i / tickCount);
 
-  // 파형 생성
+  // 파형 생성 (포인트 수 최적화)
   const wavePath = useMemo(() => {
     const W = 4000, H = 400, mid = H / 2;
-    const seed = Math.floor(tlLeft / 100);
     const pts: number[] = [];
-    for (let i = 0; i <= W; i += 2) {
+    for (let i = 0; i <= W; i += 6) {
       const x = (tlLeft + (i / W) * visDur) * 0.001;
       const amp =
         Math.sin(x * 2.1) * 0.3 + Math.sin(x * 5.7) * 0.25 +
         Math.sin(x * 13.3) * 0.2 + Math.sin(x * 31.7) * 0.15 +
-        Math.sin(x * 67.1 + seed * 0.1) * 0.1;
+        Math.sin(x * 67.1) * 0.1;
       pts.push(((amp + 1) / 2) * mid * 0.9);
     }
     let upper = `M0,${mid} `;
-    for (let i = 0; i < pts.length; i++) upper += `L${i * 2},${mid - pts[i]} `;
+    for (let i = 0; i < pts.length; i++) upper += `L${i * 6},${mid - pts[i]} `;
     upper += `L${W},${mid} `;
     let lower = "";
-    for (let i = pts.length - 1; i >= 0; i--) lower += `L${i * 2},${mid + pts[i]} `;
+    for (let i = pts.length - 1; i >= 0; i--) lower += `L${i * 6},${mid + pts[i]} `;
     return upper + lower + "Z";
   }, [tlLeft, visDur]);
 
@@ -85,25 +98,48 @@ export function Timeline({ dark }: Props) {
     [tlLeft, visDur, updateOne],
   );
 
-  // 빈 영역 싱글클릭 → 재생 위치만 이동
+  // non-passive wheel 리스너
+  useEffect(() => {
+    const el = tlRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      handleWheel(e as unknown as React.WheelEvent, el.getBoundingClientRect());
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, [handleWheel]);
+
+  /**
+   * 파형 클릭:
+   * - 재생 중이면 → 정지
+   * - 클릭 위치로 재생 위치(빨간 선 + 영상) 이동
+   * - 해당 위치에 자막이 있으면 선택, 없으면 이전 선택 유지
+   */
   const onTrackClick = useCallback(
     (e: React.MouseEvent) => {
       if ((e.target as HTMLElement).closest("[data-h]")) return;
-      if ((e.target as HTMLElement).closest("[data-sub-block]")) return;
       if (!tlRef.current) return;
       const rect = tlRef.current.getBoundingClientRect();
       const pct = (e.clientX - rect.left) / rect.width;
-      setCurrentMs(Math.round(tlLeft + pct * visDur));
-    },
-    [tlLeft, visDur, setCurrentMs],
-  );
+      const clickMs = Math.round(tlLeft + pct * visDur);
 
-  const onWheelHandler = useCallback(
-    (e: React.WheelEvent) => {
-      if (!tlRef.current) return;
-      handleWheel(e, tlRef.current.getBoundingClientRect());
+      // 재생 중이면 정지
+      if (usePlayerStore.getState().playing) {
+        usePlayerStore.getState().togglePlay();
+      }
+
+      // 재생 위치 이동 + videoPreviewMs 해제
+      setCurrentMs(clickMs);
+      usePlayerStore.getState().setVideoPreviewMs(null);
+
+      // 클릭 위치에 자막이 있으면 선택, 없으면 유지
+      const hit = subtitles.find((s) => clickMs >= s.start_ms && clickMs < s.end_ms);
+      if (hit) {
+        selectSingle(hit.id);
+      }
     },
-    [handleWheel],
+    [tlLeft, visDur, setCurrentMs, subtitles, selectSingle],
   );
 
   return (
@@ -121,10 +157,16 @@ export function Timeline({ dark }: Props) {
             <SkipForward size={13} className={`${ts} cursor-pointer hover:opacity-80`} />
           </button>
           <ZoomControls dark={dm} />
+          <button
+            onClick={() => { if (onReload) onReload(); }}
+            className={`w-6 h-5 flex items-center justify-center border ${dm ? "border-gray-700" : "border-gray-200"} rounded ${ts} hover:text-blue-400 hover:border-blue-400 transition-colors`}
+            title="파형/영상 새로고침"
+          >
+            <RefreshCw size={11} />
+          </button>
         </div>
         <div className={`text-[10px] ${ts}`}>
-          <span className={dm ? "text-gray-500" : "text-gray-400"}>Ctrl+휠: 확대/축소 | 휠: 좌우이동 | </span>
-          <strong className="text-yellow-500 font-normal">노란색 바</strong> 드래그: 시간 조정
+          <span className={dm ? "text-gray-500" : "text-gray-400"}>Ctrl+휠: 확대/축소 | 휠: 좌우이동 | 경계선 드래그: 시간 조정</span>
         </div>
       </div>
 
@@ -133,26 +175,19 @@ export function Timeline({ dark }: Props) {
         ref={tlRef}
         className="flex-1 relative bg-black overflow-hidden cursor-crosshair"
         onClick={onTrackClick}
-        onWheel={onWheelHandler}
       >
         {/* 시간 눈금 */}
         <div className="absolute inset-x-0 top-0 h-4 z-30 pointer-events-none">
           {ticks.map((p) => (
-            <div
-              key={p}
-              className="absolute bottom-0 text-[7px] font-mono text-gray-500"
-              style={{ left: `${p * 100}%`, transform: "translateX(-50%)" }}
-            >
+            <div key={p} className="absolute bottom-0 text-[7px] font-mono text-gray-500"
+              style={{ left: `${p * 100}%`, transform: "translateX(-50%)" }}>
               {msToTimecode(Math.round(tlLeft + p * visDur))}
             </div>
           ))}
         </div>
         {ticks.map((p) => (
-          <div
-            key={`line-${p}`}
-            className="absolute top-4 bottom-0 w-px bg-gray-700/30 pointer-events-none"
-            style={{ left: `${p * 100}%` }}
-          />
+          <div key={`line-${p}`} className="absolute top-4 bottom-0 w-px bg-gray-700/30 pointer-events-none"
+            style={{ left: `${p * 100}%` }} />
         ))}
 
         {/* 기본 파형 (어두운 — 자막 없는 구간) */}
@@ -167,37 +202,34 @@ export function Timeline({ dark }: Props) {
         {/* 자막 블록 — 파형 겹침 */}
         <div className="absolute inset-x-0 top-4 bottom-0 z-10">
           {vtl.map((s) => {
-            const l = ((s.start_ms - tlLeft) / visDur) * 100;
-            const w = ((s.end_ms - s.start_ms) / visDur) * 100;
+            // 원본 % (클램핑 전) — 파형 오버레이 역산에 사용
+            const rawL = ((s.start_ms - tlLeft) / visDur) * 100;
+            const rawW = ((s.end_ms - s.start_ms) / visDur) * 100;
+            // 표시용 % (클램핑 후) — DOM 위치에 사용
+            const clampedL = Math.max(-5, rawL);
+            const clampedW = Math.max(0.3, rawW - (clampedL - rawL));
             const isSel = s.id === selectedId;
             const isMulti = multiSelect.has(s.id) && !isSel;
             const durSec = ((s.end_ms - s.start_ms) / 1000).toFixed(3);
-            const isActive = currentMs >= s.start_ms && currentMs < s.end_ms;
+            const isPlayheadInside = currentMs >= s.start_ms && currentMs < s.end_ms;
+
+            // ★ 빨간 파형 로직: 선택된 자막만 전체 구간 빨갛게
+            const isCurrent = isSel;
+
+            const zIdx = isSel ? 30 : isPlayheadInside ? 20 : 10;
 
             return (
-              <div
-                key={s.id}
-                data-sub-block
-                className="absolute top-0 bottom-0 cursor-pointer"
-                style={{ left: `${Math.max(-5, l)}%`, width: `${Math.max(0.3, w)}%` }}
-                onClick={(e) => { e.stopPropagation(); setCurrentMs(s.start_ms); }}
-                onDoubleClick={(e) => { e.stopPropagation(); selectSingle(s.id); }}
-              >
-                {/* 자막 구간 밝은 파형 오버레이 */}
+              <div key={s.id} data-sub-block className="absolute top-0 bottom-0"
+                style={{ left: `${clampedL}%`, width: `${clampedW}%`, zIndex: zIdx }}>
+                {/* 자막 구간 밝은 파형 오버레이 — 원본 rawL/rawW로 역산하여 전체 파형과 정렬 */}
                 <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                  <svg
-                    preserveAspectRatio="none"
-                    viewBox="0 0 4000 400"
-                    className="pointer-events-none"
+                  <svg preserveAspectRatio="none" viewBox="0 0 4000 400" className="pointer-events-none"
                     style={{
-                      position: "absolute",
-                      top: 0,
-                      height: "100%",
-                      left: `${(-l / Math.max(0.3, w)) * 100}%`,
-                      width: `${(100 / Math.max(0.3, w)) * 100}%`,
-                    }}
-                  >
-                    {isActive ? (
+                      position: "absolute", top: 0, height: "100%",
+                      left: `${((-rawL) / Math.max(0.01, rawW)) * 100}%`,
+                      width: `${(100 / Math.max(0.01, rawW)) * 100}%`,
+                    }}>
+                    {isCurrent ? (
                       <>
                         <path d={wavePath} fill="#5c1a1a" opacity="0.7" />
                         <path d={wavePath} fill="none" stroke="#ff4444" strokeWidth="1" opacity="0.9" />
@@ -213,16 +245,25 @@ export function Timeline({ dark }: Props) {
                   </svg>
                 </div>
 
-                {/* 경계선 */}
-                <div className={`absolute left-0 top-0 bottom-0 w-px ${
-                  isActive ? "bg-red-400" : isSel ? "bg-yellow-400" : "bg-gray-400/50"
-                }`} />
-                <div className={`absolute right-0 top-0 bottom-0 w-px ${
-                  isActive ? "bg-red-400" : isSel ? "bg-yellow-400" : "bg-gray-400/50"
-                }`} />
+                {/* 좌측 경계 — 드래그로 start_ms 조절 */}
+                <div
+                  data-h="s"
+                  className={`absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize z-20 hover:bg-green-400/50 ${
+                    isCurrent ? "bg-red-400" : isSel ? "bg-blue-400" : "bg-gray-400/50"
+                  }`}
+                  onMouseDown={(e) => startDrag(e, "start", s.id)}
+                />
+                {/* 우측 경계 — 드래그로 end_ms 조절 */}
+                <div
+                  data-h="e"
+                  className={`absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize z-20 hover:bg-green-400/50 ${
+                    isCurrent ? "bg-red-400" : isSel ? "bg-blue-400" : "bg-gray-400/50"
+                  }`}
+                  onMouseDown={(e) => startDrag(e, "end", s.id)}
+                />
 
                 {/* 선택 하이라이트 */}
-                {isSel && !isActive && (
+                {isSel && !isCurrent && (
                   <div className="absolute inset-0 bg-blue-400/10 border-t border-b border-blue-400/30 pointer-events-none" />
                 )}
                 {isMulti && (
@@ -232,43 +273,19 @@ export function Timeline({ dark }: Props) {
                 {/* 자막 텍스트 */}
                 <div className="absolute top-0.5 left-1 right-1 pointer-events-none">
                   <span className={`text-[9px] leading-tight block truncate font-medium
-                    ${isActive
-                      ? "text-red-200 drop-shadow-[0_1px_3px_rgba(255,0,0,0.6)]"
-                      : isSel
-                        ? "text-yellow-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-                        : s.type === "effect"
-                          ? "text-yellow-400/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-                          : "text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-                    }`}>
+                    ${isCurrent ? "text-red-200 drop-shadow-[0_1px_3px_rgba(255,0,0,0.6)]"
+                      : isSel ? "text-yellow-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
+                      : s.type === "effect" ? "text-yellow-400/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
+                      : "text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"}`}>
                     {s.text.replace(/\n/g, " ")}
                   </span>
                 </div>
 
                 {/* 하단 정보 */}
                 <div className="absolute bottom-0.5 left-1 pointer-events-none flex items-center gap-1">
-                  <span className={`text-[7px] font-mono drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] ${
-                    isActive ? "text-red-300/80" : "text-green-400/70"
-                  }`}>#{s.seq}</span>
-                  <span className={`text-[7px] font-mono drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] ${
-                    isActive ? "text-red-300/60" : "text-green-300/50"
-                  }`}>{durSec}</span>
+                  <span className={`text-[7px] font-mono drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] ${isCurrent ? "text-red-300/80" : "text-green-400/70"}`}>#{s.seq}</span>
+                  <span className={`text-[7px] font-mono drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] ${isCurrent ? "text-red-300/60" : "text-green-300/50"}`}>{durSec}</span>
                 </div>
-
-                {/* 노란 드래그 핸들 */}
-                {isSel && (
-                  <>
-                    <div
-                      data-h="s"
-                      className="absolute left-0 top-0 bottom-0 w-2 bg-yellow-400/80 cursor-ew-resize z-30 hover:bg-yellow-300"
-                      onMouseDown={(e) => startDrag(e, "start", s.id)}
-                    />
-                    <div
-                      data-h="e"
-                      className="absolute right-0 top-0 bottom-0 w-2 bg-yellow-400/80 cursor-ew-resize z-30 hover:bg-yellow-300"
-                      onMouseDown={(e) => startDrag(e, "end", s.id)}
-                    />
-                  </>
-                )}
               </div>
             );
           })}
@@ -282,16 +299,6 @@ export function Timeline({ dark }: Props) {
           <span className="text-[9px] font-mono text-gray-400 bg-black/60 px-1 rounded">
             {msToTimecode(currentMs)} / {msToTimecode(totalMs)}
           </span>
-        </div>
-
-        {/* 휴지통 */}
-        <div className="absolute bottom-1 right-2 z-30">
-          <button
-            onClick={(e) => { e.stopPropagation(); deleteSelected(); }}
-            className="bg-gray-700 hover:bg-gray-600 text-white px-2 py-0.5 rounded text-[9px] flex items-center gap-1 shadow"
-          >
-            <Trash2 size={10} /> 삭제
-          </button>
         </div>
       </div>
     </div>

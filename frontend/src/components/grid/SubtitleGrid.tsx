@@ -1,11 +1,10 @@
 import { useRef, useEffect, useMemo, useState } from "react";
-import { Check } from "lucide-react";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
+import { useTimelineStore } from "../../store/useTimelineStore";
 import { msToTimecode } from "../../utils/time";
 import { GridToolbar } from "./GridToolbar";
 import { GridFilters, type Filters } from "./GridFilters";
-import { useTimelineStore } from "../../store/useTimelineStore";
 
 interface Props {
   dark: boolean;
@@ -16,8 +15,16 @@ export function SubtitleGrid({ dark, readOnly }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
   const [filters, setFilters] = useState<Filters>({ type: "전체", textPos: "전체", error: "전체", search: "" });
 
-  const { subtitles, selectedId, multiSelect, selectSingle, toggleMulti, selectRange } = useSubtitleStore();
-  const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
+  const subtitles = useSubtitleStore((s) => s.subtitles);
+  const selectedId = useSubtitleStore((s) => s.selectedId);
+  const multiSelect = useSubtitleStore((s) => s.multiSelect);
+  const selectSingle = useSubtitleStore((s) => s.selectSingle);
+  const toggleMulti = useSubtitleStore((s) => s.toggleMulti);
+  const selectRange = useSubtitleStore((s) => s.selectRange);
+
+  const playing = usePlayerStore((s) => s.playing);
+  const setVideoPreviewMs = usePlayerStore((s) => s.setVideoPreviewMs);
+
   const ensureVisible = useTimelineStore((s) => s.ensureVisible);
 
   const dm = dark;
@@ -41,25 +48,45 @@ export function SubtitleGrid({ dark, readOnly }: Props) {
     });
   }, [subtitles, filters]);
 
+  // 선택 행 자동 스크롤
   useEffect(() => {
     const row = document.getElementById(`row-${selectedId}`);
     if (row && gridRef.current) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedId]);
 
+  /**
+   * 싱글클릭:
+   * - 재생 중: 무효
+   * - 정지 중: 자막 선택 + 영상만 프리뷰 (재생바 안 움직임)
+   */
   const handleClick = (id: number) => {
+    if (playing) return;
+    selectSingle(id);
     const sub = subtitles.find((s) => s.id === id);
-    if (sub) setCurrentMs(sub.start_ms);
+    if (sub) {
+      setVideoPreviewMs(sub.start_ms);
+    }
   };
 
+  /**
+   * 더블클릭:
+   * - 재생 중: 무효
+   * - 정지 중: 자막 선택 + 재생바 이동 + 재생 시작 + 파형 뷰 이동
+   */
   const handleDblClick = (id: number, e: React.MouseEvent) => {
+    if (playing) return;
+
     if (e.shiftKey) selectRange(id);
     else if (e.ctrlKey || e.metaKey) toggleMulti(id);
     else selectSingle(id);
 
     const sub = subtitles.find((s) => s.id === id);
     if (sub) {
-      setCurrentMs(sub.start_ms);
+      usePlayerStore.getState().setCurrentMs(sub.start_ms);
+      usePlayerStore.getState().setVideoPreviewMs(null);
       ensureVisible(sub.start_ms);
+      const { playing: isPlaying, togglePlay } = usePlayerStore.getState();
+      if (!isPlaying) togglePlay();
     }
   };
 

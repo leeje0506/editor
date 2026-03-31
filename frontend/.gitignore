@@ -402,3 +402,8 @@ docker-compose.override.yml
 Thumbs.db
 temp/
 data/
+
+# DB
+backend/subtitle_editor.db
+backend/subtitle_editor.db-shm
+backend/subtitle_editor.db-wal

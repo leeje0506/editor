@@ -12,6 +12,7 @@ interface Props {
   onSubmit: () => void;
   onDownload: () => void;
   onHome: () => void;
+  onSettingsClosed?: () => void;
   project: Project | null;
   elapsed: number;
   readOnly: boolean;
@@ -24,7 +25,7 @@ function formatElapsed(seconds: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export function TopNav({ dark, setDark, savedMsg, onSave, onSubmit, onDownload, onHome, project, elapsed, readOnly }: Props) {
+export function TopNav({ dark, setDark, savedMsg, onSave, onSubmit, onDownload, onHome, onSettingsClosed, project, elapsed, readOnly }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const undo = useSubtitleStore((s) => s.undo);
 
@@ -112,7 +113,7 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSubmit, onDownload, 
         </div>
       </div>
 
-      {showSettings && !readOnly && <ProjectSettingsModal dark={dm} onClose={() => setShowSettings(false)} />}
+      {showSettings && !readOnly && <ProjectSettingsModal dark={dm} onClose={() => { setShowSettings(false); onSettingsClosed?.(); }} />}
     </>
   );
 }

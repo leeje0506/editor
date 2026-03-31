@@ -24,19 +24,21 @@ export const useBroadcasterStore = create<BroadcasterState>((set, get) => ({
       const rules = await projectsApi.getBroadcasterRules();
       const names = Object.keys(rules);
       set({ rules, names, loaded: true });
+      return rules;
     } catch {
-      // 서버 연결 실패 시 폴백
+      // 서버 연결 실패 시 폴백 (최초 1회만)
       if (!get().loaded) {
         const fallback: Record<string, BroadcasterRule> = {
           "TVING": { max_lines: 2, max_chars_per_line: 20, bracket_chars: 5 },
           "LGHV": { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5 },
           "SKBB": { max_lines: 1, max_chars_per_line: 20, bracket_chars: 5 },
           "JTBC": { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5 },
-          "KBS": { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5 },
+          "DLIV": { max_lines: 3, max_chars_per_line: 17, bracket_chars: 5 },
           "자유작업": { max_lines: 99, max_chars_per_line: 999, bracket_chars: 0 },
         };
         set({ rules: fallback, names: Object.keys(fallback), loaded: true });
       }
+      return get().rules;
     }
   },
 }));

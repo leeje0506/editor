@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 import os
 
 from app.database import get_db
@@ -56,6 +55,8 @@ def _to_response(project: Project, db: Session) -> dict:
         "assigned_to": project.assigned_to, "assigned_to_name": assignee_name,
         "created_by": project.created_by, "created_by_name": creator_name,
         "created_at": _dt_str(project.created_at),
+        "reject_count": project.reject_count or 0,
+        "first_submitted_at": _dt_str(project.first_submitted_at),
         "subtitle_count": sub_count, "error_count": err_count,
     }
 
@@ -69,8 +70,10 @@ def list_projects(
     db: Session = Depends(get_db),
 ):
     q = db.query(Project)
-    if current_user.role == "worker":
-        q = q.filter(or_(Project.created_by == current_user.id, Project.assigned_to == current_user.id))
+    # worker: 본인에게 배정되었거나 본인이 생성한 프로젝트
+    if current_user.role not in ("master", "manager"):
+        from sqlalchemy import or_
+        q = q.filter(or_(Project.assigned_to == current_user.id, Project.created_by == current_user.id))
     if status:
         q = q.filter(Project.status == status)
     if broadcaster:
@@ -115,6 +118,9 @@ def get_project(project_id: int, current_user: User = Depends(get_current_user),
     p = db.query(Project).get(project_id)
     if not p:
         raise HTTPException(404, "Project not found")
+    # worker는 본인 배정 또는 본인 생성 프로젝트만 접근 가능
+    if current_user.role not in ("master", "manager") and p.assigned_to != current_user.id and p.created_by != current_user.id:
+        raise HTTPException(403, "접근 권한이 없습니다")
     return _to_response(p, db)
 
 
@@ -167,6 +173,9 @@ def submit_project(project_id: int, current_user: User = Depends(get_current_use
         raise HTTPException(400, f"검수 오류 {err}건이 있습니다.")
     p.status = "submitted"
     p.submitted_at = datetime.now(timezone.utc)
+    # 최초 제출 일시: 처음 제출할 때만 기록, 재작업 후 재제출 시 변경하지 않음
+    if p.first_submitted_at is None:
+        p.first_submitted_at = p.submitted_at
     db.commit()
     db.refresh(p)
     return _to_response(p, db)
@@ -188,8 +197,8 @@ def reject_project(project_id: int, current_user: User = Depends(require_role(["
     p = db.query(Project).get(project_id)
     if not p:
         raise HTTPException(404)
-    p.status = "draft"
-    p.submitted_at = None
+    p.status = "rejected"
+    p.reject_count = (p.reject_count or 0) + 1
     db.commit()
     db.refresh(p)
     return _to_response(p, db)

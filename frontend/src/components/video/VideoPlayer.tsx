@@ -12,13 +12,15 @@ interface Props {
   videoWidth: number;
   /** 너비 변경 콜백 */
   onWidthChange: (w: number) => void;
+  /** 영상+컨트롤 전체 최대 높이 (상단 영역 초과 방지) */
+  maxHeight?: number;
 }
 
 const CONTROLS_H = 36;
 const MIN_W = 240;
 const MAX_W = 960;
 
-export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Props) {
+export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange, maxHeight }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const seekingRef = useRef(false);
   const [videoAspect, setVideoAspect] = useState(16 / 9);
@@ -26,12 +28,17 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
 
   const { currentMs, playing, muted, totalMs, togglePlay, toggleMute, setCurrentMs, setTotalMs } =
     usePlayerStore();
+  const videoPreviewMs = usePlayerStore((s) => s.videoPreviewMs);
   const subtitles = useSubtitleStore((s) => s.subtitles);
   const activeNow = subtitles.filter((s) => currentMs >= s.start_ms && currentMs < s.end_ms);
   const videoSrc = projectId ? `/api/projects/${projectId}/stream/video` : "";
 
-  // 너비 기준으로 높이를 비율에 맞게 계산
-  const videoH = Math.floor(videoWidth / videoAspect);
+  // 너비 기준으로 높이를 비율에 맞게 계산, maxHeight로 클램핑
+  let videoH = Math.floor(videoWidth / videoAspect);
+  const maxVideoH = maxHeight ? maxHeight - CONTROLS_H : Infinity;
+  if (videoH > maxVideoH) {
+    videoH = Math.max(100, maxVideoH);
+  }
   const totalH = videoH + CONTROLS_H;
 
   /* ───── 좌측 드래그: 너비 변경 (비율 자동 유지) ───── */
@@ -45,7 +52,6 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
 
       const onMove = (ev: MouseEvent) => {
         ev.preventDefault();
-        // 좌측으로 드래그 = 넓어짐
         const dx = -(ev.clientX - startX);
         onWidthChange(Math.max(MIN_W, Math.min(MAX_W, startW + dx)));
       };
@@ -78,7 +84,6 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
         ev.preventDefault();
         const dx = -(ev.clientX - startX);
         const dy = ev.clientY - startY;
-        // X, Y 중 더 큰 변화량을 너비 변화로 환산
         const dwFromX = dx;
         const dwFromY = dy * videoAspect;
         const dw = Math.abs(dwFromX) > Math.abs(dwFromY) ? dwFromX : dwFromY;
@@ -111,13 +116,17 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
   const handleTimeUpdate = useCallback(() => {
     const v = videoRef.current;
     if (!v || seekingRef.current) return;
+    // videoPreviewMs가 설정되어 있으면 currentMs 동기화 건너뜀
+    if (usePlayerStore.getState().videoPreviewMs !== null) return;
     const ms = Math.floor(v.currentTime * 1000);
     if (Math.abs(ms - currentMs) > 80) setCurrentMs(ms);
   }, [currentMs, setCurrentMs]);
 
+  // currentMs → video.currentTime 동기화 (videoPreviewMs가 null일 때만)
   useEffect(() => {
     const v = videoRef.current;
     if (!v || !v.duration) return;
+    if (usePlayerStore.getState().videoPreviewMs !== null) return;
     const videoMs = Math.floor(v.currentTime * 1000);
     if (Math.abs(videoMs - currentMs) > 200) {
       seekingRef.current = true;
@@ -125,6 +134,22 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
       setTimeout(() => (seekingRef.current = false), 100);
     }
   }, [currentMs]);
+
+  // videoPreviewMs 변경 시 영상만 seek (재생바 currentMs는 변경 안 함)
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || videoPreviewMs === null) return;
+    const targetSec = videoPreviewMs / 1000;
+    if (Math.abs(v.currentTime - targetSec) > 0.1) {
+      seekingRef.current = true;
+      v.currentTime = targetSec;
+      const onSeeked = () => {
+        seekingRef.current = false;
+        v.removeEventListener("seeked", onSeeked);
+      };
+      v.addEventListener("seeked", onSeeked);
+    }
+  }, [videoPreviewMs]);
 
   useEffect(() => {
     const v = videoRef.current;
