@@ -2,6 +2,8 @@
 backend/app/routers/auth.py
 """
 from __future__ import annotations
+
+import json
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -76,6 +78,38 @@ def update_me(data: MyProfileUpdate, current_user: User = Depends(get_current_us
     }
 
 
+# ── 개인 설정 (단축키 등) ──
+
+@router.get("/me/settings")
+def get_my_settings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """개인 설정 조회 (단축키 등)"""
+    if current_user.settings:
+        try:
+            return json.loads(current_user.settings)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+@router.put("/me/settings")
+def update_my_settings(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """개인 설정 저장 (전체 덮어쓰기)"""
+    current_user.settings = json.dumps(body, ensure_ascii=False)
+    db.commit()
+    db.refresh(current_user)
+    try:
+        return json.loads(current_user.settings)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
 # ── 멤버 관리 (master/manager) ──
 
 @router.get("/users", response_model=List[UserResponse])
@@ -98,7 +132,6 @@ def create_user(
     current_user: User = Depends(require_role(["master", "manager"])),
     db: Session = Depends(get_db),
 ):
-    # manager는 worker만 생성 가능
     if current_user.role == "manager" and data.role != "worker":
         raise HTTPException(403, "관리자는 작업자만 생성할 수 있습니다")
     if db.query(User).filter(User.username == data.username).first():

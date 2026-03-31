@@ -301,6 +301,29 @@ export function Timeline({ dark, onReload }: Props) {
           </span>
         </div>
       </div>
+
+      {/* 파형 하단 전체 재생바 */}
+      <div
+        className="shrink-0 relative cursor-pointer group"
+        style={{ height: 4 }}
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          const ms = Math.round(pct * totalMs);
+          setCurrentMs(ms);
+          usePlayerStore.getState().setVideoPreviewMs(null);
+          // 해당 위치에 자막 있으면 선택
+          const hit = subtitles.find((s) => ms >= s.start_ms && ms < s.end_ms);
+          if (hit) selectSingle(hit.id);
+        }}
+      >
+        <div className={`absolute inset-0 ${dm ? "bg-gray-800" : "bg-gray-300"}`} />
+        <div
+          className="absolute left-0 top-0 bottom-0 bg-red-500 transition-none"
+          style={{ width: `${totalMs > 0 ? (currentMs / totalMs) * 100 : 0}%` }}
+        />
+        <div className="absolute inset-0 bg-transparent group-hover:bg-white/10 transition-colors" />
+      </div>
     </div>
   );
 }

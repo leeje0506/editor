@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Home, Settings, Sun, FileText, Users, Monitor, BarChart3, Keyboard, Bell, User } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
+import { useSettingsStore } from "../../store/useSettingsStore";
 import { BroadcasterPresetsTab } from "./tabs/BroadcasterPresetsTab";
 import { MembersTab } from "./tabs/MembersTab";
 import { ProjectListTab } from "./tabs/ProjectListTab";
@@ -23,9 +25,18 @@ export function SettingsPage() {
   const { tab } = useParams<{ tab?: string }>();
   const navigate = useNavigate();
   const { user, isAdmin } = useAuthStore();
+  const loadSettings = useSettingsStore((s) => s.load);
+  const settingsLoaded = useSettingsStore((s) => s.loaded);
 
   const visibleTabs = ALL_TABS.filter(t => !t.adminOnly || isAdmin());
   const activeTab = tab || (isAdmin() ? "broadcasters" : "shortcuts");
+
+  // 설정 페이지 진입 시 개인 설정 로드
+  useEffect(() => {
+    if (!settingsLoaded) {
+      loadSettings();
+    }
+  }, [settingsLoaded, loadSettings]);
 
   const renderContent = () => {
     switch (activeTab) {

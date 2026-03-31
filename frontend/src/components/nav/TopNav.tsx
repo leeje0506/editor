@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, Moon, Sun, Save, Send, Undo, Redo, Settings, Clock, Download, Lock } from "lucide-react";
+import { Home, Moon, Sun, Save, Send, Undo, Settings, Clock, Download, Lock, LogOut } from "lucide-react";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { ProjectSettingsModal } from "../modals/ProjectSettingsModal";
 import type { Project } from "../../types";
@@ -9,6 +9,7 @@ interface Props {
   setDark: (v: boolean) => void;
   savedMsg: string;
   onSave: () => void;
+  onSaveAndExit: () => void;
   onSubmit: () => void;
   onDownload: () => void;
   onHome: () => void;
@@ -25,7 +26,7 @@ function formatElapsed(seconds: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export function TopNav({ dark, setDark, savedMsg, onSave, onSubmit, onDownload, onHome, onSettingsClosed, project, elapsed, readOnly }: Props) {
+export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmit, onDownload, onHome, onSettingsClosed, project, elapsed, readOnly }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const undo = useSubtitleStore((s) => s.undo);
 
@@ -91,10 +92,8 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSubmit, onDownload, 
           </button>
 
           {readOnly ? (
-            /* 읽기전용: 검수만 가능, 수정 불가 */
             <span className={`text-[10px] ${ts} px-2`}>검수 모드 — 수정 불가</span>
           ) : (
-            /* 편집 모드: Undo, 저장, 제출 */
             <>
               <button onClick={() => undo()} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`} title="Ctrl+Z">
                 <Undo size={14} />
@@ -102,9 +101,26 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSubmit, onDownload, 
               <button onClick={() => setDark(!dm)} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`}>
                 {dm ? <Sun size={14} /> : <Moon size={14} />}
               </button>
-              <button onClick={onSave} className={`flex items-center gap-1 border ${bd} ${card} ${tp} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}>
+
+              {/* 임시저장: 저장만 하고 화면 유지 */}
+              <button
+                onClick={onSave}
+                className={`flex items-center gap-1 border ${bd} ${card} ${tp} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
+                title="Ctrl+S"
+              >
                 <Save size={13} /> 임시저장
               </button>
+
+              {/* 저장하고 나가기: 저장 후 홈으로 이동 */}
+              <button
+                onClick={onSaveAndExit}
+                className={`flex items-center gap-1 border ${bd} ${card} ${tp} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
+                title="저장 후 홈으로"
+              >
+                <LogOut size={13} /> 저장하고 나가기
+              </button>
+
+              {/* 제출 */}
               <button onClick={onSubmit} className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded text-xs font-medium hover:bg-blue-700">
                 <Send size={13} /> 제출
               </button>
