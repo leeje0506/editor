@@ -24,6 +24,7 @@ class User(Base):
 
     created_projects = relationship("Project", foreign_keys="Project.created_by", back_populates="creator")
     assigned_projects = relationship("Project", foreign_keys="Project.assigned_to", back_populates="assignee")
+    settings = Column(Text, nullable=True, default=None)  # JSON 문자열: {"shortcuts": {...}, ...}
 
 
 class Project(Base):

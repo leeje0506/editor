@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useAuthStore } from "../../store/useAuthStore";
+import { useSettingsStore } from "../../store/useSettingsStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { usePlayback } from "../../hooks/usePlayback";
 import { projectsApi } from "../../api/projects";
@@ -16,8 +17,8 @@ import { Timeline } from "../timeline/Timeline";
 const DEFAULT_VIDEO_W = 420;
 const DEFAULT_EDITOR_H = 160;
 const DEFAULT_TL_H = 220;
-const TOPNAV_H = 40; // TopNav 높이 (대략)
-const HANDLE_H = 6;  // HResizeHandle 높이 (h-1.5 = 6px)
+const TOPNAV_H = 40;
+const HANDLE_H = 6;
 
 /** 제출됨/승인됨이면 읽기전용. 반려됨(rejected)은 작업자에겐 편집 가능, 관리자에겐 읽기전용 */
 function isReadOnly(project: Project | null, isWorker: boolean): boolean {
@@ -71,24 +72,19 @@ export function AppLayout() {
   const pid = Number(projectId);
   const user = useAuthStore((s) => s.user);
   const isWorker = !user?.role || !["master", "manager"].includes(user.role);
+  const loadSettings = useSettingsStore((s) => s.load);
 
   /**
    * 상단 영역(Grid+Video)이 사용할 수 있는 최대 높이 계산.
-   * 화면 전체에서 TopNav, 핸들 2개, QuickEditor, Timeline을 빼고 남은 공간.
    */
   const upperMaxH = typeof window !== "undefined"
     ? window.innerHeight - TOPNAV_H - HANDLE_H * 2 - editorHeight - timelineHeight
     : 600;
 
-  /**
-   * 영상 너비 변경 시, 영상 높이가 상단 영역을 초과하지 않도록 클램핑.
-   * videoH = videoWidth / aspect. upperMaxH - CONTROLS_H(36) 이내여야 함.
-   */
   const handleVideoWidthChange = useCallback((w: number) => {
     setVideoWidth(w);
   }, []);
 
-  // QuickEditor / Timeline 경계 드래그 헬퍼
   const handleEditorTopDrag = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -139,7 +135,7 @@ export function AppLayout() {
     [timelineHeight],
   );
 
-  // 프로젝트 로드
+  // 프로젝트 로드 + 개인 설정 로드
   useEffect(() => {
     if (!pid) return;
     projectsApi.get(pid).then((p) => {
@@ -148,6 +144,7 @@ export function AppLayout() {
       setTotalMs(p.total_duration_ms);
     }).catch(() => navigate("/"));
     init(pid).catch(() => {});
+    loadSettings();
   }, [pid]);
 
   useEffect(() => {
@@ -172,7 +169,24 @@ export function AppLayout() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [pid, elapsed]);
 
+  // 임시저장: 서버 저장만, 화면 유지
   const handleSave = async () => {
+    try {
+      await saveAll();
+      if (pid) {
+        await projectsApi.updateTimer(pid, elapsed);
+        await projectsApi.markSaved(pid);
+      }
+      setSavedMsg("저장 완료!");
+      setTimeout(() => setSavedMsg(""), 2000);
+    } catch {
+      setSavedMsg("저장 실패");
+      setTimeout(() => setSavedMsg(""), 2000);
+    }
+  };
+
+  // 저장하고 나가기: 서버 저장 후 홈으로 이동
+  const handleSaveAndExit = async () => {
     try {
       await saveAll();
       if (pid) {
@@ -259,6 +273,7 @@ export function AppLayout() {
         setDark={setDark}
         savedMsg={savedMsg}
         onSave={handleSave}
+        onSaveAndExit={handleSaveAndExit}
         onSubmit={handleSubmit}
         onDownload={handleDownload}
         onHome={handleGoHome}
@@ -268,13 +283,11 @@ export function AppLayout() {
         readOnly={isReadOnly(project, isWorker)}
       />
 
-      {/* 2) 상단: Grid | Video — 남은 공간 전부 차지하되, 하단 패널을 침범 못 함 */}
+      {/* 2) 상단: Grid | Video */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* 자막 리스트 — 나머지 공간 */}
         <div className={`flex-1 flex flex-col ${card} border-r ${bd} min-h-0 overflow-hidden`}>
           <SubtitleGrid dark={dm} readOnly={isReadOnly(project, isWorker)} />
         </div>
-        {/* 영상 플레이어 — 고정 너비, 높이는 상단 영역 내에서 제한 */}
         <div
           className="shrink-0 bg-black flex items-start justify-center overflow-hidden relative"
           style={{ width: videoWidth }}
@@ -292,7 +305,7 @@ export function AppLayout() {
       {/* 3) 리사이즈 핸들: 상단 ↔ QuickEditor */}
       <HResizeHandle dark={dm} onMouseDown={handleEditorTopDrag} />
 
-      {/* 4) QuickEditor — 고정 높이, 독립 조절 */}
+      {/* 4) QuickEditor */}
       <div className="shrink-0 overflow-hidden" style={{ height: editorHeight }}>
         <QuickEditor
           dark={dm}
@@ -307,7 +320,7 @@ export function AppLayout() {
       {/* 5) 리사이즈 핸들: QuickEditor ↔ Timeline */}
       <HResizeHandle dark={dm} onMouseDown={handleTimelineTopDrag} />
 
-      {/* 6) Timeline — 고정 높이, 독립 조절 */}
+      {/* 6) Timeline */}
       <div className="shrink-0 overflow-hidden" style={{ height: timelineHeight }}>
         <Timeline dark={dm} />
       </div>

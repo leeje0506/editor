@@ -22,4 +22,14 @@ export const authApi = {
 
   resetPassword: (id: number) =>
     api.post<{ message: string }>(`/auth/users/${id}/reset-password`).then((r) => r.data),
+
+  getSettings: async (): Promise<Record<string, any>> => {
+    const res = await api.get("/auth/me/settings");
+    return res.data;
+  },
+
+  saveSettings: async (settings: Record<string, any>): Promise<Record<string, any>> => {
+    const res = await api.put("/auth/me/settings", settings);
+    return res.data;
+  },
 };
