@@ -29,8 +29,8 @@ app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 
 
 @app.on_event("startup")
-def create_initial_master():
-    """초기 마스터 계정 생성 (없을 때만)"""
+def create_initial_data():
+    """초기 마스터 계정 + 방송사 기본 규칙 생성"""
     db = SessionLocal()
     try:
         if not db.query(User).filter(User.role == "master").first():
@@ -40,16 +40,12 @@ def create_initial_master():
                 display_name="관리자",
                 role="master",
             )
-            worker = User(
-                username="worker",
-                password_hash=hash_password("worker"),
-                display_name="작업자",
-                role="worker",
-            )
             db.add(master)
-            db.add(worker)
             db.commit()
-            print("✅ 초기 마스터 계정 생성: admin / admin, 초기 작업자 계정 생성 : worker / worker")
+            print("✅ 초기 마스터 계정 생성: admin / admin")
+        # 방송사 규칙 시딩
+        from app.routers.settings import seed_defaults
+        seed_defaults(db)
     finally:
         db.close()
 

@@ -106,13 +106,15 @@ export function HomePage() {
   const broadcasters = ["전체", ...bcStore.names];
 
   const counts = {
-    draft: projects.filter(p => p.status === "draft").length,
+    draft: projects.filter(p => p.status === "draft" || p.status === "rejected").length,
     submitted: projects.filter(p => p.status === "submitted").length,
     approved: projects.filter(p => p.status === "approved").length,
   };
 
   const filtered = projects.filter(p => {
-    if (p.status !== tab) return false;
+    if (tab === "draft" && p.status !== "draft" && p.status !== "rejected") return false;
+    if (tab === "submitted" && p.status !== "submitted") return false;
+    if (tab === "approved" && p.status !== "approved") return false;
     if (searchQ && !p.name.toLowerCase().includes(searchQ.toLowerCase())) return false;
     if (bcFilter !== "전체" && p.broadcaster !== bcFilter) return false;
     return true;
@@ -241,9 +243,21 @@ export function HomePage() {
             <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
               p.status==="submitted" ? "bg-yellow-500/20 text-yellow-400" :
               p.status==="approved" ? "bg-emerald-500/20 text-emerald-400" :
+              p.status==="rejected" ? "bg-orange-500/20 text-orange-400" :
               "bg-blue-500/20 text-blue-400"
-            }`}>{p.status==="draft"?"진행 중":p.status==="submitted"?"제출됨":"승인됨"}</span>
+            }`}>{
+              p.status==="draft" ? "진행 중" :
+              p.status==="submitted" ? "제출됨" :
+              p.status==="approved" ? "승인됨" :
+              p.status==="rejected" ? "반려됨" : p.status
+            }</span>
             {dd && <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${dd.urgent?"bg-red-500/20 text-red-400":`${dm?"bg-gray-700 text-gray-300":"bg-gray-200 text-gray-600"}`}`}>{dd.text}</span>}
+            {/* 재작업 뱃지 */}
+            {(p.status === "rejected" || (p.status === "draft" && (p.reject_count || 0) > 0)) && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-orange-500/20 text-orange-400">
+                재작업{(p.reject_count || 0) > 1 ? ` (${p.reject_count}회)` : ""}
+              </span>
+            )}
             {/* 이름 수정 모드 */}
             {renameId === p.id ? (
               <div className="flex items-center gap-1">
@@ -297,12 +311,22 @@ export function HomePage() {
             <>
               <div>담당: <span className={tp}>{p.assigned_to_name || p.created_by_name || "—"}</span></div>
               <div>마감: <span className={tp}>{fmtDate(p.deadline)}</span></div>
+              {(p.reject_count || 0) > 0 && (
+                <>
+                  <div className="text-orange-400">기존 완료: <span>{fmtDate(p.first_submitted_at)}</span></div>
+                  <div className="text-orange-400">재작업: <span>{p.reject_count}회</span></div>
+                </>
+              )}
             </>
           )}
         </div>
         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
           <button onClick={() => navigate(`/editor/${p.id}`)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold">
-            {p.status === "submitted" ? "검수 열기" : p.status === "approved" ? "확인" : "작업 열기"}
+            {p.status === "submitted" && isAdmin() ? "검수 열기" :
+             p.status === "submitted" ? "확인" :
+             p.status === "approved" ? "확인" :
+             p.status === "rejected" ? "재작업" :
+             "작업 열기"}
           </button>
           <a href={projectsApi.downloadSubtitle(p.id)} target="_blank" className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}>
             <Download size={14}/>

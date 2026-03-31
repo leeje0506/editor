@@ -20,7 +20,7 @@ export interface Project {
   total_duration_ms: number;
   video_duration_ms: number | null;
   file_size_mb: number | null;
-  status: "draft" | "submitted" | "approved";
+  status: "draft" | "submitted" | "approved" | "rejected";
   elapsed_seconds: number;
   last_saved_at: string | null;
   submitted_at: string | null;
@@ -32,6 +32,8 @@ export interface Project {
   created_at: string | null;
   subtitle_count: number;
   error_count: number;
+  reject_count: number;
+  first_submitted_at: string | null;
 }
 
 export interface Subtitle {
@@ -68,5 +70,5 @@ export interface SubtitleUpdate {
   text?: string;
 }
 
-export const ZOOM_LEVELS = [5000, 10000, 20000, 40000, 60000, 120000, 300000, 600000] as const;
-export const DEFAULT_ZOOM_IDX = 7;
+export const ZOOM_LEVELS = [5000, 10000, 20000, 40000, 60000, 120000] as const;
+export const DEFAULT_ZOOM_IDX = 5;

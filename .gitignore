@@ -405,3 +405,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# DB
+backend/subtitle_editor.db
+backend/subtitle_editor.db-shm
+backend/subtitle_editor.db-wal

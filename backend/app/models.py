@@ -57,6 +57,10 @@ class Project(Base):
     subtitles = relationship("Subtitle", back_populates="project", cascade="all, delete-orphan", order_by="Subtitle.seq")
     history = relationship("EditHistory", back_populates="project", cascade="all, delete-orphan", order_by="EditHistory.created_at")
 
+    # 재작업 관련
+    reject_count = Column(Integer, default=0)              # 반려(재작업) 횟수
+    first_submitted_at = Column(DateTime, nullable=True)   # 최초 제출 일시 (재작업해도 변경 안 함)
+
 
 class Subtitle(Base):
     __tablename__ = "subtitles"
@@ -98,3 +102,19 @@ class ShortcutSetting(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     action = Column(String(50), nullable=False)
     key_combo = Column(String(50), nullable=False)
+
+
+class BroadcasterRule(Base):
+    __tablename__ = "broadcaster_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), unique=True, nullable=False)
+    max_lines = Column(Integer, default=2)
+    max_chars_per_line = Column(Integer, default=18)
+    bracket_chars = Column(Integer, default=5)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+    
+    
