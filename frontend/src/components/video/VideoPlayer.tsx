@@ -197,6 +197,43 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange, maxHei
         <SubtitleOverlay subtitles={activeNow} />
       </div>
 
+      {/* 재생바 (프로그레스 바) */}
+      <div
+        className="relative w-full cursor-pointer group"
+        style={{ height: 6 }}
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          const ms = Math.round(pct * totalMs);
+          setCurrentMs(ms);
+          usePlayerStore.getState().setVideoPreviewMs(null);
+        }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          const bar = e.currentTarget;
+          const onMove = (ev: MouseEvent) => {
+            const rect = bar.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+            setCurrentMs(Math.round(pct * totalMs));
+          };
+          const onUp = () => {
+            document.body.style.cursor = "";
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+          };
+          document.body.style.cursor = "pointer";
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", onUp);
+        }}
+      >
+        <div className="absolute inset-0 bg-gray-700 rounded-sm" />
+        <div
+          className="absolute left-0 top-0 bottom-0 bg-red-500 rounded-sm transition-none"
+          style={{ width: `${totalMs > 0 ? (currentMs / totalMs) * 100 : 0}%` }}
+        />
+        <div className="absolute inset-0 bg-transparent group-hover:bg-white/10 rounded-sm transition-colors" />
+      </div>
+
       {/* 컨트롤 바 */}
       <div
         className="bg-black flex items-center justify-between px-3 text-white border-t border-zinc-800"
