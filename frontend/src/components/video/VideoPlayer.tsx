@@ -8,20 +8,18 @@ import { SubtitleOverlay } from "./SubtitleOverlay";
 interface Props {
   dark: boolean;
   projectId?: number;
-  /** 비디오 영역 너비 (부모가 관리) */
   videoWidth: number;
-  /** 너비 변경 콜백 */
   onWidthChange: (w: number) => void;
-  /** 영상+컨트롤 전체 최대 높이 (상단 영역 초과 방지) */
-  maxHeight?: number;
 }
 
 const CONTROLS_H = 36;
+const PROGRESS_H = 6;
 const MIN_W = 240;
 const MAX_W = 960;
 
-export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange, maxHeight }: Props) {
+export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const seekingRef = useRef(false);
   const [videoAspect, setVideoAspect] = useState(16 / 9);
   const [resizing, setResizing] = useState(false);
@@ -33,13 +31,33 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange, maxHei
   const activeNow = subtitles.filter((s) => currentMs >= s.start_ms && currentMs < s.end_ms);
   const videoSrc = projectId ? `/api/projects/${projectId}/stream/video` : "";
 
-  // 너비 기준으로 높이를 비율에 맞게 계산, maxHeight로 클램핑
-  let videoH = Math.floor(videoWidth / videoAspect);
-  const maxVideoH = maxHeight ? maxHeight - CONTROLS_H : Infinity;
-  if (videoH > maxVideoH) {
-    videoH = Math.max(100, maxVideoH);
+  // 컨테이너 높이 감시 → 영상 영역 높이 계산
+  const [containerW, setContainerW] = useState(0);
+  const [containerH, setContainerH] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerW(entry.contentRect.width);
+        setContainerH(entry.contentRect.height);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 영상 영역: 컨테이너에서 컨트롤바+재생바 뺀 나머지 전부
+  const videoAreaH = Math.max(100, containerH - CONTROLS_H - PROGRESS_H);
+
+  // 영상 비율 유지하면서 컨테이너에 꽉 차게 계산 (contain 방식)
+  let fitW = containerW;
+  let fitH = containerW / videoAspect;
+  if (fitH > videoAreaH) {
+    fitH = videoAreaH;
+    fitW = videoAreaH * videoAspect;
   }
-  const totalH = videoH + CONTROLS_H;
 
   /* ───── 좌측 드래그: 너비 변경 (비율 자동 유지) ───── */
   const handleLeftResize = useCallback(
@@ -68,40 +86,6 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange, maxHei
       window.addEventListener("mouseup", onUp);
     },
     [videoWidth, onWidthChange],
-  );
-
-  /* ───── 좌하단 코너 드래그 (대각선, 비율 유지) ───── */
-  const handleCornerResize = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const startX = e.clientX;
-      const startY = e.clientY;
-      const startW = videoWidth;
-      setResizing(true);
-
-      const onMove = (ev: MouseEvent) => {
-        ev.preventDefault();
-        const dx = -(ev.clientX - startX);
-        const dy = ev.clientY - startY;
-        const dwFromX = dx;
-        const dwFromY = dy * videoAspect;
-        const dw = Math.abs(dwFromX) > Math.abs(dwFromY) ? dwFromX : dwFromY;
-        onWidthChange(Math.max(MIN_W, Math.min(MAX_W, startW + dw)));
-      };
-      const onUp = () => {
-        setResizing(false);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-      };
-      document.body.style.cursor = "nesw-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    },
-    [videoWidth, videoAspect, onWidthChange],
   );
 
   /* ───── 비디오 메타/싱크 ───── */
@@ -172,17 +156,18 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange, maxHei
   };
 
   return (
-    <div className="relative" style={{ width: videoWidth, height: totalH }}>
+    <div ref={containerRef} className="relative w-full h-full flex flex-col">
       {/* 드래그 중 전역 오버레이 */}
       {resizing && <div className="fixed inset-0 z-50" />}
 
-      {/* 비디오 */}
-      <div className="bg-black overflow-hidden relative" style={{ width: videoWidth, height: videoH }}>
+      {/* 비디오 — 남은 공간 전부 차지, 영상은 비율 유지하며 최대 크기로 중앙 배치 */}
+      <div className="flex-1 bg-black overflow-hidden relative flex items-center justify-center min-h-0">
         {videoSrc ? (
           <video
             ref={videoRef}
             src={videoSrc}
-            className="w-full h-full object-fill"
+            style={{ width: fitW, height: fitH }}
+            className="object-fill"
             onLoadedMetadata={handleLoadedMetadata}
             onTimeUpdate={handleTimeUpdate}
             onClick={togglePlay}
@@ -261,25 +246,12 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange, maxHei
 
       {/* 좌측 변 — 수평 리사이즈 */}
       <div
-        className="absolute top-0 w-[6px] cursor-ew-resize z-30
+        className="absolute top-0 bottom-0 w-[6px] cursor-ew-resize z-30
                    group hover:bg-blue-500/30 active:bg-blue-500/50"
-        style={{ left: -3, height: totalH }}
+        style={{ left: -3 }}
         onMouseDown={handleLeftResize}
       >
         <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[2px] bg-transparent group-hover:bg-blue-400 transition-colors" />
-      </div>
-
-      {/* 좌하단 코너 — 대각선 리사이즈 */}
-      <div
-        className="absolute w-5 h-5 cursor-nesw-resize z-40 group"
-        style={{ left: -4, bottom: -4 }}
-        onMouseDown={handleCornerResize}
-      >
-        <svg className="w-full h-full text-zinc-500 group-hover:text-blue-400 transition-colors" viewBox="0 0 20 20">
-          <line x1="2" y1="18" x2="18" y2="2" stroke="currentColor" strokeWidth="2" />
-          <line x1="7" y1="18" x2="18" y2="7" stroke="currentColor" strokeWidth="2" />
-          <line x1="12" y1="18" x2="18" y2="12" stroke="currentColor" strokeWidth="2" />
-        </svg>
       </div>
     </div>
   );

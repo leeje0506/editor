@@ -35,7 +35,14 @@ export function HomePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, isAdmin } = useAuthStore();
-  const [dark, setDark] = useState(true);
+
+  // 다크모드 — localStorage 저장/복원 (전역 유지)
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem("editor_darkMode");
+    return saved !== null ? saved === "true" : true; // 기본값 다크
+  });
+  useEffect(() => { localStorage.setItem("editor_darkMode", String(dark)); }, [dark]);
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [tab, setTab] = useState<Tab>("draft");
   const [searchQ, setSearchQ] = useState("");
@@ -252,13 +259,11 @@ export function HomePage() {
               p.status==="rejected" ? "반려됨" : p.status
             }</span>
             {dd && <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${dd.urgent?"bg-red-500/20 text-red-400":`${dm?"bg-gray-700 text-gray-300":"bg-gray-200 text-gray-600"}`}`}>{dd.text}</span>}
-            {/* 재작업 뱃지 */}
             {(p.status === "rejected" || (p.status === "draft" && (p.reject_count || 0) > 0)) && (
               <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-orange-500/20 text-orange-400">
                 재작업{(p.reject_count || 0) > 1 ? ` (${p.reject_count}회)` : ""}
               </span>
             )}
-            {/* 이름 수정 모드 */}
             {renameId === p.id ? (
               <div className="flex items-center gap-1">
                 <input
@@ -286,7 +291,6 @@ export function HomePage() {
           <div className="flex items-center gap-2"><Save size={12}/> 용량 {p.file_size_mb ? `${p.file_size_mb}MB` : "—"}</div>
         </div>
         <div className={`text-xs ${ts} w-32 shrink-0`}>
-          {/* 작업자 변경 모드 */}
           {workerChangeId === p.id ? (
             <div className="flex flex-col gap-1">
               <select
@@ -416,7 +420,6 @@ export function HomePage() {
                   <Search size={14} className={ts}/>
                   <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="프로젝트 검색..." className={`bg-transparent text-xs outline-none ${tp} w-40`}/>
                 </div>
-                {/* 방송사 필터 드롭다운 */}
                 <div className="relative">
                   <button
                     onClick={() => setShowBcDrop(!showBcDrop)}

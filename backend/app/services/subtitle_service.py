@@ -3,48 +3,63 @@ backend/app/services/subtitle_service.py
 Python 3.9 호환
 
 글자수 카운트:
-- 원래 글자수 = 텍스트 그대로 (공백 제외). 효과음이면 [] 포함.
-- 실제 사용 가능 글자수 = max_chars_per_line - bracket_chars (화자가 있을 때)
-  bracket_chars는 "(화자) " 자리 예약 글자수 (방송사별 설정)
+- 공백 및 특수기호 포함, 줄바꿈만 제외
+- 글자 수 넘었는지 판단: 대사글자수 + 화자예약글자수 > 기준값(max_chars_per_line * max_lines)
 """
 from __future__ import annotations
 from typing import List, Dict, Tuple
 import re
+import unicodedata
 from sqlalchemy.orm import Session
-from app.models import Subtitle, Project, EditHistory
+from app.models import Subtitle, Project, EditHistory, BroadcasterRule
 
 
 def count_text_chars(text: str) -> int:
-    """텍스트 글자수 카운트. 공백 제외, 나머지 모든 문자 포함 ([], () 등)"""
-    return len(text.replace(" ", "").replace("\t", ""))
+    """텍스트 글자수 카운트. 공백 및 특수기호 포함, 줄바꿈만 제외. NFC 정규화 후 카운트."""
+    normalized = unicodedata.normalize("NFC", text)
+    return len(normalized.replace("\n", ""))
 
 
 def validate_subtitle(sub: Subtitle, project: Project) -> str:
     """
     검수 로직:
-    - 줄당 글자수 체크: 화자가 있으면 bracket_chars만큼 차감한 한도로 비교
-    - 효과음이면 [] 포함하여 센다
+    - 글자수 체크: 대사글자수 + 화자예약글자수 > 기준값(max_chars_per_line * max_lines)
+    - 줄 수 체크
+    - 시간 오류 체크
+    (오버랩 검수는 resequence_and_validate에서 별도 처리)
     """
     errors: List[str] = []
+
+    # 글자수 체크: 전체 대사 글자수 + 화자 예약 vs 기준값
+    # 화자 예약 = 화자명 글자수 + 3 (괄호+공백 등)
+    total_chars = count_text_chars(sub.text)
+    speaker_reserved = (len(sub.speaker) + 3) if sub.speaker else 0
+    # 기준값 = 실제 줄 수 × 줄당 글자수
+    line_count = max(1, len(sub.text.split("\n")))
+    limit = (project.max_chars_per_line or 18) * line_count
+
+    if total_chars + speaker_reserved > limit:
+        errors.append("글자초과")
+
     lines = sub.text.split("\n")
-    
-    for line in lines:
-        char_count = count_text_chars(line)
-        max_allowed = project.max_chars_per_line
-        
-        # 화자가 있으면 괄호 예약분 차감
-        if sub.speaker:
-            max_allowed = project.max_chars_per_line - (project.bracket_chars or 0)
-        
-        if char_count > max_allowed:
-            errors.append("글자초과")
-            break
-    
     if len(lines) > project.max_lines:
         errors.append("줄초과")
     if sub.end_ms <= sub.start_ms:
         errors.append("시간오류")
     return errors[0] if errors else ""
+
+
+def _get_allow_overlap(db: Session, project: Project) -> bool:
+    """프로젝트의 방송사 규칙에서 오버랩 허용 여부를 가져옴"""
+    if not project.broadcaster:
+        return True  # 방송사 미설정이면 오버랩 허용
+    rule = db.query(BroadcasterRule).filter(
+        BroadcasterRule.name == project.broadcaster,
+        BroadcasterRule.is_active == True,
+    ).first()
+    if not rule:
+        return True  # 규칙 없으면 오버랩 허용
+    return rule.allow_overlap
 
 
 def resequence_and_validate(db: Session, project_id: int) -> List[Subtitle]:
@@ -55,9 +70,32 @@ def resequence_and_validate(db: Session, project_id: int) -> List[Subtitle]:
         .order_by(Subtitle.start_ms, Subtitle.id)
         .all()
     )
+
+    # 1단계: 순번 재계산 + 기본 검수 (글자초과/줄초과/시간오류)
     for i, sub in enumerate(subs, start=1):
         sub.seq = i
         sub.error = validate_subtitle(sub, project)
+
+    # 2단계: 오버랩 검수 (방송사 규칙이 미허용인 경우만)
+    allow_overlap = _get_allow_overlap(db, project)
+    if not allow_overlap:
+        overlap_ids: set = set()
+        for i in range(len(subs)):
+            for j in range(i + 1, len(subs)):
+                # j의 start_ms가 i의 end_ms 이상이면 더 이상 겹칠 수 없음
+                if subs[j].start_ms >= subs[i].end_ms:
+                    break
+                # 오버랩 발생: i의 end_ms > j의 start_ms
+                overlap_ids.add(subs[i].id)
+                overlap_ids.add(subs[j].id)
+
+        for sub in subs:
+            if sub.id in overlap_ids:
+                if sub.error:
+                    sub.error = sub.error + ",오버랩"
+                else:
+                    sub.error = "오버랩"
+
     db.commit()
     for sub in subs:
         db.refresh(sub)

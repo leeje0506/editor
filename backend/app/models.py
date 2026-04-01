@@ -113,9 +113,8 @@ class BroadcasterRule(Base):
     max_lines = Column(Integer, default=2)
     max_chars_per_line = Column(Integer, default=18)
     bracket_chars = Column(Integer, default=5)
+    allow_overlap = Column(Boolean, default=False)  # 오버랩 허용 여부
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
-    
-    

@@ -1,20 +1,17 @@
 import { AlertTriangle, Lock } from "lucide-react";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
-import { countTextChars, getEffectiveMaxChars } from "../../utils/validation";
+import { countTextChars } from "../../utils/validation";
 
 interface Props {
   dark: boolean;
   maxChars?: number;
   maxLines?: number;
-  bracketChars?: number;
   readOnly?: boolean;
-  /** 작업자 모드: 줄 수/글자 수 표기 안 함 */
-  hideCharCount?: boolean;
 }
 
-export function QuickEditor({ dark, maxChars = 18, maxLines = 2, bracketChars = 5, readOnly, hideCharCount }: Props) {
-  const { subtitles, selectedId, updateOne, navigateNext, navigatePrev } = useSubtitleStore();
+export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly }: Props) {
+  const { subtitles, selectedId, updateLocal, navigateNext, navigatePrev } = useSubtitleStore();
   const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
   const sel = subtitles.find((s) => s.id === selectedId);
 
@@ -35,24 +32,29 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, bracketChars = 
     );
   }
 
+  /**
+   * 자막 필드 업데이트.
+   * NFC 정규화를 하지 않음 — 입력 중 조합 중인 한글(자소)을 깨뜨리지 않기 위해.
+   * NFC 정규화는 서버 저장(saveAll/updateOne API) 시점에서 처리.
+   */
   const upd = (data: Record<string, unknown>) => {
     if (readOnly) return;
     if (selectedId) {
-      // NFD → NFC 정규화
-      const normalized: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(data)) {
-        normalized[k] = typeof v === "string" ? v.normalize("NFC") : v;
-      }
-      updateOne(selectedId, normalized);
+      updateLocal(selectedId, data);
     }
   };
 
   const hasSpeaker = !!sel.speaker;
-  const effectiveMax = getEffectiveMaxChars(maxChars, bracketChars, hasSpeaker);
 
-  const lines = sel.text.split("\n");
-  const firstLineChars = countTextChars(lines[0] || "");
+  // 글자 수 카운트 — 공백 및 특수기호 포함 (NFC 정규화 후 카운트)
   const totalChars = countTextChars(sel.text);
+  // 화자 예약 글자수 = 화자명 글자수 + 3 (괄호+공백 등)
+  const speakerReserved = hasSpeaker ? sel.speaker.length + 3 : 0;
+  const usedWithSpeaker = totalChars + speakerReserved;
+  // 기준값 = 실제 줄 수(줄바꿈 기준) × 줄당 글자수. 최소 1줄.
+  const lineCount = Math.max(1, sel.text.split("\n").length);
+  const limit = maxChars * lineCount;
+  const isOver = usedWithSpeaker > limit;
 
   const posBtn = (
     label: string,
@@ -144,26 +146,25 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, bracketChars = 
         </div>
 
         <div className="flex-1 flex flex-col min-h-0">
+          {/* 텍스트 입력 라벨 + 글자수 (textarea 오른쪽 위) */}
           <div className="flex items-center justify-between mb-1 shrink-0">
-            <div className="flex items-center gap-3">
-              <span className={`text-[11px] ${ts} font-medium`}>텍스트 입력</span>
-              {!hideCharCount && hasSpeaker && (
-                <span className={`text-[10px] ${ts}`}>화자 예약: {bracketChars}자</span>
-              )}
-            </div>
-            {!hideCharCount && (
-              <div className={`text-[11px] ${ts}`}>
-                현재 줄:{" "}
-                <span className={`font-bold ${firstLineChars > effectiveMax ? "text-red-500" : "text-blue-600"}`}>
-                  {firstLineChars}자
+            <span className={`text-[11px] ${ts} font-medium`}>텍스트 입력</span>
+            <div className={`text-[11px] ${ts}`}>
+              현재 글자 수 :{" "}
+              <span className={`font-bold ${isOver ? "text-red-500" : "text-blue-600"}`}>
+                {totalChars}
+              </span>
+              {hasSpeaker && (
+                <span className={isOver ? "text-red-500" : ""}>
+                  {" "}({usedWithSpeaker})
                 </span>
-                {" / "}
-                <span className={firstLineChars > effectiveMax ? "text-red-500" : ""}>{effectiveMax}자</span>
-                {" | 전체: "}{totalChars}자
-              </div>
-            )}
+              )}
+              {" / 기준 : "}
+              <span className={isOver ? "text-red-500" : ""}>{limit}</span>
+            </div>
           </div>
           <textarea
+            data-quick-editor-textarea
             value={sel.text}
             readOnly={readOnly}
             onChange={(e) => upd({ text: e.target.value })}
