@@ -12,6 +12,7 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { useBroadcasterStore } from "../../store/useBroadcasterStore";
 import type { Project, User } from "../../types";
 import { NewProjectModal } from "./NewProjectModal";
+import api from "../../api/client";
 
 function fmtElapsed(s: number) {
   return `${String(Math.floor(s/3600)).padStart(2,"0")}:${String(Math.floor((s%3600)/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
@@ -332,9 +333,29 @@ export function HomePage() {
              p.status === "rejected" ? "재작업" :
              "작업 열기"}
           </button>
-          <a href={projectsApi.downloadSubtitle(p.id)} target="_blank" className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}>
+          {/* <a href={projectsApi.downloadSubtitle(p.id)} target="_blank" className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}>
             <Download size={14}/>
-          </a>
+          </a> */}
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              try {
+                const response = await api.get(`/projects/${p.id}/download/subtitle`, { responseType: "blob" });
+                const filename = p.subtitle_file || `${p.name}.srt`;
+                const url = URL.createObjectURL(response.data);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch {}
+            }}
+            className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}
+          >
+            <Download size={14}/>
+          </button>
           <div className="relative" ref={isThisMenuOpen ? menuRef : undefined}>
             <button onClick={(e) => { e.stopPropagation(); setMenuOpen(isThisMenuOpen ? null : p.id); }} className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}>
               <MoreVertical size={14}/>

@@ -13,6 +13,7 @@ import { VideoPlayer } from "../video/VideoPlayer";
 import { SubtitleGrid } from "../grid/SubtitleGrid";
 import { QuickEditor } from "../editor/QuickEditor";
 import { Timeline } from "../timeline/Timeline";
+import api from "../../api/client";
 
 const DEFAULT_VIDEO_W = 960;
 const DEFAULT_EDITOR_H = 160;
@@ -247,20 +248,28 @@ export function AppLayout() {
     }
   };
 
-  const handleDownload = () => {
+  // Axios로 blob 다운로드
+  const handleDownload = async () => {
     if (!pid || !project) return;
-    const baseName = project.subtitle_file?.replace(/\.[^.]+$/, "") || project.name;
-    const worker = project.assigned_to_name || "worker";
-    const suffix = "final";
-    const filename = `${baseName}_${worker}_${suffix}.srt`;
-    
-    const url = projectsApi.downloadSubtitle(pid);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    try {
+      const response = await api.get(`/projects/${pid}/download/subtitle`, {
+        responseType: "blob",
+      });
+      const baseName = project.subtitle_file?.replace(/\.[^.]+$/, "") || project.name;
+      const worker = project.assigned_to_name || "worker";
+      const filename = `${baseName}_${worker}_final.srt`;
+      const url = URL.createObjectURL(response.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      setSavedMsg("다운로드 실패");
+      setTimeout(() => setSavedMsg(""), 2000);
+    }
   };
 
   const handleSettingsClosed = async () => {

@@ -270,24 +270,41 @@ def download_subtitle(project_id: int, current_user: User = Depends(get_current_
     if not p:
         raise HTTPException(404)
     subs = db.query(Subtitle).filter(Subtitle.project_id == project_id).order_by(Subtitle.seq).all()
+    # return PlainTextResponse(
+    #     content=export_srt(subs), media_type="text/plain",
+    #     headers={"Content-Disposition": f'attachment; filename="{p.subtitle_file or p.name + ".srt"}"'},
+    # )
+    from urllib.parse import quote
+
+    filename = p.subtitle_file or (p.name + ".srt")
+    encoded = quote(filename)
     return PlainTextResponse(
         content=export_srt(subs), media_type="text/plain",
-        headers={"Content-Disposition": f'attachment; filename="{p.subtitle_file or p.name + ".srt"}"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
     )
-
 
 @router.get("/{project_id}/stream/video")
 def stream_video(project_id: int, db: Session = Depends(get_db)):
+    """영상 스트리밍 — Range 요청 지원 (대용량 파일 seek 가능)"""
+    from fastapi import Request
+    from starlette.responses import Response
+    import mimetypes
+
     p = db.query(Project).get(project_id)
     if not p or not p.video_file or not os.path.exists(p.video_file):
         raise HTTPException(404, "Video not found")
-    import mimetypes
-    from starlette.responses import FileResponse
-    content_type, _ = mimetypes.guess_type(p.video_file)
+
+    file_path = p.video_file
+    file_size = os.path.getsize(file_path)
+    content_type, _ = mimetypes.guess_type(file_path)
     if not content_type:
         content_type = "video/mp4"
+
+    # Range 헤더가 없으면 전체 파일 반환
+    from starlette.responses import FileResponse
     return FileResponse(
-        path=p.video_file,
+        path=file_path,
         media_type=content_type,
-        filename=os.path.basename(p.video_file),
+        filename=os.path.basename(file_path),
+        stat_result=os.stat(file_path),
     )
