@@ -12,6 +12,7 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { useBroadcasterStore } from "../../store/useBroadcasterStore";
 import type { Project, User } from "../../types";
 import { NewProjectModal } from "./NewProjectModal";
+import api from "../../api/client";
 
 function fmtElapsed(s: number) {
   return `${String(Math.floor(s/3600)).padStart(2,"0")}:${String(Math.floor((s%3600)/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
@@ -35,7 +36,14 @@ export function HomePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, isAdmin } = useAuthStore();
-  const [dark, setDark] = useState(true);
+
+  // 다크모드 — localStorage 저장/복원 (전역 유지)
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem("editor_darkMode");
+    return saved !== null ? saved === "true" : true; // 기본값 다크
+  });
+  useEffect(() => { localStorage.setItem("editor_darkMode", String(dark)); }, [dark]);
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [tab, setTab] = useState<Tab>("draft");
   const [searchQ, setSearchQ] = useState("");
@@ -83,11 +91,16 @@ export function HomePage() {
 
   const handleRename = async (id: number) => {
     if (!renameVal.trim()) return;
-    try { await projectsApi.update(id, { name: renameVal.trim() }); } catch {}
-    setRenameId(null);
-    setRenameVal("");
-    setMenuOpen(null);
-    fetchProjects();
+    try {
+      await projectsApi.update(id, { name: renameVal.trim() });
+      setRenameId(null);
+      setRenameVal("");
+      setMenuOpen(null);
+      fetchProjects();
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || "이름 변경 실패";
+      alert(msg);
+    }
   };
 
   const handleWorkerChange = async (id: number) => {
@@ -252,13 +265,11 @@ export function HomePage() {
               p.status==="rejected" ? "반려됨" : p.status
             }</span>
             {dd && <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${dd.urgent?"bg-red-500/20 text-red-400":`${dm?"bg-gray-700 text-gray-300":"bg-gray-200 text-gray-600"}`}`}>{dd.text}</span>}
-            {/* 재작업 뱃지 */}
             {(p.status === "rejected" || (p.status === "draft" && (p.reject_count || 0) > 0)) && (
               <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-orange-500/20 text-orange-400">
                 재작업{(p.reject_count || 0) > 1 ? ` (${p.reject_count}회)` : ""}
               </span>
             )}
-            {/* 이름 수정 모드 */}
             {renameId === p.id ? (
               <div className="flex items-center gap-1">
                 <input
@@ -286,7 +297,6 @@ export function HomePage() {
           <div className="flex items-center gap-2"><Save size={12}/> 용량 {p.file_size_mb ? `${p.file_size_mb}MB` : "—"}</div>
         </div>
         <div className={`text-xs ${ts} w-32 shrink-0`}>
-          {/* 작업자 변경 모드 */}
           {workerChangeId === p.id ? (
             <div className="flex flex-col gap-1">
               <select
@@ -328,9 +338,29 @@ export function HomePage() {
              p.status === "rejected" ? "재작업" :
              "작업 열기"}
           </button>
-          <a href={projectsApi.downloadSubtitle(p.id)} target="_blank" className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}>
+          {/* <a href={projectsApi.downloadSubtitle(p.id)} target="_blank" className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}>
             <Download size={14}/>
-          </a>
+          </a> */}
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              try {
+                const response = await api.get(`/projects/${p.id}/download/subtitle`, { responseType: "blob" });
+                const filename = p.subtitle_file || `${p.name}.srt`;
+                const url = URL.createObjectURL(response.data);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch {}
+            }}
+            className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}
+          >
+            <Download size={14}/>
+          </button>
           <div className="relative" ref={isThisMenuOpen ? menuRef : undefined}>
             <button onClick={(e) => { e.stopPropagation(); setMenuOpen(isThisMenuOpen ? null : p.id); }} className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}>
               <MoreVertical size={14}/>
@@ -416,7 +446,6 @@ export function HomePage() {
                   <Search size={14} className={ts}/>
                   <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="프로젝트 검색..." className={`bg-transparent text-xs outline-none ${tp} w-40`}/>
                 </div>
-                {/* 방송사 필터 드롭다운 */}
                 <div className="relative">
                   <button
                     onClick={() => setShowBcDrop(!showBcDrop)}

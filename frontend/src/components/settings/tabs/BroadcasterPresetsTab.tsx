@@ -7,7 +7,7 @@ interface Rule {
   name: string;
   max_lines: number;
   max_chars_per_line: number;
-  bracket_chars: number;
+  allow_overlap: boolean;
 }
 
 export function BroadcasterPresetsTab() {
@@ -15,7 +15,7 @@ export function BroadcasterPresetsTab() {
   const [newName, setNewName] = useState("");
   const [newLines, setNewLines] = useState(2);
   const [newChars, setNewChars] = useState(18);
-  const [newBracket, setNewBracket] = useState(5);
+  const [newOverlap, setNewOverlap] = useState(false);
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [editRule, setEditRule] = useState<Rule | null>(null);
   const [saving, setSaving] = useState(false);
@@ -38,7 +38,7 @@ export function BroadcasterPresetsTab() {
         name,
         max_lines: r.max_lines,
         max_chars_per_line: r.max_chars_per_line,
-        bracket_chars: r.bracket_chars ?? 5,
+        allow_overlap: r.allow_overlap ?? false,
       }));
       setRules(list);
     } catch {}
@@ -48,9 +48,9 @@ export function BroadcasterPresetsTab() {
   const saveToServer = async (updatedRules: Rule[]) => {
     setSaving(true);
     try {
-      const payload: Record<string, { max_lines: number; max_chars_per_line: number; bracket_chars: number }> = {};
+      const payload: Record<string, { max_lines: number; max_chars_per_line: number; allow_overlap: boolean }> = {};
       for (const r of updatedRules) {
-        payload[r.name] = { max_lines: r.max_lines, max_chars_per_line: r.max_chars_per_line, bracket_chars: r.bracket_chars };
+        payload[r.name] = { max_lines: r.max_lines, max_chars_per_line: r.max_chars_per_line, allow_overlap: r.allow_overlap };
       }
       await projectsApi.saveBroadcasterRules(payload);
       // 전역 스토어 갱신
@@ -71,7 +71,7 @@ export function BroadcasterPresetsTab() {
       setTimeout(() => setMsg(""), 2000);
       return;
     }
-    const updated = [...rules, { name: newName.trim(), max_lines: newLines, max_chars_per_line: newChars, bracket_chars: newBracket }];
+    const updated = [...rules, { name: newName.trim(), max_lines: newLines, max_chars_per_line: newChars, allow_overlap: newOverlap }];
     setRules(updated);
     await saveToServer(updated);
     setNewName("");
@@ -111,7 +111,7 @@ export function BroadcasterPresetsTab() {
           <h2 className="text-lg font-bold">방송사별 자막 기준</h2>
         </div>
         {msg && (
-          <span className={`text-xs font-medium ${msg.includes("실패") ? "text-red-400" : "text-emerald-400"}`}>{msg}</span>
+          <span className={`text-xs font-medium ${msg.includes("실패") || msg.includes("이미") ? "text-red-400" : "text-emerald-400"}`}>{msg}</span>
         )}
       </div>
 
@@ -133,8 +133,13 @@ export function BroadcasterPresetsTab() {
             <input type="number" value={newChars} onChange={e => setNewChars(+e.target.value)} className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none text-center ${inp}`} />
           </div>
           <div className="w-24">
-            <label className={`block text-xs ${ts} mb-1`}>화자 예약</label>
-            <input type="number" value={newBracket} onChange={e => setNewBracket(+e.target.value)} className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none text-center ${inp}`} />
+            <label className={`block text-xs ${ts} mb-1`}>오버랩</label>
+            <button
+              onClick={() => setNewOverlap(!newOverlap)}
+              className={`w-full border rounded-lg px-3 py-2.5 text-sm text-center ${newOverlap ? "bg-emerald-600 border-emerald-500 text-white" : `${inp}`}`}
+            >
+              {newOverlap ? "허용" : "미허용"}
+            </button>
           </div>
           <button onClick={handleAdd} disabled={saving} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white p-2.5 rounded-lg">
             <Plus size={20} />
@@ -149,7 +154,7 @@ export function BroadcasterPresetsTab() {
           <span className="flex-1">방송사</span>
           <span className="w-20 text-center">최대 줄</span>
           <span className="w-20 text-center">글자 수</span>
-          <span className="w-20 text-center">화자 예약</span>
+          <span className="w-20 text-center">오버랩</span>
           <span className="w-20 text-center">작업</span>
         </div>
         {rules.map((r, i) => (
@@ -162,8 +167,14 @@ export function BroadcasterPresetsTab() {
                   className={`w-20 border rounded px-2 py-1 text-sm text-center outline-none ${inp}`} />
                 <input type="number" value={editRule.max_chars_per_line} onChange={e => setEditRule({ ...editRule, max_chars_per_line: +e.target.value })}
                   className={`w-20 border rounded px-2 py-1 text-sm text-center outline-none ${inp}`} />
-                <input type="number" value={editRule.bracket_chars} onChange={e => setEditRule({ ...editRule, bracket_chars: +e.target.value })}
-                  className={`w-20 border rounded px-2 py-1 text-sm text-center outline-none ${inp}`} />
+                <div className="w-20 flex items-center justify-center">
+                  <button
+                    onClick={() => setEditRule({ ...editRule, allow_overlap: !editRule.allow_overlap })}
+                    className={`px-2 py-1 rounded text-xs ${editRule.allow_overlap ? "bg-emerald-600 text-white" : "bg-gray-700 text-gray-400"}`}
+                  >
+                    {editRule.allow_overlap ? "허용" : "미허용"}
+                  </button>
+                </div>
                 <div className="w-20 flex items-center justify-center gap-1">
                   <button onClick={confirmEdit} className="text-emerald-400 hover:text-emerald-300"><Check size={16} /></button>
                   <button onClick={cancelEdit} className="text-gray-500 hover:text-gray-300"><X size={16} /></button>
@@ -174,7 +185,9 @@ export function BroadcasterPresetsTab() {
                 <span className="flex-1 font-medium text-sm">{r.name}</span>
                 <span className={`w-20 text-center text-sm ${ts}`}>{r.max_lines}줄</span>
                 <span className={`w-20 text-center text-sm ${ts}`}>{r.max_chars_per_line}자</span>
-                <span className={`w-20 text-center text-sm ${ts}`}>{r.bracket_chars}자</span>
+                <span className={`w-20 text-center text-xs ${r.allow_overlap ? "text-emerald-400" : "text-red-400"}`}>
+                  {r.allow_overlap ? "허용" : "미허용"}
+                </span>
                 <div className="w-20 flex items-center justify-center gap-2">
                   <button onClick={() => startEdit(i)} className="text-blue-400 hover:text-blue-300"><Pencil size={14} /></button>
                   <button onClick={() => handleDelete(i)} className="text-red-400 hover:text-red-300"><Trash2 size={14} /></button>

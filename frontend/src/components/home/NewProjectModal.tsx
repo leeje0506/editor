@@ -13,13 +13,14 @@ interface Props {
 
 export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const [name, setName] = useState("");
-  const [nameManual, setNameManual] = useState(false); // 사용자가 직접 입력했는지
+  const [nameManual, setNameManual] = useState(false);
   const [broadcaster, setBroadcaster] = useState("");
   const [description, setDescription] = useState("");
   const [deadline, setDeadline] = useState("");
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null);
   const [creating, setCreating] = useState(false);
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [videoDragOver, setVideoDragOver] = useState(false);
   const [subDragOver, setSubDragOver] = useState(false);
@@ -28,7 +29,6 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const bcStore = useBroadcasterStore();
   const user = useAuthStore((s) => s.user);
 
-  // 마운트 시 최신 방송사 규칙 가져오기
   useEffect(() => {
     bcStore.fetch().then(() => {
       if (!broadcaster && bcStore.names.length > 0) {
@@ -42,7 +42,7 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
     setVideoFile(file);
     // 사용자가 직접 입력하지 않았으면 자동 생성
     if (!nameManual) {
-      const baseName = file.name.replace(/\.[^.]+$/, ""); // 확장자 제거
+      const baseName = file.name.replace(/\.[^.]+$/, "");
       const displayName = user?.display_name || user?.username || "작업자";
       setName(`${baseName}_${displayName}`);
     }
@@ -58,23 +58,49 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const inpF = "focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
   const today = new Date().toISOString().split("T")[0];
 
+  /**
+   * 작업 생성 흐름:
+   * 1. 프로젝트 생성 (즉시)
+   * 2. SRT 업로드 (배치 INSERT, 빠름)
+   * 3. 편집기로 즉시 이동
+   * 4. 영상 업로드는 백그라운드에서 진행 (편집기 진입 후)
+   */
   const handleCreate = async () => {
     if (!name.trim()) { setError("프로젝트 명칭을 입력해주세요."); return; }
     if (!videoFile) { setError("영상 파일을 첨부해주세요."); return; }
     if (!subtitleFile) { setError("자막 파일을 첨부해주세요."); return; }
     setCreating(true);
     setError("");
+
     try {
+      // 1) 프로젝트 생성
+      setProgress("프로젝트 생성 중...");
       const project = await projectsApi.create({
         name: name.trim(), broadcaster, description: description || undefined, deadline: deadline || undefined,
       });
-      await projectsApi.uploadVideo(project.id, videoFile);
+
+      // 2) 자막 업로드 (배치 INSERT — 빠름)
+      setProgress("자막 파일 처리 중...");
       await projectsApi.uploadSubtitle(project.id, subtitleFile);
+
+      // 3) 편집기로 즉시 이동 — 영상은 백그라운드로
+      setProgress("워크스페이스 열기...");
       const updated = await projectsApi.get(project.id);
+
+      // 4) 영상 업로드를 백그라운드로 시작 (await 안 함)
+      // projectsApi.uploadVideo(project.id, videoFile).catch(() => {
+      //   console.error("영상 업로드 실패 — 편집기에서 재시도 가능");
+      // });
+      setProgress("영상 업로드 중...");
+      await projectsApi.uploadVideo(project.id, videoFile);
+
       onCreate(updated);
     } catch (e: any) {
       setError(e?.response?.data?.detail || "생성에 실패했습니다.");
-    } finally { setCreating(false); }
+    } finally {
+      setCreating(false);
+      setProgress("");
+    }
   };
 
   /** 드래그 앤 드롭 핸들러 생성 */
@@ -101,17 +127,8 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
     },
   });
 
-  const videoDropHandlers = makeDropHandlers(
-    ["video/*"],
-    handleVideoSelected,
-    setVideoDragOver,
-  );
-
-  const subDropHandlers = makeDropHandlers(
-    [".srt", ".vtt", ".txt"],
-    (f) => setSubtitleFile(f),
-    setSubDragOver,
-  );
+  const videoDropHandlers = makeDropHandlers(["video/*"], handleVideoSelected, setVideoDragOver);
+  const subDropHandlers = makeDropHandlers([".srt", ".vtt", ".txt"], (f) => setSubtitleFile(f), setSubDragOver);
 
   const dropZoneBase = `w-full border-2 border-dashed rounded-lg py-4 flex flex-col items-center gap-1.5 transition-colors`;
   const dropZoneActive = "border-blue-500 bg-blue-500/10";
@@ -144,7 +161,7 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
             </select>
             {rules && (
               <div className={`mt-1.5 text-[11px] ${ts} ${dm ? "bg-gray-800" : "bg-gray-50"} rounded px-3 py-1.5`}>
-                자막 기준: 최대 {rules.max_lines}줄 / 줄당 {rules.max_chars_per_line}자 / 화자 예약 {rules.bracket_chars}자
+                자막 기준: 최대 {rules.max_lines}줄 / 줄당 {rules.max_chars_per_line}자
                 <span className={`ml-2 ${dm ? "text-gray-600" : "text-gray-400"}`}>(관리 페이지에서 수정)</span>
               </div>
             )}
@@ -173,41 +190,21 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
           {/* 영상 파일 — 클릭 + 드래그 앤 드롭 */}
           <div>
             <label className={`block text-xs font-medium ${ts} mb-1.5`}>영상 파일 <span className="text-red-500">*</span></label>
-            <input
-              ref={videoRef}
-              type="file"
-              accept="video/*"
-              className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleVideoSelected(f); }}
-            />
-            <button
-              onClick={() => videoRef.current?.click()}
-              className={`${dropZoneBase} ${videoDragOver ? dropZoneActive : dropZoneIdle}`}
-              {...videoDropHandlers}
-            >
+            <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleVideoSelected(f); }} />
+            <button onClick={() => videoRef.current?.click()} className={`${dropZoneBase} ${videoDragOver ? dropZoneActive : dropZoneIdle}`} {...videoDropHandlers}>
               <Film size={20} className={videoDragOver ? "text-blue-500" : ts} />
               {videoFile
-                ? <span className="text-xs text-blue-500 font-medium">{videoFile.name}</span>
+                ? <span className="text-xs text-blue-500 font-medium">{videoFile.name} ({(videoFile.size / 1024 / 1024).toFixed(1)}MB)</span>
                 : <span className={`text-xs ${videoDragOver ? "text-blue-500" : ts}`}>클릭하거나 파일을 드래그하여 첨부</span>
               }
             </button>
           </div>
 
-          {/* 자막 파일 — 클릭 + 드래그 앤 드롭 */}
+          {/* 자막 파일 */}
           <div>
             <label className={`block text-xs font-medium ${ts} mb-1.5`}>자막 파일 <span className="text-red-500">*</span> (SRT / VTT)</label>
-            <input
-              ref={subRef}
-              type="file"
-              accept=".srt,.vtt,.txt"
-              className="hidden"
-              onChange={(e) => setSubtitleFile(e.target.files?.[0] || null)}
-            />
-            <button
-              onClick={() => subRef.current?.click()}
-              className={`${dropZoneBase} ${subDragOver ? dropZoneActive : dropZoneIdle}`}
-              {...subDropHandlers}
-            >
+            <input ref={subRef} type="file" accept=".srt,.vtt,.txt" className="hidden" onChange={(e) => setSubtitleFile(e.target.files?.[0] || null)} />
+            <button onClick={() => subRef.current?.click()} className={`${dropZoneBase} ${subDragOver ? dropZoneActive : dropZoneIdle}`} {...subDropHandlers}>
               <FileText size={20} className={subDragOver ? "text-blue-500" : ts} />
               {subtitleFile
                 ? <span className="text-xs text-blue-500 font-medium">{subtitleFile.name}</span>
@@ -217,11 +214,12 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
           </div>
 
           {error && <div className="text-red-500 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</div>}
+          {progress && <div className="text-blue-500 text-xs bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 animate-pulse">{progress}</div>}
         </div>
         <div className={`px-6 py-4 border-t ${bd} flex items-center justify-end gap-3`}>
           <button onClick={onClose} className={`px-4 py-2 text-sm ${ts} hover:opacity-80`}>취소</button>
           <button onClick={handleCreate} disabled={creating} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-bold flex items-center gap-2">
-            <Monitor size={16} />{creating ? "생성 중..." : "워크스페이스 생성"}
+            <Monitor size={16} />{creating ? progress || "생성 중..." : "워크스페이스 생성"}
           </button>
         </div>
       </div>

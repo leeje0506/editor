@@ -24,6 +24,18 @@ export function eventToKeyString(e: KeyboardEvent): string {
   return parts.join("+");
 }
 
+/**
+ * 입력 필드(textarea, input) 포커스 중일 때 무시해야 하는 액션들.
+ * 이 목록에 없는 액션(undo, save 등)은 입력 중에도 동작함.
+ */
+const BLOCK_IN_INPUT: Set<string> = new Set([
+  "play_pause",   // Space — 텍스트/화자 입력 중에는 공백 입력
+  "prev",         // ArrowUp — textarea 커서 이동
+  "next",         // ArrowDown — textarea 커서 이동
+  "delete",       // Delete — 텍스트 삭제
+  "focus_text",   // Enter — textarea에서는 줄바꿈
+]);
+
 /** 전역 키보드 단축키 (커스텀 단축키 지원, 모든 상황에서 동작) */
 export function useKeyboardShortcuts(onSave: () => void) {
   const shortcuts = useSettingsStore((s) => s.shortcuts);
@@ -37,6 +49,12 @@ export function useKeyboardShortcuts(onSave: () => void) {
       const actionId = Object.entries(shortcuts).find(([, k]) => k === keyStr)?.[0];
       if (!actionId) return;
 
+      const tag = (e.target as HTMLElement).tagName;
+      const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes(tag);
+
+      // 입력 필드 포커스 중이면 특정 단축키 차단
+      if (isInput && BLOCK_IN_INPUT.has(actionId)) return;
+
       e.preventDefault();
 
       const playerState = usePlayerStore.getState();
@@ -48,7 +66,6 @@ export function useKeyboardShortcuts(onSave: () => void) {
           break;
 
         case "set_start": {
-          // 선택 싱크 시작점을 현재 재생 시간으로
           const selId = subtitleState.selectedId;
           if (selId) {
             subtitleState.updateOne(selId, { start_ms: playerState.currentMs });
@@ -57,7 +74,6 @@ export function useKeyboardShortcuts(onSave: () => void) {
         }
 
         case "set_end": {
-          // 선택 싱크 종료점을 현재 재생 시간으로
           const selId = subtitleState.selectedId;
           if (selId) {
             subtitleState.updateOne(selId, { end_ms: playerState.currentMs });
@@ -66,13 +82,11 @@ export function useKeyboardShortcuts(onSave: () => void) {
         }
 
         case "add_sync": {
-          // 현재 선택된 자막 뒤에 새 싱크 추가
           subtitleState.addAfter();
           break;
         }
 
         case "snap_prev": {
-          // 앞 싱크 end_ms에 현재 싱크 start_ms를 맞춤
           const selId = subtitleState.selectedId;
           if (!selId) break;
           const subs = subtitleState.subtitles;
@@ -84,7 +98,6 @@ export function useKeyboardShortcuts(onSave: () => void) {
         }
 
         case "snap_next": {
-          // 뒤 싱크 start_ms에 현재 싱크 end_ms를 맞춤
           const selId = subtitleState.selectedId;
           if (!selId) break;
           const subs = subtitleState.subtitles;
@@ -108,11 +121,26 @@ export function useKeyboardShortcuts(onSave: () => void) {
           break;
 
         case "search":
-          // TODO: 검색 모달/패널 열기
+          {
+            // 먼저 검색창이 열려있는지 확인
+            let searchInput = document.querySelector<HTMLInputElement>("[data-grid-search]");
+            if (!searchInput) {
+              // 검색 버튼 클릭하여 검색창 열기
+              const searchBtn = document.querySelector<HTMLButtonElement>("[data-grid-search-toggle]");
+              if (searchBtn) searchBtn.click();
+              // DOM 업데이트 후 포커스
+              requestAnimationFrame(() => {
+                searchInput = document.querySelector<HTMLInputElement>("[data-grid-search]");
+                if (searchInput) searchInput.focus();
+              });
+            } else {
+              searchInput.focus();
+            }
+          }
           break;
 
         case "replace":
-          // TODO: 검색·치환 모달/패널 열기
+          // TODO: 찾아서 바꾸기 UI 미구현, 나중에 하기!
           break;
 
         case "prev": {
@@ -134,7 +162,6 @@ export function useKeyboardShortcuts(onSave: () => void) {
         }
 
         case "focus_text": {
-          // QuickEditor의 textarea에 포커스
           const textarea = document.querySelector<HTMLTextAreaElement>("[data-quick-editor-textarea]");
           if (textarea) textarea.focus();
           break;

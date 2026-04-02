@@ -40,9 +40,18 @@ def create_initial_data():
                 display_name="관리자",
                 role="master",
             )
+            worker = User(
+                username="worker1",
+                password_hash=hash_password("worker1"),
+                display_name="작업1",
+                role="worker",
+            )
             db.add(master)
+            db.add(worker)
             db.commit()
             print("✅ 초기 마스터 계정 생성: admin / admin")
+            print("✅ 초기 작업자 계정 생성: worker1 / worker1")
+
         # 방송사 규칙 시딩
         from app.routers.settings import seed_defaults
         seed_defaults(db)

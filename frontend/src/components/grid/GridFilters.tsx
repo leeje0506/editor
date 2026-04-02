@@ -65,6 +65,7 @@ export function GridFilters({ dark, filters, onChange }: Props) {
       ))}
       <div className="flex-1" />
       <button
+        data-grid-search-toggle
         onClick={() => setShowSearch(!showSearch)}
         className={`flex items-center gap-0.5 border ${bd} ${card} px-1.5 py-0.5 rounded hover:opacity-80`}
       >
@@ -73,6 +74,7 @@ export function GridFilters({ dark, filters, onChange }: Props) {
       {showSearch && (
         <>
           <input
+            data-grid-search
             value={filters.search}
             onChange={(e) => onChange({ ...filters, search: e.target.value })}
             placeholder="검색..."

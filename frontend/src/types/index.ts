@@ -43,8 +43,8 @@ export interface Subtitle {
   end_ms: number;
   type: "dialogue" | "effect";
   speaker: string;
-  speaker_pos: "default" | "top";
-  text_pos: "default" | "top";
+  speaker_pos: "default" | "top" | "deleted";
+  text_pos: "default" | "top" | "deleted";
   text: string;
   error: string;
 }
@@ -55,8 +55,8 @@ export interface SubtitleCreate {
   end_ms: number;
   type?: "dialogue" | "effect";
   speaker?: string;
-  speaker_pos?: "default" | "top";
-  text_pos?: "default" | "top";
+  speaker_pos: "default" | "top" | "deleted";
+  text_pos: "default" | "top" | "deleted";
   text?: string;
 }
 
@@ -65,8 +65,8 @@ export interface SubtitleUpdate {
   end_ms?: number;
   type?: "dialogue" | "effect";
   speaker?: string;
-  speaker_pos?: "default" | "top";
-  text_pos?: "default" | "top";
+  speaker_pos: "default" | "top" | "deleted";
+  text_pos: "default" | "top" | "deleted";
   text?: string;
 }
 

@@ -14,12 +14,12 @@ router = APIRouter()
 
 # 초기 기본값 (DB에 아무것도 없을 때 시딩용)
 DEFAULT_RULES = {
-    "TVING": {"max_lines": 2, "max_chars_per_line": 20, "bracket_chars": 5},
-    "LGHV": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5},
-    "SKBB": {"max_lines": 1, "max_chars_per_line": 20, "bracket_chars": 5},
-    "JTBC": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5},
-    "DLIV": {"max_lines": 3, "max_chars_per_line": 17, "bracket_chars": 5},
-    "자유작업": {"max_lines": 99, "max_chars_per_line": 999, "bracket_chars": 0},
+    "TVING": {"max_lines": 2, "max_chars_per_line": 20, "bracket_chars": 5, "allow_overlap": False},
+    "LGHV": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "allow_overlap": False},
+    "SKBB": {"max_lines": 1, "max_chars_per_line": 20, "bracket_chars": 5, "allow_overlap": False},
+    "JTBC": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "allow_overlap": False},
+    "DLIV": {"max_lines": 3, "max_chars_per_line": 17, "bracket_chars": 5, "allow_overlap": False},
+    "자유작업": {"max_lines": 99, "max_chars_per_line": 999, "bracket_chars": 0, "allow_overlap": True},
 }
 
 
@@ -32,6 +32,7 @@ def seed_defaults(db: Session) -> None:
                 max_lines=r["max_lines"],
                 max_chars_per_line=r["max_chars_per_line"],
                 bracket_chars=r["bracket_chars"],
+                allow_overlap=r["allow_overlap"],
             ))
         db.commit()
 
@@ -50,6 +51,7 @@ def load_rules(db: Session = None) -> dict:
                 "max_lines": r.max_lines,
                 "max_chars_per_line": r.max_chars_per_line,
                 "bracket_chars": r.bracket_chars,
+                "allow_overlap": r.allow_overlap,
             }
         return rules
     finally:
@@ -67,6 +69,7 @@ def get_broadcaster_rules(db: Session = Depends(get_db)):
             "max_lines": r.max_lines,
             "max_chars_per_line": r.max_chars_per_line,
             "bracket_chars": r.bracket_chars,
+            "allow_overlap": r.allow_overlap,
         }
     return rules
 
@@ -83,6 +86,7 @@ def save_broadcaster_rules(rules: Dict[str, dict], db: Session = Depends(get_db)
             existing.max_lines = int(r.get("max_lines", 2))
             existing.max_chars_per_line = int(r.get("max_chars_per_line", 18))
             existing.bracket_chars = int(r.get("bracket_chars", 5))
+            existing.allow_overlap = bool(r.get("allow_overlap", False))
             existing.is_active = True
         else:
             db.add(BroadcasterRule(
@@ -90,6 +94,7 @@ def save_broadcaster_rules(rules: Dict[str, dict], db: Session = Depends(get_db)
                 max_lines=int(r.get("max_lines", 2)),
                 max_chars_per_line=int(r.get("max_chars_per_line", 18)),
                 bracket_chars=int(r.get("bracket_chars", 5)),
+                allow_overlap=bool(r.get("allow_overlap", False)),
                 is_active=True,
             ))
 
@@ -102,5 +107,6 @@ def save_broadcaster_rules(rules: Dict[str, dict], db: Session = Depends(get_db)
             "max_lines": row.max_lines,
             "max_chars_per_line": row.max_chars_per_line,
             "bracket_chars": row.bracket_chars,
+            "allow_overlap": row.allow_overlap,
         }
     return result

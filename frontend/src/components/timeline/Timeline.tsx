@@ -1,5 +1,5 @@
 import { useRef, useMemo, useCallback, useEffect } from "react";
-import { Play, Pause, SkipBack, SkipForward, Trash2, RefreshCw } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, RefreshCw } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { useTimelineStore } from "../../store/useTimelineStore";
@@ -7,6 +7,8 @@ import { useTimelineZoom } from "../../hooks/useTimelineZoom";
 import { msToTimecode } from "../../utils/time";
 import { ZoomControls } from "./ZoomControls";
 import { Playhead } from "./Playhead";
+import { ProgressBar } from "./ProgressBar";
+import { TimelineTimeDisplay } from "./TimelineTimeDisplay";
 
 interface Props {
   dark: boolean;
@@ -15,27 +17,25 @@ interface Props {
 
 export function Timeline({ dark, onReload }: Props) {
   const tlRef = useRef<HTMLDivElement>(null);
-  const currentMs = usePlayerStore((s) => s.currentMs);
+
   const playing = usePlayerStore((s) => s.playing);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const seekForward = usePlayerStore((s) => s.seekForward);
   const seekBackward = usePlayerStore((s) => s.seekBackward);
   const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
+  const totalMs = usePlayerStore((s) => s.totalMs);
 
   const subtitles = useSubtitleStore((s) => s.subtitles);
   const selectedId = useSubtitleStore((s) => s.selectedId);
   const multiSelect = useSubtitleStore((s) => s.multiSelect);
   const selectSingle = useSubtitleStore((s) => s.selectSingle);
-  const deleteSelected = useSubtitleStore((s) => s.deleteSelected);
-  const updateOne = useSubtitleStore((s) => s.updateOne);
+  const updateLocal = useSubtitleStore((s) => s.updateLocal);
 
   const scrollMs = useTimelineStore((s) => s.scrollMs);
   const visibleDuration = useTimelineStore((s) => s.visibleDuration);
   const { handleWheel } = useTimelineZoom();
-  const totalMs = usePlayerStore((s) => s.totalMs);
 
   const dm = dark;
-  const bd = dm ? "border-gray-700" : "border-gray-200";
   const bdl = dm ? "border-gray-700" : "border-gray-100";
   const ts = dm ? "text-gray-400" : "text-gray-500";
 
@@ -47,17 +47,17 @@ export function Timeline({ dark, onReload }: Props) {
     [subtitles, tlLeft, visDur],
   );
 
-  const playPct = ((currentMs - tlLeft) / visDur) * 100;
-
   const tickCount = visDur <= 10000 ? 10 : visDur <= 30000 ? 8 : visDur <= 120000 ? 6 : 10;
   const ticks = Array.from({ length: tickCount + 1 }, (_, i) => i / tickCount);
 
-  // 파형 생성 (포인트 수 최적화)
+  // 파형 생성 — totalMs 이후는 그리지 않음
   const wavePath = useMemo(() => {
     const W = 4000, H = 400, mid = H / 2;
     const pts: number[] = [];
     for (let i = 0; i <= W; i += 6) {
-      const x = (tlLeft + (i / W) * visDur) * 0.001;
+      const ms = tlLeft + (i / W) * visDur;
+      if (ms > totalMs) { pts.push(0); continue; }
+      const x = ms * 0.001;
       const amp =
         Math.sin(x * 2.1) * 0.3 + Math.sin(x * 5.7) * 0.25 +
         Math.sin(x * 13.3) * 0.2 + Math.sin(x * 31.7) * 0.15 +
@@ -70,7 +70,7 @@ export function Timeline({ dark, onReload }: Props) {
     let lower = "";
     for (let i = pts.length - 1; i >= 0; i--) lower += `L${i * 6},${mid + pts[i]} `;
     return upper + lower + "Z";
-  }, [tlLeft, visDur]);
+  }, [tlLeft, visDur, totalMs]);
 
   // 자막 시간 드래그
   const startDrag = useCallback(
@@ -82,7 +82,7 @@ export function Timeline({ dark, onReload }: Props) {
         const rect = tlRef.current.getBoundingClientRect();
         const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
         const ms = Math.round(tlLeft + pct * visDur);
-        updateOne(subId, { [handle === "start" ? "start_ms" : "end_ms"]: ms });
+        updateLocal(subId, { [handle === "start" ? "start_ms" : "end_ms"]: ms });
       };
       const onUp = () => {
         document.body.style.cursor = "";
@@ -95,10 +95,10 @@ export function Timeline({ dark, onReload }: Props) {
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [tlLeft, visDur, updateOne],
+    [tlLeft, visDur, updateLocal],
   );
 
-  // non-passive wheel 리스너
+  // non-passive wheel 리스너 — inner div 기준
   useEffect(() => {
     const el = tlRef.current;
     if (!el) return;
@@ -111,10 +111,7 @@ export function Timeline({ dark, onReload }: Props) {
   }, [handleWheel]);
 
   /**
-   * 파형 클릭:
-   * - 재생 중이면 → 정지
-   * - 클릭 위치로 재생 위치(빨간 선 + 영상) 이동
-   * - 해당 위치에 자막이 있으면 선택, 없으면 이전 선택 유지
+   * 파형 클릭 — inner div 기준으로 좌표 계산
    */
   const onTrackClick = useCallback(
     (e: React.MouseEvent) => {
@@ -124,16 +121,13 @@ export function Timeline({ dark, onReload }: Props) {
       const pct = (e.clientX - rect.left) / rect.width;
       const clickMs = Math.round(tlLeft + pct * visDur);
 
-      // 재생 중이면 정지
       if (usePlayerStore.getState().playing) {
         usePlayerStore.getState().togglePlay();
       }
 
-      // 재생 위치 이동 + videoPreviewMs 해제
       setCurrentMs(clickMs);
       usePlayerStore.getState().setVideoPreviewMs(null);
 
-      // 클릭 위치에 자막이 있으면 선택, 없으면 유지
       const hit = subtitles.find((s) => clickMs >= s.start_ms && clickMs < s.end_ms);
       if (hit) {
         selectSingle(hit.id);
@@ -170,159 +164,146 @@ export function Timeline({ dark, onReload }: Props) {
         </div>
       </div>
 
-      {/* Track area */}
-      <div
-        ref={tlRef}
-        className="flex-1 relative bg-black overflow-hidden cursor-crosshair"
-        onClick={onTrackClick}
-      >
-        {/* 시간 눈금 */}
-        <div className="absolute inset-x-0 top-0 h-4 z-30 pointer-events-none">
-          {ticks.map((p) => (
-            <div key={p} className="absolute bottom-0 text-[7px] font-mono text-gray-500"
-              style={{ left: `${p * 100}%`, transform: "translateX(-50%)" }}>
-              {msToTimecode(Math.round(tlLeft + p * visDur))}
-            </div>
-          ))}
-        </div>
-        {ticks.map((p) => (
-          <div key={`line-${p}`} className="absolute top-4 bottom-0 w-px bg-gray-700/30 pointer-events-none"
-            style={{ left: `${p * 100}%` }} />
-        ))}
+      {/* 여백 영역 — 배경색은 다크/라이트 모드에 맞춤 */}
+      <div className={`flex-1 relative ${dm ? "bg-gray-800" : "bg-white"} overflow-hidden p-2`}>
 
-        {/* 기본 파형 (어두운 — 자막 없는 구간) */}
-        <div className="absolute inset-x-0 top-4 bottom-0 pointer-events-none">
-          <svg preserveAspectRatio="none" viewBox="0 0 4000 400" className="w-full h-full">
-            <path d={wavePath} fill="#0a2e0a" opacity="0.7" />
-            <path d={wavePath} fill="none" stroke="#1a6e1a" strokeWidth="0.8" opacity="0.5" />
-          </svg>
-          <div className="absolute left-0 right-0 top-1/2 h-px bg-gray-700/30" />
-        </div>
-
-        {/* 자막 블록 — 파형 겹침 */}
-        <div className="absolute inset-x-0 top-4 bottom-0 z-10">
-          {vtl.map((s) => {
-            // 원본 % (클램핑 전) — 파형 오버레이 역산에 사용
-            const rawL = ((s.start_ms - tlLeft) / visDur) * 100;
-            const rawW = ((s.end_ms - s.start_ms) / visDur) * 100;
-            // 표시용 % (클램핑 후) — DOM 위치에 사용
-            const clampedL = Math.max(-5, rawL);
-            const clampedW = Math.max(0.3, rawW - (clampedL - rawL));
-            const isSel = s.id === selectedId;
-            const isMulti = multiSelect.has(s.id) && !isSel;
-            const durSec = ((s.end_ms - s.start_ms) / 1000).toFixed(3);
-            const isPlayheadInside = currentMs >= s.start_ms && currentMs < s.end_ms;
-
-            // ★ 빨간 파형 로직: 선택된 자막만 전체 구간 빨갛게
-            const isCurrent = isSel;
-
-            const zIdx = isSel ? 30 : isPlayheadInside ? 20 : 10;
-
-            return (
-              <div key={s.id} data-sub-block className="absolute top-0 bottom-0"
-                style={{ left: `${clampedL}%`, width: `${clampedW}%`, zIndex: zIdx }}>
-                {/* 자막 구간 밝은 파형 오버레이 — 원본 rawL/rawW로 역산하여 전체 파형과 정렬 */}
-                <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                  <svg preserveAspectRatio="none" viewBox="0 0 4000 400" className="pointer-events-none"
-                    style={{
-                      position: "absolute", top: 0, height: "100%",
-                      left: `${((-rawL) / Math.max(0.01, rawW)) * 100}%`,
-                      width: `${(100 / Math.max(0.01, rawW)) * 100}%`,
-                    }}>
-                    {isCurrent ? (
-                      <>
-                        <path d={wavePath} fill="#5c1a1a" opacity="0.7" />
-                        <path d={wavePath} fill="none" stroke="#ff4444" strokeWidth="1" opacity="0.9" />
-                        <path d={wavePath} fill="#cc2222" opacity="0.3" />
-                      </>
-                    ) : (
-                      <>
-                        <path d={wavePath} fill="#1a5c1a" opacity="0.7" />
-                        <path d={wavePath} fill="none" stroke="#39ff14" strokeWidth="1" opacity="0.9" />
-                        <path d={wavePath} fill="#2ecc40" opacity="0.4" />
-                      </>
-                    )}
-                  </svg>
-                </div>
-
-                {/* 좌측 경계 — 드래그로 start_ms 조절 */}
-                <div
-                  data-h="s"
-                  className={`absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize z-20 hover:bg-green-400/50 ${
-                    isCurrent ? "bg-red-400" : isSel ? "bg-blue-400" : "bg-gray-400/50"
-                  }`}
-                  onMouseDown={(e) => startDrag(e, "start", s.id)}
-                />
-                {/* 우측 경계 — 드래그로 end_ms 조절 */}
-                <div
-                  data-h="e"
-                  className={`absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize z-20 hover:bg-green-400/50 ${
-                    isCurrent ? "bg-red-400" : isSel ? "bg-blue-400" : "bg-gray-400/50"
-                  }`}
-                  onMouseDown={(e) => startDrag(e, "end", s.id)}
-                />
-
-                {/* 선택 하이라이트 */}
-                {isSel && !isCurrent && (
-                  <div className="absolute inset-0 bg-blue-400/10 border-t border-b border-blue-400/30 pointer-events-none" />
-                )}
-                {isMulti && (
-                  <div className="absolute inset-0 bg-blue-400/5 pointer-events-none" />
-                )}
-
-                {/* 자막 텍스트 */}
-                <div className="absolute top-0.5 left-1 right-1 pointer-events-none">
-                  <span className={`text-[9px] leading-tight block truncate font-medium
-                    ${isCurrent ? "text-red-200 drop-shadow-[0_1px_3px_rgba(255,0,0,0.6)]"
-                      : isSel ? "text-yellow-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-                      : s.type === "effect" ? "text-yellow-400/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-                      : "text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"}`}>
-                    {s.text.replace(/\n/g, " ")}
-                  </span>
-                </div>
-
-                {/* 하단 정보 */}
-                <div className="absolute bottom-0.5 left-1 pointer-events-none flex items-center gap-1">
-                  <span className={`text-[7px] font-mono drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] ${isCurrent ? "text-red-300/80" : "text-green-400/70"}`}>#{s.seq}</span>
-                  <span className={`text-[7px] font-mono drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] ${isCurrent ? "text-red-300/60" : "text-green-300/50"}`}>{durSec}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* 플레이헤드 */}
-        <Playhead pct={playPct} />
-
-        {/* 현재 시간 */}
-        <div className="absolute bottom-1 left-2 z-30 pointer-events-none">
-          <span className="text-[9px] font-mono text-gray-400 bg-black/60 px-1 rounded">
-            {msToTimecode(currentMs)} / {msToTimecode(totalMs)}
-          </span>
-        </div>
-      </div>
-
-      {/* 파형 하단 전체 재생바 */}
-      <div
-        className="shrink-0 relative cursor-pointer group"
-        style={{ height: 4 }}
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-          const ms = Math.round(pct * totalMs);
-          setCurrentMs(ms);
-          usePlayerStore.getState().setVideoPreviewMs(null);
-          // 해당 위치에 자막 있으면 선택
-          const hit = subtitles.find((s) => ms >= s.start_ms && ms < s.end_ms);
-          if (hit) selectSingle(hit.id);
-        }}
-      >
-        <div className={`absolute inset-0 ${dm ? "bg-gray-800" : "bg-gray-300"}`} />
+        {/* inner 박스 — 시간눈금+파형+자막+Playhead+재생바 전부 여기 안 */}
         <div
-          className="absolute left-0 top-0 bottom-0 bg-red-500 transition-none"
-          style={{ width: `${totalMs > 0 ? (currentMs / totalMs) * 100 : 0}%` }}
-        />
-        <div className="absolute inset-0 bg-transparent group-hover:bg-white/10 transition-colors" />
+          ref={tlRef}
+          className="relative w-full h-full bg-black overflow-hidden cursor-crosshair rounded-sm"
+          onClick={onTrackClick}
+        >
+          {/* 시간 눈금 */}
+          <div className="absolute inset-x-0 top-0 h-4 z-30 pointer-events-none">
+            {ticks.map((p) => (
+              <div key={p} className="absolute bottom-0 text-[7px] font-mono text-gray-500"
+                style={{
+                  left: `${p * 100}%`,
+                  transform: p === 0 ? "translateX(0)" : p === 1 ? "translateX(-100%)" : "translateX(-50%)",
+                }}>
+                {(() => {
+                  const ms = Math.round(tlLeft + p * visDur);
+                  const h = Math.floor(ms / 3600000);
+                  const m = Math.floor((ms % 3600000) / 60000);
+                  const s = Math.floor((ms % 60000) / 1000);
+                  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+                })()}
+              </div>
+            ))}
+          </div>
+          {ticks.map((p) => (
+            <div key={`line-${p}`} className="absolute top-4 bottom-0 w-px bg-gray-700/30 pointer-events-none"
+              style={{ left: `${p * 100}%` }} />
+          ))}
+
+          {/* 기본 파형 (어두운 — 자막 없는 구간) */}
+          <div className="absolute inset-x-0 top-4 bottom-[6px] pointer-events-none">
+            <svg preserveAspectRatio="none" viewBox="0 0 4000 400" className="w-full h-full">
+              <path d={wavePath} fill="#0a2e0a" opacity="0.7" />
+              <path d={wavePath} fill="none" stroke="#1a6e1a" strokeWidth="0.8" opacity="0.5" />
+            </svg>
+            <div className="absolute left-0 right-0 top-1/2 h-px bg-gray-700/30" />
+          </div>
+
+          {/* 자막 블록 — 파형 겹침 */}
+          <div className="absolute inset-x-0 top-4 bottom-[6px] z-10">
+            {vtl.map((s) => {
+              const rawL = ((s.start_ms - tlLeft) / visDur) * 100;
+              const rawW = ((s.end_ms - s.start_ms) / visDur) * 100;
+              const clampedL = Math.max(-5, rawL);
+              const clampedW = Math.max(0.3, rawW - (clampedL - rawL));
+              const isSel = s.id === selectedId;
+              const isMulti = multiSelect.has(s.id) && !isSel;
+              const durSec = ((s.end_ms - s.start_ms) / 1000).toFixed(3);
+
+              const isCurrent = isSel;
+              const zIdx = isSel ? 30 : 10;
+
+              return (
+                <div key={s.id} data-sub-block className="absolute top-0 bottom-0"
+                  style={{ left: `${clampedL}%`, width: `${clampedW}%`, zIndex: zIdx }}>
+                  {/* 자막 구간 밝은 파형 오버레이 */}
+                  <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                    <svg preserveAspectRatio="none" viewBox="0 0 4000 400" className="pointer-events-none"
+                      style={{
+                        position: "absolute", top: 0, height: "100%",
+                        left: `${((-rawL) / Math.max(0.01, rawW)) * 100}%`,
+                        width: `${(100 / Math.max(0.01, rawW)) * 100}%`,
+                      }}>
+                      {isCurrent ? (
+                        <>
+                          <path d={wavePath} fill="#5c1a1a" opacity="0.7" />
+                          <path d={wavePath} fill="none" stroke="#ff4444" strokeWidth="1" opacity="0.9" />
+                          <path d={wavePath} fill="#cc2222" opacity="0.3" />
+                        </>
+                      ) : (
+                        <>
+                          <path d={wavePath} fill="#1a5c1a" opacity="0.7" />
+                          <path d={wavePath} fill="none" stroke="#39ff14" strokeWidth="1" opacity="0.9" />
+                          <path d={wavePath} fill="#2ecc40" opacity="0.4" />
+                        </>
+                      )}
+                    </svg>
+                  </div>
+
+                  {/* 좌측 경계 */}
+                  <div
+                    data-h="s"
+                    className={`absolute left-0 top-0 bottom-0 w-px cursor-ew-resize z-20 hover:bg-green-400/50 ${
+                      isCurrent ? "bg-red-400" : isSel ? "bg-blue-400" : "bg-gray-400/50"
+                    }`}
+                    onMouseDown={(e) => startDrag(e, "start", s.id)}
+                  />
+                  {/* 우측 경계 */}
+                  <div
+                    data-h="e"
+                    className={`absolute right-0 top-0 bottom-0 w-px cursor-ew-resize z-20 hover:bg-green-400/50 ${
+                      isCurrent ? "bg-red-400" : isSel ? "bg-blue-400" : "bg-gray-400/50"
+                    }`}
+                    onMouseDown={(e) => startDrag(e, "end", s.id)}
+                  />
+
+                  {/* 선택 하이라이트 */}
+                  {isSel && !isCurrent && (
+                    <div className="absolute inset-0 bg-blue-400/10 border-t border-b border-blue-400/30 pointer-events-none" />
+                  )}
+                  {isMulti && (
+                    <div className="absolute inset-0 bg-blue-400/5 pointer-events-none" />
+                  )}
+
+                  {/* 자막 텍스트 */}
+                  <div className="absolute top-0.5 left-1 right-1 pointer-events-none">
+                    <span className={`text-[9px] leading-tight block truncate font-medium
+                      ${isCurrent ? "text-red-200 drop-shadow-[0_1px_3px_rgba(255,0,0,0.6)]"
+                        : isSel ? "text-yellow-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
+                        : s.type === "effect" ? "text-yellow-400/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
+                        : "text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"}`}>
+                      {s.text.replace(/\n/g, " ")}
+                    </span>
+                  </div>
+
+                  {/* 하단 정보 */}
+                  <div className="absolute bottom-0.5 left-1 pointer-events-none flex items-center gap-1">
+                    <span className={`text-[7px] font-mono drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] ${isCurrent ? "text-red-300/80" : "text-green-400/70"}`}>#{s.seq}</span>
+                    <span className={`text-[7px] font-mono drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] ${isCurrent ? "text-red-300/60" : "text-green-300/50"}`}>{durSec}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 플레이헤드 */}
+          <Playhead />
+
+          {/* 현재 시간 */}
+          <TimelineTimeDisplay />
+
+          {/* 재생바 — inner 박스 맨 아래 */}
+          <div className="absolute left-0 right-0 bottom-0 h-[5px] z-20">
+            <ProgressBar dark={dm} />
+          </div>
+
+        </div>{/* inner 박스 끝 */}
       </div>
     </div>
   );

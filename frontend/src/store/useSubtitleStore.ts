@@ -16,11 +16,15 @@ interface SubtitleState {
   navigateNext: () => Subtitle | null;
   navigatePrev: () => Subtitle | null;
 
+  /** 로컬 상태만 즉시 변경 (서버 호출 안 함). 텍스트/화자 등 입력 중 사용. */
+  updateLocal: (id: number, data: Partial<Subtitle>) => void;
+  /** 서버 API 호출하여 단건 수정 + 응답으로 교체. 시간 변경 등 즉시 검수가 필요한 경우 사용. */
+  updateOne: (id: number, data: SubtitleUpdate) => Promise<void>;
+
   addAfter: () => Promise<void>;
   deleteSelected: () => Promise<void>;
   splitSelected: () => Promise<void>;
   mergeSelected: () => Promise<void>;
-  updateOne: (id: number, data: SubtitleUpdate) => Promise<void>;
   bulkSpeaker: (from: string, to: string) => Promise<void>;
   saveAll: () => Promise<void>;
   undo: () => Promise<void>;
@@ -79,14 +83,36 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     return null;
   },
 
+  /**
+   * 로컬 상태만 즉시 변경. 서버 호출 없음.
+   * 텍스트, 화자, 유형, 위치 등 입력 중 사용.
+   * 서버 반영은 saveAll() 시점에서 일괄 처리.
+   */
+  updateLocal: (id, data) => {
+    set((s) => ({
+      subtitles: s.subtitles.map((sub) => (sub.id === id ? { ...sub, ...data } : sub)),
+    }));
+  },
+
+  /**
+   * 서버 API 호출하여 단건 수정.
+   * 시간(start_ms/end_ms) 변경 등 즉시 검수가 필요한 경우 사용.
+   */
+  updateOne: async (id, data) => {
+    const { projectId } = get();
+    if (!projectId) return;
+    const updated = await subtitlesApi.update(projectId, id, data);
+    set((s) => ({ subtitles: s.subtitles.map((sub) => (sub.id === id ? updated : sub)) }));
+  },
+
   addAfter: async () => {
     const { projectId, subtitles, selectedId } = get();
     if (!projectId || !selectedId) return;
     const sel = subtitles.find((s) => s.id === selectedId);
     if (!sel) return;
-    // 선택된 싱크 끝시간 + 10ms부터 2초
-    const startMs = sel.end_ms + 10;
-    const endMs = startMs + 2000;
+    // 기본 간격: 1ms (0.001초), 기본 길이: 1000ms (1초)
+    const startMs = sel.end_ms + 1;
+    const endMs = startMs + 1000;
     const subs = await subtitlesApi.create(projectId, {
       after_seq: sel.seq,
       start_ms: startMs,
@@ -116,13 +142,6 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     if (!projectId || multiSelect.size < 2) return;
     const subs = await subtitlesApi.merge(projectId, [...multiSelect]);
     set({ subtitles: subs, multiSelect: new Set(subs[0] ? [subs[0].id] : []) });
-  },
-
-  updateOne: async (id, data) => {
-    const { projectId } = get();
-    if (!projectId) return;
-    const updated = await subtitlesApi.update(projectId, id, data);
-    set((s) => ({ subtitles: s.subtitles.map((sub) => (sub.id === id ? updated : sub)) }));
   },
 
   bulkSpeaker: async (from, to) => {

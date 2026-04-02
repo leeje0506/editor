@@ -12,7 +12,7 @@ interface Props {
 }
 
 export function SubtitleGrid({ dark, readOnly }: Props) {
-  const gridRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [filters, setFilters] = useState<Filters>({ type: "전체", textPos: "전체", error: "전체", search: "" });
 
   const subtitles = useSubtitleStore((s) => s.subtitles);
@@ -51,7 +51,7 @@ export function SubtitleGrid({ dark, readOnly }: Props) {
   // 선택 행 자동 스크롤
   useEffect(() => {
     const row = document.getElementById(`row-${selectedId}`);
-    if (row && gridRef.current) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (row && scrollRef.current) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedId]);
 
   /**
@@ -90,30 +90,46 @@ export function SubtitleGrid({ dark, readOnly }: Props) {
     }
   };
 
-  const posLabel = (v: string) => (v === "top" ? "상단이동" : "-");
+  // 자막 리스트에 표시될 라벨
+  const posLabel = (v: string) => v === "top" ? "상단이동" : v === "deleted" ? "삭제" : "-";
+
+
+  /* ── 컬럼 너비 상수 ── */
+  const colW = {
+    seq: "w-10", start: "w-28", end: "w-28", type: "w-12",
+    spkPos: "w-14", txtPos: "w-14", spk: "w-14", err: "w-16",
+  };
+
+  /* ── 테이블 헤더 (고정) ── */
+  const headerRow = (
+    <tr>
+      <th className={`py-2 font-medium ${colW.seq} border-r ${bdl}`}>#</th>
+      <th className={`py-2 font-medium ${colW.start} border-r ${bdl}`}>시작</th>
+      <th className={`py-2 font-medium ${colW.end} border-r ${bdl}`}>종료</th>
+      <th className={`py-2 font-medium ${colW.type} border-r ${bdl}`}>유형</th>
+      <th className={`py-2 font-medium ${colW.spkPos} border-r ${bdl}`}>화자 위치</th>
+      <th className={`py-2 font-medium ${colW.txtPos} border-r ${bdl}`}>대사 위치</th>
+      <th className={`py-2 font-medium ${colW.spk} border-r ${bdl}`}>화자</th>
+      <th className={`py-2 font-medium text-left px-3 border-r ${bdl}`}>대사</th>
+      <th className={`py-2 font-medium ${colW.err}`}>검수</th>
+    </tr>
+  );
 
   return (
-    <div className={`flex-1 flex flex-col min-h-0 border-b ${bd}`}>
-      <div className={`shrink-0 border-b ${bd}`}>
+    <div className={`h-full flex flex-col overflow-hidden border-b ${bd}`}>
+      {/* ── 고정 영역: 툴바 + 필터 + 컬럼 헤더 ── */}
+      <div className={`shrink-0 ${card}`}>
         <GridToolbar dark={dm} filteredCount={filtered.length} totalCount={subtitles.length} readOnly={readOnly} />
         <GridFilters dark={dm} filters={filters} onChange={setFilters} />
+        {/* 컬럼 헤더 — 스크롤 밖에서 고정 */}
+        <table className={`w-full text-center text-[11px] ${ts}`}>
+          <thead className={`border-b ${bd}`}>{headerRow}</thead>
+        </table>
       </div>
 
-      <div ref={gridRef} className={`flex-1 overflow-auto ${card} min-h-0`}>
+      {/* ── 스크롤 영역: 자막 행만 ── */}
+      <div ref={scrollRef} className={`flex-1 overflow-y-auto overflow-x-hidden ${card} min-h-0`}>
         <table className={`w-full text-center text-[11px] ${ts}`}>
-          <thead className={`${card} sticky top-0 border-b ${bd} z-10`}>
-            <tr>
-              <th className={`py-2 font-medium w-10 border-r ${bdl}`}>#</th>
-              <th className={`py-2 font-medium w-28 border-r ${bdl}`}>시작</th>
-              <th className={`py-2 font-medium w-28 border-r ${bdl}`}>종료</th>
-              <th className={`py-2 font-medium w-12 border-r ${bdl}`}>유형</th>
-              <th className={`py-2 font-medium w-14 border-r ${bdl}`}>화자 위치</th>
-              <th className={`py-2 font-medium w-14 border-r ${bdl}`}>대사 위치</th>
-              <th className={`py-2 font-medium w-14 border-r ${bdl}`}>화자</th>
-              <th className={`py-2 font-medium text-left px-3 border-r ${bdl}`}>대사</th>
-              <th className="py-2 font-medium w-16">검수</th>
-            </tr>
-          </thead>
           <tbody className={`divide-y ${dm ? "divide-gray-700/40" : "divide-gray-100"}`}>
             {filtered.map((sub) => {
               const isSel = selectedId === sub.id;
@@ -126,13 +142,13 @@ export function SubtitleGrid({ dark, readOnly }: Props) {
                   onDoubleClick={(e) => handleDblClick(sub.id, e)}
                   className={`cursor-pointer transition-colors ${isSel ? sr : isMulti ? mr : hr}`}
                 >
-                  <td className="py-2 relative">
+                  <td className={`py-2 ${colW.seq} relative`}>
                     {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
                     {sub.seq}
                   </td>
-                  <td className={`py-2 font-mono text-[10px] ${tp}`}>{msToTimecode(sub.start_ms)}</td>
-                  <td className={`py-2 font-mono text-[10px] ${tp}`}>{msToTimecode(sub.end_ms)}</td>
-                  <td className="py-2">
+                  <td className={`py-2 ${colW.start} font-mono text-[10px] ${tp}`}>{msToTimecode(sub.start_ms)}</td>
+                  <td className={`py-2 ${colW.end} font-mono text-[10px] ${tp}`}>{msToTimecode(sub.end_ms)}</td>
+                  <td className={`py-2 ${colW.type}`}>
                     <span
                       className={`px-1.5 py-0.5 rounded text-[9px] ${
                         sub.type === "effect"
@@ -145,15 +161,15 @@ export function SubtitleGrid({ dark, readOnly }: Props) {
                       {sub.type === "effect" ? "효과" : "대사"}
                     </span>
                   </td>
-                  <td className={`py-2 ${sub.speaker_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.speaker_pos)}</td>
-                  <td className={`py-2 ${sub.text_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.text_pos)}</td>
-                  <td className={`py-2 ${tp} font-bold`}>{sub.speaker || ""}</td>
+                  <td className={`py-2 ${colW.spkPos} ${sub.speaker_pos === "deleted" ? "text-red-500" : sub.speaker_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.speaker_pos)}</td>
+                  <td className={`py-2 ${colW.txtPos} ${sub.text_pos === "deleted" ? "text-red-500" : sub.text_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.text_pos)}</td>
+                  <td className={`py-2 ${colW.spk} ${tp} font-bold`}>{sub.speaker || ""}</td>
                   <td className={`py-2 text-left px-3 ${tp} max-w-[250px]`} title={sub.text}>
                     <div className="text-[12px] leading-snug whitespace-pre-wrap break-all line-clamp-3">
                       {sub.text}
                     </div>
                   </td>
-                  <td className="py-2">
+                  <td className={`py-2 ${colW.err}`}>
                     {sub.error ? (
                       <span className="text-red-500 bg-red-50 px-1.5 py-0.5 rounded text-[9px] border border-red-100 font-medium">
                         {sub.error}

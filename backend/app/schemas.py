@@ -139,8 +139,8 @@ class SubtitleBatchItem(BaseModel):
     end_ms: int
     type: Literal["dialogue", "effect"]
     speaker: str
-    speaker_pos: Literal["default", "top"]
-    text_pos: Literal["default", "top"]
+    speaker_pos: Literal["default", "top", "deleted"]
+    text_pos: Literal["default", "top", "deleted"]
     text: str
 
 class BatchDeleteRequest(BaseModel):

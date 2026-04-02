@@ -4,10 +4,15 @@ backend/app/routers/projects.py
 from __future__ import annotations
 from typing import List, Optional
 from datetime import datetime, timezone
+from urllib.parse import quote
+import subprocess
+import json
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse, PlainTextResponse
+from starlette.responses import FileResponse
 from sqlalchemy.orm import Session
-import os
 
 from app.database import get_db
 from app.models import Project, Subtitle, User
@@ -17,14 +22,32 @@ from app.services.subtitle_service import (
     parse_srt, export_srt, resequence_and_validate, save_snapshot,
 )
 from app.services.auth import get_current_user, require_role
+from app.services.waveform_service import extract_waveform_peaks, load_peaks
+
 
 router = APIRouter()
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
+# ── 유틸리티 ──
+
 def _dt_str(dt):
     return dt.isoformat() if dt else None
+
+
+def get_video_duration_ms(filepath: str) -> int | None:
+    """ffprobe로 영상 길이(ms) 추출"""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filepath],
+            capture_output=True, text=True, timeout=30,
+        )
+        info = json.loads(result.stdout)
+        duration_sec = float(info["format"]["duration"])
+        return int(duration_sec * 1000)
+    except Exception:
+        return None
 
 
 def _to_response(project: Project, db: Session) -> dict:
@@ -61,6 +84,8 @@ def _to_response(project: Project, db: Session) -> dict:
     }
 
 
+# ── 프로젝트 CRUD ──
+
 @router.get("", response_model=List[ProjectResponse])
 def list_projects(
     status: Optional[str] = Query(None),
@@ -96,8 +121,15 @@ def create_project(data: ProjectCreate, current_user: User = Depends(get_current
             deadline = datetime.fromisoformat(data.deadline)
         except ValueError:
             pass
+    base_name = data.name.strip()
+    existing_names = {p.name for p in db.query(Project.name).all()}
+    final_name = base_name
+    counter = 1
+    while final_name in existing_names:
+        final_name = f"{base_name}({counter})"
+        counter += 1
     project = Project(
-        name=data.name, broadcaster=bc, description=data.description,
+        name=final_name, broadcaster=bc, description=data.description,
         max_lines=max_lines, max_chars_per_line=max_chars, bracket_chars=bracket_chars,
         deadline=deadline, created_by=current_user.id,
         assigned_to=data.assigned_to,
@@ -144,6 +176,12 @@ def update_project(project_id: int, data: ProjectUpdate, current_user: User = De
     if "deadline" in update_data:
         dl = update_data.pop("deadline")
         p.deadline = datetime.fromisoformat(dl) if dl else None
+    if "name" in update_data:
+        new_name = update_data["name"].strip()
+        existing = db.query(Project).filter(Project.name == new_name, Project.id != project_id).first()
+        if existing:
+            raise HTTPException(400, f"이미 같은 이름의 프로젝트가 있습니다: {new_name}")
+    update_data["name"] = new_name
     for k, v in update_data.items():
         setattr(p, k, v)
     db.commit()
@@ -163,6 +201,8 @@ def delete_project(project_id: int, current_user: User = Depends(get_current_use
     db.commit()
 
 
+# ── 프로젝트 상태 ──
+
 @router.post("/{project_id}/submit", response_model=ProjectResponse)
 def submit_project(project_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     p = db.query(Project).get(project_id)
@@ -173,7 +213,6 @@ def submit_project(project_id: int, current_user: User = Depends(get_current_use
         raise HTTPException(400, f"검수 오류 {err}건이 있습니다.")
     p.status = "submitted"
     p.submitted_at = datetime.now(timezone.utc)
-    # 최초 제출 일시: 처음 제출할 때만 기록, 재작업 후 재제출 시 변경하지 않음
     if p.first_submitted_at is None:
         p.first_submitted_at = p.submitted_at
     db.commit()
@@ -236,8 +275,16 @@ def upload_subtitle(project_id: int, file: UploadFile = File(...), current_user:
     content = file.file.read().decode("utf-8-sig")
     save_snapshot(db, project_id, "upload_subtitle")
     db.query(Subtitle).filter(Subtitle.project_id == project_id).delete()
-    for item in parse_srt(content):
-        db.add(Subtitle(project_id=project_id, **item))
+    db.flush()
+
+    # 배치 INSERT — 개별 db.add() 대신 한번에 삽입
+    parsed = parse_srt(content)
+    if parsed:
+        db.bulk_insert_mappings(Subtitle, [
+            {**item, "project_id": project_id, "seq": i + 1}
+            for i, item in enumerate(parsed)
+        ])
+
     p.subtitle_file = file.filename
     db.commit()
     subs = resequence_and_validate(db, project_id)
@@ -246,22 +293,45 @@ def upload_subtitle(project_id: int, file: UploadFile = File(...), current_user:
 
 @router.post("/{project_id}/upload/video")
 async def upload_video(project_id: int, file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """영상 업로드 — 청크 단위 저장 + ffprobe로 길이 감지"""
     p = db.query(Project).get(project_id)
     if not p:
         raise HTTPException(404)
+
     filepath = os.path.join(UPLOAD_DIR, f"project_{project_id}_{file.filename}")
-    total_size = 0
-    with open(filepath, "wb") as f:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            f.write(chunk)
-            total_size += len(chunk)
-    p.video_file = filepath
-    p.file_size_mb = round(total_size / (1024 * 1024), 2)
-    db.commit()
-    return {"message": "영상 업로드 완료", "path": filepath, "size_mb": p.file_size_mb}
+
+    # 파일 쓰기 (청크 단위 — 메모리 부담 없음)
+    try:
+        total_size = 0
+        with open(filepath, "wb") as f:
+            while True:
+                chunk = await file.read(2 * 1024 * 1024)  # 2MB 청크
+                if not chunk:
+                    break
+                f.write(chunk)
+                total_size += len(chunk)
+
+        p.video_file = filepath
+        p.file_size_mb = round(total_size / (1024 * 1024), 2)
+
+        # ffprobe로 영상 길이 감지
+        duration_ms = get_video_duration_ms(filepath)
+        if duration_ms:
+            p.total_duration_ms = duration_ms
+            p.video_duration_ms = duration_ms
+
+        # waveform peaks 추출
+        extract_waveform_peaks(filepath, project_id, duration_ms)
+
+        db.commit()
+        return {
+            "message": "영상 업로드 완료",
+            "size_mb": p.file_size_mb,
+            "duration_ms": duration_ms,
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"영상 업로드 실패: {str(e)}")
 
 
 @router.get("/{project_id}/download/subtitle")
@@ -270,24 +340,43 @@ def download_subtitle(project_id: int, current_user: User = Depends(get_current_
     if not p:
         raise HTTPException(404)
     subs = db.query(Subtitle).filter(Subtitle.project_id == project_id).order_by(Subtitle.seq).all()
+
+    filename = p.subtitle_file or (p.name + ".srt")
+    encoded = quote(filename)
     return PlainTextResponse(
         content=export_srt(subs), media_type="text/plain",
-        headers={"Content-Disposition": f'attachment; filename="{p.subtitle_file or p.name + ".srt"}"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
     )
 
 
 @router.get("/{project_id}/stream/video")
 def stream_video(project_id: int, db: Session = Depends(get_db)):
+    """영상 스트리밍 — Range 요청 지원 (대용량 파일 seek 가능)"""
+    import mimetypes
+
     p = db.query(Project).get(project_id)
     if not p or not p.video_file or not os.path.exists(p.video_file):
         raise HTTPException(404, "Video not found")
-    import mimetypes
-    from starlette.responses import FileResponse
-    content_type, _ = mimetypes.guess_type(p.video_file)
+
+    file_path = p.video_file
+    content_type, _ = mimetypes.guess_type(file_path)
     if not content_type:
         content_type = "video/mp4"
+
     return FileResponse(
-        path=p.video_file,
+        path=file_path,
         media_type=content_type,
-        filename=os.path.basename(p.video_file),
+        filename=os.path.basename(file_path),
+        stat_result=os.stat(file_path),
     )
+
+@router.get("/{project_id}/waveform")
+def get_waveform(project_id: int, db: Session = Depends(get_db)):
+    """waveform peaks 데이터 조회"""
+    p = db.query(Project).get(project_id)
+    if not p:
+        raise HTTPException(404)
+    peaks = load_peaks(project_id)
+    if not peaks:
+        raise HTTPException(404, "Waveform not available")
+    return peaks
