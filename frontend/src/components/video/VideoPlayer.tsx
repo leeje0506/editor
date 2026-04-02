@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
+import { useTimelineStore } from "../../store/useTimelineStore";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { msToTimecode } from "../../utils/time";
 import { SubtitleOverlay } from "./SubtitleOverlay";
@@ -26,6 +27,7 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
 
   const { currentMs, playing, muted, totalMs, togglePlay, toggleMute, setCurrentMs, setTotalMs } =
     usePlayerStore();
+  const setTimelineTotalMs = useTimelineStore((s) => s.setTotalMs);
   const videoPreviewMs = usePlayerStore((s) => s.videoPreviewMs);
   const subtitles = useSubtitleStore((s) => s.subtitles);
   const activeNow = subtitles.filter((s) => currentMs >= s.start_ms && currentMs < s.end_ms);
@@ -94,8 +96,11 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
     if (!v) return;
     if (v.videoWidth && v.videoHeight) setVideoAspect(v.videoWidth / v.videoHeight);
     const durationMs = Math.floor(v.duration * 1000);
-    if (durationMs > 0 && durationMs !== totalMs) setTotalMs(durationMs);
-  }, [totalMs, setTotalMs]);
+    if (durationMs > 0 && durationMs !== totalMs) {
+      setTotalMs(durationMs);
+      setTimelineTotalMs(durationMs);
+    }
+  }, [totalMs, setTotalMs, setTimelineTotalMs]);
 
   const handleTimeUpdate = useCallback(() => {
     const v = videoRef.current;

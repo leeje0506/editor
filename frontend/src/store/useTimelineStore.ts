@@ -53,7 +53,16 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     set({ scrollMs: clamp(ms, 0, Math.max(0, totalMs - ZOOM_LEVELS[zoomIdx])) });
   },
 
-  setTotalMs: (ms) => set({ totalMs: ms }),
+  setTotalMs: (ms) => {
+    const { zoomIdx, scrollMs } = get();
+    const dur = ZOOM_LEVELS[zoomIdx];
+    const safeMs = Math.max(0, ms);
+
+    set({
+      totalMs: safeMs,
+      scrollMs: clamp(scrollMs, 0, Math.max(0, safeMs - dur)),
+    });
+  },
 
   ensureVisible: (ms) => {
     const { scrollMs, totalMs, zoomIdx } = get();

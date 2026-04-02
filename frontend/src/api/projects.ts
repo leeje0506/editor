@@ -36,4 +36,6 @@ export const projectsApi = {
   },
   downloadSubtitle: (id: number) => `/api/projects/${id}/download/subtitle`,
   videoStreamUrl: (id: number) => `/api/projects/${id}/stream/video`,
+  getWaveform: (id: number) =>
+    api.get<{ peaks: number[]; peaks_per_second: number; duration_ms: number }>(`/projects/${id}/waveform`).then((r) => r.data),
 };

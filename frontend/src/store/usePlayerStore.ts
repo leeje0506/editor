@@ -31,7 +31,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   videoPreviewMs: null,
 
   setCurrentMs: (ms) => set({ currentMs: Math.max(0, Math.min(ms, get().totalMs)) }),
-  setTotalMs: (ms) => set({ totalMs: ms }),
+  setTotalMs: (ms) =>
+    set((s) => {
+      const safeMs = Math.max(0, ms);
+      return {
+        totalMs: safeMs,
+        currentMs: Math.min(s.currentMs, safeMs),
+        videoPreviewMs: s.videoPreviewMs === null ? null : Math.min(s.videoPreviewMs, safeMs),
+      };
+    }),
   togglePlay: () =>
     set((s) => {
       if (!s.playing) {

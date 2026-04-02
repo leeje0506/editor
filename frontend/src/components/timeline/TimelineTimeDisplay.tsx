@@ -10,13 +10,10 @@ export function TimelineTimeDisplay() {
   const rafRef = useRef<number>(0);
 
   useEffect(() => {
-    const totalMs = usePlayerStore.getState().totalMs;
-    const totalStr = msToTimecode(totalMs);
-
     const update = () => {
       if (ref.current) {
-        const currentMs = usePlayerStore.getState().currentMs;
-        ref.current.textContent = `${msToTimecode(currentMs)} / ${totalStr}`;
+        const { currentMs, totalMs } = usePlayerStore.getState();
+        ref.current.textContent = `${msToTimecode(currentMs)} / ${msToTimecode(totalMs)}`;
       }
       rafRef.current = requestAnimationFrame(update);
     };
