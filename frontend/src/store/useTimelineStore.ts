@@ -22,7 +22,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   scrollMs: 0,
   totalMs: 600000,
 
-  visibleDuration: () => ZOOM_LEVELS[get().zoomIdx],
+  // visibleDuration: () => ZOOM_LEVELS[get().zoomIdx],
+  visibleDuration: () => Math.min(ZOOM_LEVELS[get().zoomIdx], Math.max(get().totalMs, 1)),
 
   zoomIn: (anchorPct = 0.5) => {
     const { zoomIdx, scrollMs, totalMs } = get();
@@ -40,7 +41,15 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     set({ zoomIdx: ni, scrollMs: clamp(anchor - anchorPct * nd, 0, Math.max(0, totalMs - nd)) });
   },
 
-  zoomFit: () => set({ zoomIdx: DEFAULT_ZOOM_IDX, scrollMs: 0 }),
+  // zoomFit: () => set({ zoomIdx: DEFAULT_ZOOM_IDX, scrollMs: 0 }),
+  zoomFit: () => {
+    const { totalMs } = get();
+    const fitIdx = ZOOM_LEVELS.findIndex((z) => z >= totalMs);
+    set({
+      zoomIdx: fitIdx === -1 ? ZOOM_LEVELS.length - 1 : fitIdx,
+      scrollMs: 0,
+    });
+  },
 
   panBy: (deltaMs) => {
     const { scrollMs, totalMs, zoomIdx } = get();
@@ -53,7 +62,16 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     set({ scrollMs: clamp(ms, 0, Math.max(0, totalMs - ZOOM_LEVELS[zoomIdx])) });
   },
 
-  setTotalMs: (ms) => set({ totalMs: ms }),
+  setTotalMs: (ms) => {
+    const { zoomIdx, scrollMs } = get();
+    const dur = ZOOM_LEVELS[zoomIdx];
+    const safeMs = Math.max(0, ms);
+
+    set({
+      totalMs: safeMs,
+      scrollMs: clamp(scrollMs, 0, Math.max(0, safeMs - dur)),
+    });
+  },
 
   ensureVisible: (ms) => {
     const { scrollMs, totalMs, zoomIdx } = get();

@@ -4,7 +4,6 @@ import { usePlayerStore } from "../../store/usePlayerStore";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { useTimelineStore } from "../../store/useTimelineStore";
 import { useTimelineZoom } from "../../hooks/useTimelineZoom";
-import { msToTimecode } from "../../utils/time";
 import { ZoomControls } from "./ZoomControls";
 import { Playhead } from "./Playhead";
 import { ProgressBar } from "./ProgressBar";
@@ -12,10 +11,67 @@ import { TimelineTimeDisplay } from "./TimelineTimeDisplay";
 
 interface Props {
   dark: boolean;
+  peaks?: number[] | null;
   onReload?: () => void;
 }
 
-export function Timeline({ dark, onReload }: Props) {
+/** peaks 배열 + 현재 뷰 범위로 SVG path 생성 */
+function buildWavePath(
+  peaks: number[],
+  peaksPerSec: number,
+  tlLeft: number,
+  visDur: number,
+  totalMs: number,
+): string {
+  const W = 4000, H = 400, mid = H / 2;
+  const pts: number[] = [];
+
+  for (let i = 0; i <= W; i += 4) {
+    const ms = tlLeft + (i / W) * visDur;
+    if (ms > totalMs || ms < 0) { pts.push(0); continue; }
+    // peaks 인덱스 계산: ms → 초 → 초당 peaksPerSec개
+    const idx = (ms / 1000) * peaksPerSec;
+    const lo = Math.floor(idx);
+    const hi = Math.min(lo + 1, peaks.length - 1);
+    const frac = idx - lo;
+    // 선형 보간
+    const val = lo < peaks.length
+      ? peaks[lo] * (1 - frac) + (peaks[hi] ?? peaks[lo]) * frac
+      : 0;
+    pts.push(val * mid * 0.9);
+  }
+
+  let upper = `M0,${mid} `;
+  for (let i = 0; i < pts.length; i++) upper += `L${i * 4},${mid - pts[i]} `;
+  upper += `L${W},${mid} `;
+  let lower = "";
+  for (let i = pts.length - 1; i >= 0; i--) lower += `L${i * 4},${mid + pts[i]} `;
+  return upper + lower + "Z";
+}
+
+/** peaks 없을 때 mock 사인 파형 (fallback) */
+function buildMockWavePath(tlLeft: number, visDur: number, totalMs: number): string {
+  const W = 4000, H = 400, mid = H / 2;
+  const pts: number[] = [];
+  for (let i = 0; i <= W; i += 6) {
+    const ms = tlLeft + (i / W) * visDur;
+    if (ms > totalMs) { pts.push(0); continue; }
+    const x = ms * 0.001;
+    const amp =
+      Math.sin(x * 2.1) * 0.3 + Math.sin(x * 5.7) * 0.25 +
+      Math.sin(x * 13.3) * 0.2 + Math.sin(x * 31.7) * 0.15 +
+      Math.sin(x * 67.1) * 0.1;
+    pts.push(((amp + 1) / 2) * mid * 0.9);
+  }
+  let upper = `M0,${mid} `;
+  for (let i = 0; i < pts.length; i++) upper += `L${i * 6},${mid - pts[i]} `;
+  upper += `L${W},${mid} `;
+  let lower = "";
+  for (let i = pts.length - 1; i >= 0; i--) lower += `L${i * 6},${mid + pts[i]} `;
+  return upper + lower + "Z";
+}
+
+export function Timeline({ dark, peaks, onReload }: Props) {
   const tlRef = useRef<HTMLDivElement>(null);
 
   const playing = usePlayerStore((s) => s.playing);
@@ -39,8 +95,11 @@ export function Timeline({ dark, onReload }: Props) {
   const bdl = dm ? "border-gray-700" : "border-gray-100";
   const ts = dm ? "text-gray-400" : "text-gray-500";
 
-  const visDur = visibleDuration();
-  const tlLeft = scrollMs;
+  // const visDur = visibleDuration();
+  // const tlLeft = scrollMs;
+  const rawVisDur = visibleDuration();
+  const visDur = Math.min(rawVisDur, Math.max(totalMs, 1));
+  const tlLeft = Math.min(scrollMs, Math.max(0, totalMs - visDur));
 
   const vtl = useMemo(
     () => subtitles.filter((s) => s.end_ms > tlLeft && s.start_ms < tlLeft + visDur),
@@ -50,27 +109,18 @@ export function Timeline({ dark, onReload }: Props) {
   const tickCount = visDur <= 10000 ? 10 : visDur <= 30000 ? 8 : visDur <= 120000 ? 6 : 10;
   const ticks = Array.from({ length: tickCount + 1 }, (_, i) => i / tickCount);
 
-  // 파형 생성 — totalMs 이후는 그리지 않음
+  const peaksPerSec = useMemo(() => {
+    if (!peaks || peaks.length === 0 || totalMs <= 0) return 0;
+    return peaks.length / (totalMs / 1000);
+  }, [peaks, totalMs]);
+
+  // ── 파형 path 생성 ──
   const wavePath = useMemo(() => {
-    const W = 4000, H = 400, mid = H / 2;
-    const pts: number[] = [];
-    for (let i = 0; i <= W; i += 6) {
-      const ms = tlLeft + (i / W) * visDur;
-      if (ms > totalMs) { pts.push(0); continue; }
-      const x = ms * 0.001;
-      const amp =
-        Math.sin(x * 2.1) * 0.3 + Math.sin(x * 5.7) * 0.25 +
-        Math.sin(x * 13.3) * 0.2 + Math.sin(x * 31.7) * 0.15 +
-        Math.sin(x * 67.1) * 0.1;
-      pts.push(((amp + 1) / 2) * mid * 0.9);
+    if (peaks && peaks.length > 0 && peaksPerSec > 0) {
+      return buildWavePath(peaks, peaksPerSec, tlLeft, visDur, totalMs);
     }
-    let upper = `M0,${mid} `;
-    for (let i = 0; i < pts.length; i++) upper += `L${i * 6},${mid - pts[i]} `;
-    upper += `L${W},${mid} `;
-    let lower = "";
-    for (let i = pts.length - 1; i >= 0; i--) lower += `L${i * 6},${mid + pts[i]} `;
-    return upper + lower + "Z";
-  }, [tlLeft, visDur, totalMs]);
+    return buildMockWavePath(tlLeft, visDur, totalMs);
+  }, [peaks, peaksPerSec, tlLeft, visDur, totalMs]);
 
   // 자막 시간 드래그
   const startDrag = useCallback(
@@ -98,7 +148,7 @@ export function Timeline({ dark, onReload }: Props) {
     [tlLeft, visDur, updateLocal],
   );
 
-  // non-passive wheel 리스너 — inner div 기준
+  // non-passive wheel 리스너
   useEffect(() => {
     const el = tlRef.current;
     if (!el) return;
@@ -110,9 +160,7 @@ export function Timeline({ dark, onReload }: Props) {
     return () => el.removeEventListener("wheel", handler);
   }, [handleWheel]);
 
-  /**
-   * 파형 클릭 — inner div 기준으로 좌표 계산
-   */
+  /** 파형 클릭 */
   const onTrackClick = useCallback(
     (e: React.MouseEvent) => {
       if ((e.target as HTMLElement).closest("[data-h]")) return;
@@ -129,9 +177,7 @@ export function Timeline({ dark, onReload }: Props) {
       usePlayerStore.getState().setVideoPreviewMs(null);
 
       const hit = subtitles.find((s) => clickMs >= s.start_ms && clickMs < s.end_ms);
-      if (hit) {
-        selectSingle(hit.id);
-      }
+      if (hit) selectSingle(hit.id);
     },
     [tlLeft, visDur, setCurrentMs, subtitles, selectSingle],
   );
@@ -164,10 +210,10 @@ export function Timeline({ dark, onReload }: Props) {
         </div>
       </div>
 
-      {/* 여백 영역 — 배경색은 다크/라이트 모드에 맞춤 */}
+      {/* 여백 영역 */}
       <div className={`flex-1 relative ${dm ? "bg-gray-800" : "bg-white"} overflow-hidden p-2`}>
 
-        {/* inner 박스 — 시간눈금+파형+자막+Playhead+재생바 전부 여기 안 */}
+        {/* inner 박스 */}
         <div
           ref={tlRef}
           className="relative w-full h-full bg-black overflow-hidden cursor-crosshair rounded-sm"
@@ -205,7 +251,7 @@ export function Timeline({ dark, onReload }: Props) {
             <div className="absolute left-0 right-0 top-1/2 h-px bg-gray-700/30" />
           </div>
 
-          {/* 자막 블록 — 파형 겹침 */}
+          {/* 자막 블록 */}
           <div className="absolute inset-x-0 top-4 bottom-[6px] z-10">
             {vtl.map((s) => {
               const rawL = ((s.start_ms - tlLeft) / visDur) * 100;
@@ -215,7 +261,6 @@ export function Timeline({ dark, onReload }: Props) {
               const isSel = s.id === selectedId;
               const isMulti = multiSelect.has(s.id) && !isSel;
               const durSec = ((s.end_ms - s.start_ms) / 1000).toFixed(3);
-
               const isCurrent = isSel;
               const zIdx = isSel ? 30 : 10;
 
@@ -247,16 +292,14 @@ export function Timeline({ dark, onReload }: Props) {
                   </div>
 
                   {/* 좌측 경계 */}
-                  <div
-                    data-h="s"
+                  <div data-h="s"
                     className={`absolute left-0 top-0 bottom-0 w-px cursor-ew-resize z-20 hover:bg-green-400/50 ${
                       isCurrent ? "bg-red-400" : isSel ? "bg-blue-400" : "bg-gray-400/50"
                     }`}
                     onMouseDown={(e) => startDrag(e, "start", s.id)}
                   />
                   {/* 우측 경계 */}
-                  <div
-                    data-h="e"
+                  <div data-h="e"
                     className={`absolute right-0 top-0 bottom-0 w-px cursor-ew-resize z-20 hover:bg-green-400/50 ${
                       isCurrent ? "bg-red-400" : isSel ? "bg-blue-400" : "bg-gray-400/50"
                     }`}
@@ -298,7 +341,7 @@ export function Timeline({ dark, onReload }: Props) {
           {/* 현재 시간 */}
           <TimelineTimeDisplay />
 
-          {/* 재생바 — inner 박스 맨 아래 */}
+          {/* 재생바 */}
           <div className="absolute left-0 right-0 bottom-0 h-[5px] z-20">
             <ProgressBar dark={dm} />
           </div>

@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
+import { useTimelineStore } from "../../store/useTimelineStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
@@ -60,6 +61,8 @@ export function AppLayout() {
   const [elapsed, setElapsed] = useState(0);
   const [showSubPanel, setShowSubPanel] = useState(false);
 
+  const [peaks, setPeaks] = useState<number[] | null>(null);
+
   // 독립 크기 상태 — localStorage 저장/복원
   const [videoWidth, setVideoWidth] = useState(() => {
     const saved = localStorage.getItem("editor_videoWidth");
@@ -88,6 +91,7 @@ export function AppLayout() {
   const init = useSubtitleStore((s) => s.init);
   const saveAll = useSubtitleStore((s) => s.saveAll);
   const setTotalMs = usePlayerStore((s) => s.setTotalMs);
+  const setTimelineTotalMs = useTimelineStore((s) => s.setTotalMs);
 
   const pid = Number(projectId);
   const user = useAuthStore((s) => s.user);
@@ -165,12 +169,18 @@ export function AppLayout() {
     if (!pid) return;
     usePlayerStore.getState().setCurrentMs(0);
     usePlayerStore.getState().setVideoPreviewMs(null);
+    useTimelineStore.getState().zoomFit();
+    useTimelineStore.getState().setScrollMs(0);
     projectsApi.get(pid).then((p) => {
       setProject(p);
       setElapsed(p.elapsed_seconds || 0);
       setTotalMs(p.total_duration_ms);
+      setTimelineTotalMs(p.total_duration_ms);
     }).catch(() => navigate("/"));
     init(pid).catch(() => {});
+    projectsApi.getWaveform(pid)
+      .then((w) => setPeaks(w.peaks))
+      .catch(() => setPeaks(null));
     loadSettings();
   }, [pid]);
 
@@ -279,6 +289,7 @@ export function AppLayout() {
         const p = await projectsApi.get(pid);
         setProject(p);
         setTotalMs(p.total_duration_ms);
+        setTimelineTotalMs(p.total_duration_ms);
         await init(pid);
       } catch {}
     }
@@ -367,7 +378,7 @@ export function AppLayout() {
 
       {/* 4) Timeline — 전체 폭, 고정 높이 */}
       <div className="shrink-0 overflow-hidden" style={{ height: timelineHeight }}>
-        <Timeline dark={dm} />
+        <Timeline dark={dm} peaks={peaks} />
       </div>
     </div>
   );
