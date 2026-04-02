@@ -13,6 +13,7 @@ import { VideoPlayer } from "../video/VideoPlayer";
 import { SubtitleGrid } from "../grid/SubtitleGrid";
 import { QuickEditor } from "../editor/QuickEditor";
 import { Timeline } from "../timeline/Timeline";
+import { SubtitleDisplayPanel } from "../video/SubtitleDisplayPanel";
 import api from "../../api/client";
 
 const DEFAULT_VIDEO_W = 960;
@@ -57,6 +58,7 @@ export function AppLayout() {
   const [savedMsg, setSavedMsg] = useState("");
   const [project, setProject] = useState<Project | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [showSubPanel, setShowSubPanel] = useState(false);
 
   // 독립 크기 상태 — localStorage 저장/복원
   const [videoWidth, setVideoWidth] = useState(() => {
@@ -100,13 +102,10 @@ export function AppLayout() {
     ? window.innerHeight - TOPNAV_H - HANDLE_H - timelineHeight
     : 600;
 
-  // const handleVideoWidthChange = useCallback((w: number) => {
-  //   setVideoWidth(w);
-  // }, []);
   const handleVideoWidthChange = useCallback((w: number) => {
-  // 왼쪽 컬럼이 전체 폭의 40% 이하로 줄어들지 않도록 영상 너비 상한 제한
-  const maxW = Math.floor(window.innerWidth * 0.6);
-  setVideoWidth(Math.min(w, maxW));
+    // 왼쪽 컬럼이 전체 폭의 40% 이하로 줄어들지 않도록 영상 너비 상한 제한
+    const maxW = Math.floor(window.innerWidth * 0.6);
+    setVideoWidth(Math.min(w, maxW));
   }, []);
 
   // Grid ↔ QuickEditor 경계 드래그 (왼쪽 컬럼 내부)
@@ -164,6 +163,8 @@ export function AppLayout() {
   // 프로젝트 로드 + 개인 설정 로드
   useEffect(() => {
     if (!pid) return;
+    usePlayerStore.getState().setCurrentMs(0);
+    usePlayerStore.getState().setVideoPreviewMs(null);
     projectsApi.get(pid).then((p) => {
       setProject(p);
       setElapsed(p.elapsed_seconds || 0);
@@ -312,9 +313,11 @@ export function AppLayout() {
         onDownload={handleDownload}
         onHome={handleGoHome}
         onSettingsClosed={handleSettingsClosed}
+        onToggleSubtitlePanel={() => setShowSubPanel(!showSubPanel)}
         project={project}
         elapsed={elapsed}
         readOnly={isReadOnly(project, isWorker)}
+        isAdmin={!isWorker}
       />
 
       {/*
@@ -352,6 +355,10 @@ export function AppLayout() {
             videoWidth={videoWidth}
             onWidthChange={handleVideoWidthChange}
           />
+          {/* 자막 표시 설정 패널 — 영상 위에 오버레이 */}
+          {showSubPanel && (
+            <SubtitleDisplayPanel dark={dm} onClose={() => setShowSubPanel(false)} />
+          )}
         </div>
       </div>
 

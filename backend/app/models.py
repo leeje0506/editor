@@ -61,7 +61,7 @@ class Project(Base):
     reject_count = Column(Integer, default=0)              # 반려(재작업) 횟수
     first_submitted_at = Column(DateTime, nullable=True)   # 최초 제출 일시 (재작업해도 변경 안 함)
     # 영상 업로드
-    video_status = Column(String(20), default="none")  # none / uploading / ready / error
+    # video_status = Column(String(20), default="none")  # none / uploading / ready / error
 
 
 class Subtitle(Base):

@@ -2,37 +2,34 @@ import { useState, useEffect } from "react";
 import { FileText, Film, Upload } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { projectsApi } from "../../api/projects";
+import { useBroadcasterStore } from "../../store/useBroadcasterStore";
 import type { Project } from "../../types";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
-
-const BROADCASTER_OPTIONS = ["TVING", "LGHV", "SKBB", "JTBC", "KBS", "자유작업"];
-const BROADCASTER_RULES: Record<string, { max_lines: number; max_chars_per_line: number; bracket_chars: number }> = {
-  "TVING":  { max_lines: 2, max_chars_per_line: 20, bracket_chars: 5 },
-  "LGHV":   { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5 },
-  "SKBB":   { max_lines: 1, max_chars_per_line: 20, bracket_chars: 5 },
-  "JTBC":   { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5 },
-  "KBS":    { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5 },
-  "자유작업": { max_lines: 99, max_chars_per_line: 999, bracket_chars: 0 },
-};
 
 interface Props {
   dark: boolean;
   onClose: () => void;
+  /** master/manager만 true. worker는 줄 수/글자 수 수정 불가 */
+  isAdmin?: boolean;
 }
 
-export function ProjectSettingsModal({ dark, onClose }: Props) {
+export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
   const { projectId } = useParams<{ projectId: string }>();
   const pid = Number(projectId);
   const initSubs = useSubtitleStore((s) => s.init);
+  const bcStore = useBroadcasterStore();
 
   const [project, setProject] = useState<Project | null>(null);
   const [name, setName] = useState("");
   const [broadcaster, setBroadcaster] = useState("");
   const [maxLines, setMaxLines] = useState(2);
   const [maxChars, setMaxChars] = useState(18);
-  const [bracketChars, setBracketChars] = useState(5);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    bcStore.fetch();
+  }, []);
 
   useEffect(() => {
     if (!pid) return;
@@ -42,17 +39,15 @@ export function ProjectSettingsModal({ dark, onClose }: Props) {
       setBroadcaster(p.broadcaster);
       setMaxLines(p.max_lines);
       setMaxChars(p.max_chars_per_line);
-      setBracketChars(p.bracket_chars);
     });
   }, [pid]);
 
   const handleBroadcasterChange = (bc: string) => {
     setBroadcaster(bc);
-    const rules = BROADCASTER_RULES[bc];
+    const rules = bcStore.rules[bc];
     if (rules) {
       setMaxLines(rules.max_lines);
       setMaxChars(rules.max_chars_per_line);
-      setBracketChars(rules.bracket_chars);
     }
   };
 
@@ -60,13 +55,13 @@ export function ProjectSettingsModal({ dark, onClose }: Props) {
     if (!pid) return;
     setSaving(true);
     try {
-      await projectsApi.update(pid, {
-        name,
-        broadcaster,
-        max_lines: maxLines,
-        max_chars_per_line: maxChars,
-        bracket_chars: bracketChars,
-      } as any);
+      const updateData: Record<string, unknown> = { name, broadcaster };
+      // admin만 줄 수/글자 수 변경 가능
+      if (isAdmin) {
+        updateData.max_lines = maxLines;
+        updateData.max_chars_per_line = maxChars;
+      }
+      await projectsApi.update(pid, updateData);
       // 검수 기준 변경되었으므로 자막 다시 로드
       await initSubs(pid);
       setMsg("저장 완료!");
@@ -121,27 +116,34 @@ export function ProjectSettingsModal({ dark, onClose }: Props) {
             <input value={name} onChange={(e) => setName(e.target.value)} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
           </div>
 
-          {/* 방송사 */}
+          {/* 방송사 — DB 연동 */}
           <div>
             <label className={`block ${ts} mb-1`}>방송사</label>
             <select value={broadcaster} onChange={(e) => handleBroadcasterChange(e.target.value)} className={`w-full border rounded px-2.5 py-2 ${inp}`}>
-              {BROADCASTER_OPTIONS.map((bc) => (
-                <option key={bc} value={bc}>{bc} — {BROADCASTER_RULES[bc]?.max_lines}줄 / {BROADCASTER_RULES[bc]?.max_chars_per_line}자</option>
-              ))}
+              {bcStore.names.map((bc) => {
+                const r = bcStore.rules[bc];
+                return (
+                  <option key={bc} value={bc}>
+                    {bc} — {r?.max_lines}줄 / {r?.max_chars_per_line}자
+                  </option>
+                );
+              })}
             </select>
           </div>
 
-          {/* 자막 기준 */}
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className={`block ${ts} mb-1`}>최대 줄 수</label>
-              <input type="number" value={maxLines} onChange={(e) => setMaxLines(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
+          {/* 자막 기준 — admin만 표시 */}
+          {isAdmin && (
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className={`block ${ts} mb-1`}>최대 줄 수</label>
+                <input type="number" value={maxLines} onChange={(e) => setMaxLines(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
+              </div>
+              <div className="flex-1">
+                <label className={`block ${ts} mb-1`}>줄당 최대 글자</label>
+                <input type="number" value={maxChars} onChange={(e) => setMaxChars(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
+              </div>
             </div>
-            <div className="flex-1">
-              <label className={`block ${ts} mb-1`}>줄당 최대 글자</label>
-              <input type="number" value={maxChars} onChange={(e) => setMaxChars(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
-            </div>
-          </div>
+          )}
 
           {/* 자막 파일 */}
           <div>

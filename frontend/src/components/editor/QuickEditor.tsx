@@ -1,7 +1,9 @@
+import { useState, useEffect } from "react";
 import { AlertTriangle, Lock } from "lucide-react";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { countTextChars } from "../../utils/validation";
+import { msToTimecode, timecodeToMs } from "../../utils/time";
 
 interface Props {
   dark: boolean;
@@ -14,6 +16,18 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly }: Pro
   const { subtitles, selectedId, updateLocal, navigateNext, navigatePrev } = useSubtitleStore();
   const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
   const sel = subtitles.find((s) => s.id === selectedId);
+
+  // 시작/종료 시간 — 로컬 문자열 state (hooks는 early return 전에 선언)
+  const [startTc, setStartTc] = useState("00:00:00,000");
+  const [endTc, setEndTc] = useState("00:00:00,000");
+
+  // 선택된 자막이 바뀌면 로컬 state 동기화
+  useEffect(() => {
+    if (sel) {
+      setStartTc(msToTimecode(sel.start_ms));
+      setEndTc(msToTimecode(sel.end_ms));
+    }
+  }, [sel?.id, sel?.start_ms, sel?.end_ms]);
 
   const dm = dark;
   const card = dm ? "bg-gray-800" : "bg-white";
@@ -32,11 +46,6 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly }: Pro
     );
   }
 
-  /**
-   * 자막 필드 업데이트.
-   * NFC 정규화를 하지 않음 — 입력 중 조합 중인 한글(자소)을 깨뜨리지 않기 위해.
-   * NFC 정규화는 서버 저장(saveAll/updateOne API) 시점에서 처리.
-   */
   const upd = (data: Record<string, unknown>) => {
     if (readOnly) return;
     if (selectedId) {
@@ -44,14 +53,22 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly }: Pro
     }
   };
 
-  const hasSpeaker = !!sel.speaker;
+  /** blur 시 타임코드 → ms 변환하여 저장 */
+  const commitTime = (field: "start_ms" | "end_ms", value: string) => {
+    const ms = timecodeToMs(value);
+    if (ms > 0 || value.trim() === "00:00:00,000") {
+      upd({ [field]: ms });
+    } else {
+      // 파싱 실패 → 원래 값으로 롤백
+      if (field === "start_ms") setStartTc(msToTimecode(sel.start_ms));
+      else setEndTc(msToTimecode(sel.end_ms));
+    }
+  };
 
-  // 글자 수 카운트 — 공백 및 특수기호 포함 (NFC 정규화 후 카운트)
+  const hasSpeaker = !!sel.speaker;
   const totalChars = countTextChars(sel.text);
-  // 화자 예약 글자수 = 화자명 글자수 + 3 (괄호+공백 등)
   const speakerReserved = hasSpeaker ? sel.speaker.length + 3 : 0;
   const usedWithSpeaker = totalChars + speakerReserved;
-  // 기준값 = 실제 줄 수(줄바꿈 기준) × 줄당 글자수. 최소 1줄.
   const lineCount = Math.max(1, sel.text.split("\n").length);
   const limit = maxChars * lineCount;
   const isOver = usedWithSpeaker > limit;
@@ -61,7 +78,6 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly }: Pro
     field: "speaker_pos" | "text_pos",
     values: { v: string; l: string }[],
     currentVal: string,
-    onDelete?: () => void,
   ) => (
     <div className="flex items-center gap-1.5">
       <span className={ts}>{label}:</span>
@@ -72,11 +88,12 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly }: Pro
             disabled={readOnly}
             onClick={() => {
               if (readOnly) return;
-              if (v === "삭제" && onDelete) onDelete();
-              else upd({ [field]: v });
+              upd({ [field]: v });
             }}
             className={`px-2.5 py-0.5 text-[10px] border-r last:border-r-0 ${bd} ${
-              currentVal === v ? "bg-blue-500 text-white font-medium" : `${card} ${ts} hover:opacity-80`
+              currentVal === v
+                ? v === "deleted" ? "bg-red-500 text-white font-medium" : "bg-blue-500 text-white font-medium"
+                : `${card} ${ts} hover:opacity-80`
             } ${disabledCls}`}
           >
             {l}
@@ -107,46 +124,72 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly }: Pro
         </div>
         <div className="flex items-center gap-4 text-[11px]">
           {posBtn("화자 위치", "speaker_pos", [
-            { v: "default", l: "유지" }, { v: "top", l: "상단" }, { v: "삭제", l: "삭제" },
-          ], sel.speaker_pos, () => upd({ speaker_pos: "default", speaker: "" }))}
+            { v: "default", l: "유지" }, { v: "top", l: "상단" }, { v: "deleted", l: "삭제" },
+          ], sel.speaker_pos)}
           {posBtn("대사 위치", "text_pos", [
-            { v: "default", l: "유지" }, { v: "top", l: "상단" }, { v: "삭제", l: "삭제" },
-          ], sel.text_pos, () => upd({ text_pos: "default", text: "" }))}
+            { v: "default", l: "유지" }, { v: "top", l: "상단" }, { v: "deleted", l: "삭제" },
+          ], sel.text_pos)}
         </div>
       </div>
 
       {/* Form */}
-      <div className="flex flex-1 p-3 gap-5 min-h-0">
-        <div className="w-52 flex flex-col gap-2 shrink-0">
-          <div>
-            <label className={`block text-[11px] ${ts} mb-0.5`}>유형</label>
-            <select
-              value={sel.type}
-              disabled={readOnly}
-              onChange={(e) => upd({ type: e.target.value })}
-              className={`w-full text-sm border rounded px-2.5 py-1.5 outline-none focus:border-blue-500 ${inp} ${disabledCls}`}
-            >
-              <option value="dialogue">대사 (Dialogue)</option>
-              <option value="effect">효과 (Effect)</option>
-            </select>
+      <div className="flex flex-1 p-3 gap-3 min-h-0">
+        {/* 왼쪽 컬럼: 시작/종료 + 유형/화자 */}
+        <div className="w-72 flex flex-col gap-2 shrink-0">
+          {/* 시작 시간 + 유형 */}
+          <div className="flex gap-2">
+            <div className="w-36 shrink-0">
+              <label className={`block text-[11px] ${ts} mb-0.5`}>시작</label>
+              <input
+                value={startTc}
+                readOnly={readOnly}
+                onChange={(e) => setStartTc(e.target.value)}
+                onBlur={() => commitTime("start_ms", startTc)}
+                onKeyDown={(e) => { if (e.key === "Enter") commitTime("start_ms", startTc); }}
+                className={`w-full text-xs font-mono border rounded px-2 py-1.5 outline-none focus:border-blue-500 ${inp} ${disabledCls}`}
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <label className={`block text-[11px] ${ts} mb-0.5`}>유형</label>
+              <select
+                value={sel.type}
+                disabled={readOnly}
+                onChange={(e) => upd({ type: e.target.value })}
+                className={`w-full text-xs border rounded px-2 py-1.5 outline-none focus:border-blue-500 ${inp} ${disabledCls}`}
+              >
+                <option value="dialogue">대사</option>
+                <option value="effect">효과</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label className={`block text-[11px] ${ts} mb-0.5`}>화자 명칭 (라인별)</label>
-            <div className={`flex items-center border rounded overflow-hidden focus-within:border-blue-500 ${inp}`}>
-              <div className={`${dm ? "bg-gray-600 border-gray-600" : "bg-gray-50 border-gray-300"} px-2 py-1.5 border-r text-[11px] ${ts} shrink-0`}>L1</div>
+          {/* 종료 시간 + 화자 명칭 */}
+          <div className="flex gap-2">
+            <div className="w-36 shrink-0">
+              <label className={`block text-[11px] ${ts} mb-0.5`}>종료</label>
+              <input
+                value={endTc}
+                readOnly={readOnly}
+                onChange={(e) => setEndTc(e.target.value)}
+                onBlur={() => commitTime("end_ms", endTc)}
+                onKeyDown={(e) => { if (e.key === "Enter") commitTime("end_ms", endTc); }}
+                className={`w-full text-xs font-mono border rounded px-2 py-1.5 outline-none focus:border-blue-500 ${inp} ${disabledCls}`}
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <label className={`block text-[11px] ${ts} mb-0.5`}>화자</label>
               <input
                 value={sel.speaker}
                 readOnly={readOnly}
                 onChange={(e) => upd({ speaker: e.target.value })}
-                className={`flex-1 px-2.5 py-1.5 text-sm outline-none bg-transparent ${tp} ${disabledCls}`}
+                className={`w-full text-xs border rounded px-2 py-1.5 outline-none focus:border-blue-500 ${inp} ${disabledCls}`}
                 placeholder="화자명"
               />
             </div>
           </div>
         </div>
 
+        {/* 오른쪽: 텍스트 입력 */}
         <div className="flex-1 flex flex-col min-h-0">
-          {/* 텍스트 입력 라벨 + 글자수 (textarea 오른쪽 위) */}
           <div className="flex items-center justify-between mb-1 shrink-0">
             <span className={`text-[11px] ${ts} font-medium`}>텍스트 입력</span>
             <div className={`text-[11px] ${ts}`}>

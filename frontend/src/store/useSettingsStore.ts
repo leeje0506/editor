@@ -46,12 +46,27 @@ export const DEFAULT_SHORTCUTS: Record<string, string> = {
   delete: "Delete",
 };
 
+/** 자막 표시 설정 */
+export interface SubtitleDisplay {
+  fontSize: number;    // 글자 크기 (px)
+  defaultY: number;    // "유지" 위치 (화면 하단에서 %, 예: 85 → 화면 85% 지점)
+  topY: number;        // "상단이동" 위치 (화면 상단에서 %, 예: 8 → 화면 8% 지점)
+}
+
+export const DEFAULT_SUBTITLE_DISPLAY: SubtitleDisplay = {
+  fontSize: 16,
+  defaultY: 85,
+  topY: 8,
+};
+
 interface SettingsState {
   shortcuts: Record<string, string>;
+  subtitleDisplay: SubtitleDisplay;
   loaded: boolean;
 
   load: () => Promise<void>;
   updateShortcut: (actionId: string, key: string) => string | null;
+  updateSubtitleDisplay: (partial: Partial<SubtitleDisplay>) => void;
   saveAll: () => Promise<void>;
   resetToDefaults: () => Promise<void>;
   getKeyForAction: (actionId: string) => string;
@@ -60,18 +75,21 @@ interface SettingsState {
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   shortcuts: { ...DEFAULT_SHORTCUTS },
+  subtitleDisplay: { ...DEFAULT_SUBTITLE_DISPLAY },
   loaded: false,
 
   load: async () => {
     try {
       const data = await authApi.getSettings();
-      if (data.shortcuts && typeof data.shortcuts === "object") {
-        set({ shortcuts: { ...DEFAULT_SHORTCUTS, ...data.shortcuts }, loaded: true });
-      } else {
-        set({ shortcuts: { ...DEFAULT_SHORTCUTS }, loaded: true });
-      }
+      const shortcuts = data.shortcuts && typeof data.shortcuts === "object"
+        ? { ...DEFAULT_SHORTCUTS, ...data.shortcuts }
+        : { ...DEFAULT_SHORTCUTS };
+      const subtitleDisplay = data.subtitle_display && typeof data.subtitle_display === "object"
+        ? { ...DEFAULT_SUBTITLE_DISPLAY, ...data.subtitle_display }
+        : { ...DEFAULT_SUBTITLE_DISPLAY };
+      set({ shortcuts, subtitleDisplay, loaded: true });
     } catch {
-      set({ shortcuts: { ...DEFAULT_SHORTCUTS }, loaded: true });
+      set({ shortcuts: { ...DEFAULT_SHORTCUTS }, subtitleDisplay: { ...DEFAULT_SUBTITLE_DISPLAY }, loaded: true });
     }
   },
 
@@ -85,19 +103,23 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     return null;
   },
 
+  updateSubtitleDisplay: (partial) => {
+    set((s) => ({ subtitleDisplay: { ...s.subtitleDisplay, ...partial } }));
+  },
+
   saveAll: async () => {
-    const { shortcuts } = get();
+    const { shortcuts, subtitleDisplay } = get();
     try {
-      await authApi.saveSettings({ shortcuts });
+      await authApi.saveSettings({ shortcuts, subtitle_display: subtitleDisplay });
     } catch (e) {
       console.error("설정 저장 실패:", e);
     }
   },
 
   resetToDefaults: async () => {
-    set({ shortcuts: { ...DEFAULT_SHORTCUTS } });
+    set({ shortcuts: { ...DEFAULT_SHORTCUTS }, subtitleDisplay: { ...DEFAULT_SUBTITLE_DISPLAY } });
     try {
-      await authApi.saveSettings({ shortcuts: DEFAULT_SHORTCUTS });
+      await authApi.saveSettings({ shortcuts: DEFAULT_SHORTCUTS, subtitle_display: DEFAULT_SUBTITLE_DISPLAY });
     } catch (e) {
       console.error("설정 초기화 실패:", e);
     }

@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { Home, Moon, Sun, Save, Send, Undo, Settings, Clock, Download, Lock, LogOut } from "lucide-react";
-import { useSubtitleStore } from "../../store/useSubtitleStore";
+import { Home, Moon, Sun, Save, Send, Settings, Clock, Download, Lock, LogOut, Subtitles } from "lucide-react";
 import { ProjectSettingsModal } from "../modals/ProjectSettingsModal";
 import type { Project } from "../../types";
 
@@ -14,9 +13,11 @@ interface Props {
   onDownload: () => void;
   onHome: () => void;
   onSettingsClosed?: () => void;
+  onToggleSubtitlePanel?: () => void;
   project: Project | null;
   elapsed: number;
   readOnly: boolean;
+  isAdmin?: boolean;
 }
 
 function formatElapsed(seconds: number): string {
@@ -26,9 +27,8 @@ function formatElapsed(seconds: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmit, onDownload, onHome, onSettingsClosed, project, elapsed, readOnly }: Props) {
+export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmit, onDownload, onHome, onSettingsClosed, onToggleSubtitlePanel, project, elapsed, readOnly, isAdmin }: Props) {
   const [showSettings, setShowSettings] = useState(false);
-  const undo = useSubtitleStore((s) => s.undo);
 
   const dm = dark;
   const card = dm ? "bg-gray-800" : "bg-white";
@@ -82,24 +82,39 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmi
             </span>
           )}
 
-          {/* 다운로드 (항상 가능) */}
-          <button
-            onClick={onDownload}
-            className={`flex items-center gap-1 border ${bd} ${card} ${ts} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
-            title="SRT 다운로드"
-          >
-            <Download size={13} /> 다운로드
-          </button>
-
           {readOnly ? (
-            <span className={`text-[10px] ${ts} px-2`}>검수 모드 — 수정 불가</span>
+            <>
+              <button
+                onClick={onDownload}
+                className={`flex items-center gap-1 border ${bd} ${card} ${ts} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
+                title="SRT 다운로드"
+              >
+                <Download size={13} /> 다운로드
+              </button>
+              <span className={`text-[10px] ${ts} px-2`}>검수 모드 — 수정 불가</span>
+            </>
           ) : (
             <>
-              <button onClick={() => undo()} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`} title="Ctrl+Z">
-                <Undo size={14} />
+              {/* 자막 표시 설정 */}
+              <button
+                onClick={() => onToggleSubtitlePanel?.()}
+                className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`}
+                title="자막 표시 설정"
+              >
+                <Subtitles size={14} />
               </button>
+
               <button onClick={() => setDark(!dm)} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`}>
                 {dm ? <Sun size={14} /> : <Moon size={14} />}
+              </button>
+
+              {/* 다운로드 */}
+              <button
+                onClick={onDownload}
+                className={`flex items-center gap-1 border ${bd} ${card} ${ts} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
+                title="SRT 다운로드"
+              >
+                <Download size={13} /> 다운로드
               </button>
 
               {/* 임시저장: 저장만 하고 화면 유지 */}
@@ -129,7 +144,7 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmi
         </div>
       </div>
 
-      {showSettings && !readOnly && <ProjectSettingsModal dark={dm} onClose={() => { setShowSettings(false); onSettingsClosed?.(); }} />}
+      {showSettings && !readOnly && <ProjectSettingsModal dark={dm} onClose={() => { setShowSettings(false); onSettingsClosed?.(); }} isAdmin={isAdmin} />}
     </>
   );
 }

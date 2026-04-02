@@ -90,7 +90,9 @@ export function SubtitleGrid({ dark, readOnly }: Props) {
     }
   };
 
-  const posLabel = (v: string) => (v === "top" ? "상단이동" : "-");
+  // 자막 리스트에 표시될 라벨
+  const posLabel = (v: string) => v === "top" ? "상단이동" : v === "deleted" ? "삭제" : "-";
+
 
   /* ── 컬럼 너비 상수 ── */
   const colW = {
@@ -159,8 +161,8 @@ export function SubtitleGrid({ dark, readOnly }: Props) {
                       {sub.type === "effect" ? "효과" : "대사"}
                     </span>
                   </td>
-                  <td className={`py-2 ${colW.spkPos} ${sub.speaker_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.speaker_pos)}</td>
-                  <td className={`py-2 ${colW.txtPos} ${sub.text_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.text_pos)}</td>
+                  <td className={`py-2 ${colW.spkPos} ${sub.speaker_pos === "deleted" ? "text-red-500" : sub.speaker_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.speaker_pos)}</td>
+                  <td className={`py-2 ${colW.txtPos} ${sub.text_pos === "deleted" ? "text-red-500" : sub.text_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.text_pos)}</td>
                   <td className={`py-2 ${colW.spk} ${tp} font-bold`}>{sub.speaker || ""}</td>
                   <td className={`py-2 text-left px-3 ${tp} max-w-[250px]`} title={sub.text}>
                     <div className="text-[12px] leading-snug whitespace-pre-wrap break-all line-clamp-3">

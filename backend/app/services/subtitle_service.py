@@ -218,12 +218,23 @@ def export_srt(subtitles: List[Subtitle]) -> str:
         parts = []
         if sub.text_pos == "top":
             parts.append("{\\an8}")
+
+        # 화자 처리
         if sub.speaker:
-            parts.append(f"({sub.speaker}{{\\}})")
-        if sub.type == "effect":
-            parts.append(f"{sub.text}{{\\}}")
+            if sub.speaker_pos == "deleted":
+                parts.append(f"({sub.speaker}{{\\ㅅ}})")
+            else:
+                parts.append(f"({sub.speaker}{{\\}})")
+
+        # 대사 처리
+        if sub.text_pos == "deleted":
+            if sub.type == "effect":
+                parts.append(f"{sub.text}{{\\ㅅ}}")
+            else:
+                parts.append(f"{sub.text}{{\\ㅅ}}")
         else:
             parts.append(f"{sub.text}{{\\}}")
+
         out.append("".join(parts))
         out.append("")
     return "\n".join(out)

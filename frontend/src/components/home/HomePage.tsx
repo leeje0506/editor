@@ -91,11 +91,16 @@ export function HomePage() {
 
   const handleRename = async (id: number) => {
     if (!renameVal.trim()) return;
-    try { await projectsApi.update(id, { name: renameVal.trim() }); } catch {}
-    setRenameId(null);
-    setRenameVal("");
-    setMenuOpen(null);
-    fetchProjects();
+    try {
+      await projectsApi.update(id, { name: renameVal.trim() });
+      setRenameId(null);
+      setRenameVal("");
+      setMenuOpen(null);
+      fetchProjects();
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || "이름 변경 실패";
+      alert(msg);
+    }
   };
 
   const handleWorkerChange = async (id: number) => {

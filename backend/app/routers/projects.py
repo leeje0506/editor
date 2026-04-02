@@ -22,6 +22,8 @@ from app.services.subtitle_service import (
     parse_srt, export_srt, resequence_and_validate, save_snapshot,
 )
 from app.services.auth import get_current_user, require_role
+from app.services.waveform_service import extract_waveform_peaks, load_peaks
+
 
 router = APIRouter()
 UPLOAD_DIR = "uploads"
@@ -119,8 +121,15 @@ def create_project(data: ProjectCreate, current_user: User = Depends(get_current
             deadline = datetime.fromisoformat(data.deadline)
         except ValueError:
             pass
+    base_name = data.name.strip()
+    existing_names = {p.name for p in db.query(Project.name).all()}
+    final_name = base_name
+    counter = 1
+    while final_name in existing_names:
+        final_name = f"{base_name}({counter})"
+        counter += 1
     project = Project(
-        name=data.name, broadcaster=bc, description=data.description,
+        name=final_name, broadcaster=bc, description=data.description,
         max_lines=max_lines, max_chars_per_line=max_chars, bracket_chars=bracket_chars,
         deadline=deadline, created_by=current_user.id,
         assigned_to=data.assigned_to,
@@ -167,6 +176,12 @@ def update_project(project_id: int, data: ProjectUpdate, current_user: User = De
     if "deadline" in update_data:
         dl = update_data.pop("deadline")
         p.deadline = datetime.fromisoformat(dl) if dl else None
+    if "name" in update_data:
+        new_name = update_data["name"].strip()
+        existing = db.query(Project).filter(Project.name == new_name, Project.id != project_id).first()
+        if existing:
+            raise HTTPException(400, f"이미 같은 이름의 프로젝트가 있습니다: {new_name}")
+    update_data["name"] = new_name
     for k, v in update_data.items():
         setattr(p, k, v)
     db.commit()
@@ -305,6 +320,9 @@ async def upload_video(project_id: int, file: UploadFile = File(...), current_us
             p.total_duration_ms = duration_ms
             p.video_duration_ms = duration_ms
 
+        # waveform peaks 추출
+        extract_waveform_peaks(filepath, project_id, duration_ms)
+
         db.commit()
         return {
             "message": "영상 업로드 완료",
@@ -351,3 +369,14 @@ def stream_video(project_id: int, db: Session = Depends(get_db)):
         filename=os.path.basename(file_path),
         stat_result=os.stat(file_path),
     )
+
+@router.get("/{project_id}/waveform")
+def get_waveform(project_id: int, db: Session = Depends(get_db)):
+    """waveform peaks 데이터 조회"""
+    p = db.query(Project).get(project_id)
+    if not p:
+        raise HTTPException(404)
+    peaks = load_peaks(project_id)
+    if not peaks:
+        raise HTTPException(404, "Waveform not available")
+    return peaks
