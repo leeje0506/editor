@@ -95,8 +95,11 @@ export function Timeline({ dark, peaks, onReload }: Props) {
   const bdl = dm ? "border-gray-700" : "border-gray-100";
   const ts = dm ? "text-gray-400" : "text-gray-500";
 
-  const visDur = visibleDuration();
-  const tlLeft = scrollMs;
+  // const visDur = visibleDuration();
+  // const tlLeft = scrollMs;
+  const rawVisDur = visibleDuration();
+  const visDur = Math.min(rawVisDur, Math.max(totalMs, 1));
+  const tlLeft = Math.min(scrollMs, Math.max(0, totalMs - visDur));
 
   const vtl = useMemo(
     () => subtitles.filter((s) => s.end_ms > tlLeft && s.start_ms < tlLeft + visDur),
