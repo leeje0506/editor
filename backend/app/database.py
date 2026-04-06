@@ -1,13 +1,18 @@
 """
 backend/app/database.py
 """
+import os
+
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = "postgresql://editor_user:editor_pass@localhost:5432/subtitle_editor"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./subtitle_editor.db")
 
-engine = create_engine(DATABASE_URL)
+engine_kwargs = {}
+if DATABASE_URL.startswith("sqlite"):
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
