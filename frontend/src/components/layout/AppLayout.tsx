@@ -17,13 +17,14 @@ import { Timeline } from "../timeline/Timeline";
 import { SubtitleDisplayPanel } from "../video/SubtitleDisplayPanel";
 import api from "../../api/client";
 
+type EditorMode = "srt" | "json";
+
 const DEFAULT_VIDEO_W = 960;
 const DEFAULT_EDITOR_H = 160;
 const DEFAULT_TL_H = 220;
 const TOPNAV_H = 44;
 const HANDLE_H = 6;
 
-/** 제출됨/승인됨이면 읽기전용. 반려됨은 작업자에겐 편집 가능, 관리자에겐 읽기전용 */
 function isReadOnly(project: Project | null, isWorker: boolean): boolean {
   if (!project) return false;
   if (project.status === "approved") return true;
@@ -32,7 +33,6 @@ function isReadOnly(project: Project | null, isWorker: boolean): boolean {
   return false;
 }
 
-/** 공용 수평 리사이즈 핸들 */
 function HResizeHandle({ dark, onMouseDown }: { dark: boolean; onMouseDown: (e: React.MouseEvent) => void }) {
   const dm = dark;
   return (
@@ -54,16 +54,16 @@ export function AppLayout() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
 
-  // 다크모드 — localStorage 저장/복원
   const [dark, setDark] = useState(() => localStorage.getItem("editor_darkMode") === "true");
   const [savedMsg, setSavedMsg] = useState("");
   const [project, setProject] = useState<Project | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [showSubPanel, setShowSubPanel] = useState(false);
-
   const [peaks, setPeaks] = useState<number[] | null>(null);
 
-  // 독립 크기 상태 — localStorage 저장/복원
+  // 편집 모드 — project.import_type에 따라 초기값 결정
+  const [editorMode, setEditorMode] = useState<EditorMode>("srt");
+
   const [videoWidth, setVideoWidth] = useState(() => {
     const saved = localStorage.getItem("editor_videoWidth");
     return saved ? Number(saved) : DEFAULT_VIDEO_W;
@@ -76,10 +76,8 @@ export function AppLayout() {
     const saved = localStorage.getItem("editor_timelineHeight");
     return saved ? Number(saved) : DEFAULT_TL_H;
   });
-  const [timelineKey, setTimelineKey] = useState(0);
   const [dragging, setDragging] = useState(false);
 
-  // 패널 크기 / 다크모드 변경 시 localStorage에 저장
   useEffect(() => { localStorage.setItem("editor_videoWidth", String(videoWidth)); }, [videoWidth]);
   useEffect(() => { localStorage.setItem("editor_editorHeight", String(editorHeight)); }, [editorHeight]);
   useEffect(() => { localStorage.setItem("editor_timelineHeight", String(timelineHeight)); }, [timelineHeight]);
@@ -98,21 +96,11 @@ export function AppLayout() {
   const isWorker = !user?.role || !["master", "manager"].includes(user.role);
   const loadSettings = useSettingsStore((s) => s.load);
 
-  /**
-   * 상단 영역(Grid+QuickEditor | Video)의 최대 높이.
-   * 화면 전체에서 TopNav, 타임라인 핸들, Timeline을 빼고 남은 공간.
-   */
-  const upperMaxH = typeof window !== "undefined"
-    ? window.innerHeight - TOPNAV_H - HANDLE_H - timelineHeight
-    : 600;
-
   const handleVideoWidthChange = useCallback((w: number) => {
-    // 왼쪽 컬럼이 전체 폭의 40% 이하로 줄어들지 않도록 영상 너비 상한 제한
     const maxW = Math.floor(window.innerWidth * 0.6);
     setVideoWidth(Math.min(w, maxW));
   }, []);
 
-  // Grid ↔ QuickEditor 경계 드래그 (왼쪽 컬럼 내부)
   const handleEditorTopDrag = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -138,7 +126,6 @@ export function AppLayout() {
     [editorHeight],
   );
 
-  // 상단영역 ↔ Timeline 경계 드래그
   const handleTimelineTopDrag = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -164,7 +151,7 @@ export function AppLayout() {
     [timelineHeight],
   );
 
-  // 프로젝트 로드 + 개인 설정 로드
+  // 프로젝트 로드
   useEffect(() => {
     if (!pid) return;
     usePlayerStore.getState().setCurrentMs(0);
@@ -176,6 +163,10 @@ export function AppLayout() {
       setElapsed(p.elapsed_seconds || 0);
       setTotalMs(p.total_duration_ms);
       setTimelineTotalMs(p.total_duration_ms);
+      // import_type에 따라 초기 편집 모드 설정
+      if (p.import_type === "json") {
+        setEditorMode("json");
+      }
     }).catch(() => navigate("/"));
     init(pid).catch(() => {});
     projectsApi.getWaveform(pid)
@@ -206,7 +197,6 @@ export function AppLayout() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [pid, elapsed]);
 
-  // 임시저장: 서버 저장만, 화면 유지
   const handleSave = async () => {
     try {
       await saveAll();
@@ -222,7 +212,6 @@ export function AppLayout() {
     }
   };
 
-  // 저장하고 나가기: 서버 저장 후 홈으로 이동
   const handleSaveAndExit = async () => {
     try {
       await saveAll();
@@ -259,13 +248,11 @@ export function AppLayout() {
     }
   };
 
-  // Axios로 blob 다운로드
+  // SRT 다운로드
   const handleDownload = async () => {
     if (!pid || !project) return;
     try {
-      const response = await api.get(`/projects/${pid}/download/subtitle`, {
-        responseType: "blob",
-      });
+      const response = await api.get(`/projects/${pid}/download/subtitle`, { responseType: "blob" });
       const baseName = project.subtitle_file?.replace(/\.[^.]+$/, "") || project.name;
       const worker = project.assigned_to_name || "worker";
       const filename = `${baseName}_${worker}_final.srt`;
@@ -279,6 +266,28 @@ export function AppLayout() {
       URL.revokeObjectURL(url);
     } catch {
       setSavedMsg("다운로드 실패");
+      setTimeout(() => setSavedMsg(""), 2000);
+    }
+  };
+
+  // JSON 다운로드
+  const handleDownloadJson = async () => {
+    if (!pid || !project) return;
+    try {
+      const response = await api.get(`/projects/${pid}/download/json`, { responseType: "blob" });
+      const baseName = project.subtitle_file?.replace(/\.[^.]+$/, "") || project.name;
+      const worker = project.assigned_to_name || "worker";
+      const filename = `${baseName}_${worker}_export.json`;
+      const url = URL.createObjectURL(response.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      setSavedMsg("JSON 다운로드 실패");
       setTimeout(() => setSavedMsg(""), 2000);
     }
   };
@@ -310,10 +319,8 @@ export function AppLayout() {
 
   return (
     <div className={`h-screen w-full ${bg} flex flex-col font-sans overflow-hidden select-none`}>
-      {/* 드래그 중 전역 오버레이 */}
       {dragging && <div className="fixed inset-0 z-50 cursor-ns-resize" />}
 
-      {/* 1) TopNav */}
       <TopNav
         dark={dm}
         setDark={setDark}
@@ -322,6 +329,7 @@ export function AppLayout() {
         onSaveAndExit={handleSaveAndExit}
         onSubmit={handleSubmit}
         onDownload={handleDownload}
+        onDownloadJson={handleDownloadJson}
         onHome={handleGoHome}
         onSettingsClosed={handleSettingsClosed}
         onToggleSubtitlePanel={() => setShowSubPanel(!showSubPanel)}
@@ -329,33 +337,27 @@ export function AppLayout() {
         elapsed={elapsed}
         readOnly={isReadOnly(project, isWorker)}
         isAdmin={!isWorker}
+        editorMode={editorMode}
+        onModeChange={setEditorMode}
       />
 
-      {/*
-        2) 상단 영역: [ 왼쪽 컬럼(Grid + 핸들 + QuickEditor) | 오른쪽(VideoPlayer) ]
-        flex-1로 남은 공간 전부 차지. 하단 Timeline을 침범 못 함.
-      */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* 왼쪽 컬럼: SubtitleGrid + 핸들 + QuickEditor */}
         <div className={`flex-1 flex flex-col ${card} border-r ${bd} min-h-0 overflow-hidden`}>
-          {/* SubtitleGrid — 남은 공간 전부 */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            <SubtitleGrid dark={dm} readOnly={isReadOnly(project, isWorker)} />
+            <SubtitleGrid dark={dm} readOnly={isReadOnly(project, isWorker)} editorMode={editorMode} />
           </div>
-          {/* 리사이즈 핸들: Grid ↔ QuickEditor */}
           <HResizeHandle dark={dm} onMouseDown={handleEditorTopDrag} />
-          {/* QuickEditor — 고정 높이 */}
           <div className="shrink-0 overflow-hidden" style={{ height: editorHeight }}>
             <QuickEditor
               dark={dm}
               maxChars={project?.max_chars_per_line ?? 18}
               maxLines={project?.max_lines ?? 2}
               readOnly={isReadOnly(project, isWorker)}
+              editorMode={editorMode}
             />
           </div>
         </div>
 
-        {/* 오른쪽: VideoPlayer — 세로로 전체 높이 차지 */}
         <div
           className="shrink-0 bg-black flex items-center justify-center overflow-hidden relative"
           style={{ width: videoWidth }}
@@ -366,17 +368,14 @@ export function AppLayout() {
             videoWidth={videoWidth}
             onWidthChange={handleVideoWidthChange}
           />
-          {/* 자막 표시 설정 패널 — 영상 위에 오버레이 */}
           {showSubPanel && (
             <SubtitleDisplayPanel dark={dm} onClose={() => setShowSubPanel(false)} />
           )}
         </div>
       </div>
 
-      {/* 3) 리사이즈 핸들: 상단영역 ↔ Timeline */}
       <HResizeHandle dark={dm} onMouseDown={handleTimelineTopDrag} />
 
-      {/* 4) Timeline — 전체 폭, 고정 높이 */}
       <div className="shrink-0 overflow-hidden" style={{ height: timelineHeight }}>
         <Timeline dark={dm} peaks={peaks} />
       </div>

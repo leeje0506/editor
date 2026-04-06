@@ -62,7 +62,8 @@ class Project(Base):
     first_submitted_at = Column(DateTime, nullable=True)   # 최초 제출 일시 (재작업해도 변경 안 함)
     # 영상 업로드
     # video_status = Column(String(20), default="none")  # none / uploading / ready / error
-
+    fps = Column(Float, nullable=True)  # JSON import 시 frame↔ms 변환용
+    import_type = Column(String(20), default="srt")  # srt / json
 
 class Subtitle(Base):
     __tablename__ = "subtitles"
@@ -82,6 +83,14 @@ class Subtitle(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
 
+    # track_type: 어떤 오디오 트랙인지 (기존 SRT는 전부 "dialogue" 또는 "effect" → dialogue로)
+    track_type = Column(String(20), default="dialogue")  # dialogue / sfx / bgm / ambience
+
+    # position: JSON 모드에서 사용. default / top / deleted
+    position = Column(String(20), default="default")
+
+    # source_id: 원본 JSON의 ID 보존 (dialogueId, sfxId 등)
+    source_id = Column(String(100), nullable=True)
     project = relationship("Project", back_populates="subtitles")
 
 

@@ -37,10 +37,8 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
     });
   }, []);
 
-  /** 영상 파일 선택 시 프로젝트명 자동 생성 */
   const handleVideoSelected = useCallback((file: File) => {
     setVideoFile(file);
-    // 사용자가 직접 입력하지 않았으면 자동 생성
     if (!nameManual) {
       const baseName = file.name.replace(/\.[^.]+$/, "");
       const displayName = user?.display_name || user?.username || "작업자";
@@ -58,13 +56,12 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const inpF = "focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
   const today = new Date().toISOString().split("T")[0];
 
-  /**
-   * 작업 생성 흐름:
-   * 1. 프로젝트 생성 (즉시)
-   * 2. SRT 업로드 (배치 INSERT, 빠름)
-   * 3. 편집기로 즉시 이동
-   * 4. 영상 업로드는 백그라운드에서 진행 (편집기 진입 후)
-   */
+  /** 자막 파일 확장자로 import 타입 판별 */
+  const getSubtitleImportType = (file: File): "srt" | "json" => {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    return ext === "json" ? "json" : "srt";
+  };
+
   const handleCreate = async () => {
     if (!name.trim()) { setError("프로젝트 명칭을 입력해주세요."); return; }
     if (!videoFile) { setError("영상 파일을 첨부해주세요."); return; }
@@ -73,24 +70,24 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
     setError("");
 
     try {
-      // 1) 프로젝트 생성
       setProgress("프로젝트 생성 중...");
       const project = await projectsApi.create({
         name: name.trim(), broadcaster, description: description || undefined, deadline: deadline || undefined,
       });
 
-      // 2) 자막 업로드 (배치 INSERT — 빠름)
-      setProgress("자막 파일 처리 중...");
-      await projectsApi.uploadSubtitle(project.id, subtitleFile);
+      // 자막 업로드 — 확장자에 따라 SRT/JSON 분기
+      const importType = getSubtitleImportType(subtitleFile);
+      if (importType === "json") {
+        setProgress("JSON 파일 처리 중...");
+        await projectsApi.uploadJson(project.id, subtitleFile);
+      } else {
+        setProgress("자막 파일 처리 중...");
+        await projectsApi.uploadSubtitle(project.id, subtitleFile);
+      }
 
-      // 3) 편집기로 즉시 이동 — 영상은 백그라운드로
       setProgress("워크스페이스 열기...");
       const updated = await projectsApi.get(project.id);
 
-      // 4) 영상 업로드를 백그라운드로 시작 (await 안 함)
-      // projectsApi.uploadVideo(project.id, videoFile).catch(() => {
-      //   console.error("영상 업로드 실패 — 편집기에서 재시도 가능");
-      // });
       setProgress("영상 업로드 중...");
       await projectsApi.uploadVideo(project.id, videoFile);
 
@@ -103,7 +100,6 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
     }
   };
 
-  /** 드래그 앤 드롭 핸들러 생성 */
   const makeDropHandlers = (
     accept: string[],
     onFile: (f: File) => void,
@@ -116,7 +112,6 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
       setDrag(false);
       const file = e.dataTransfer.files[0];
       if (!file) return;
-      // 확장자 체크
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
       const nameLC = file.type.toLowerCase();
       const accepted = accept.some((a) => {
@@ -128,11 +123,16 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   });
 
   const videoDropHandlers = makeDropHandlers(["video/*"], handleVideoSelected, setVideoDragOver);
-  const subDropHandlers = makeDropHandlers([".srt", ".vtt", ".txt"], (f) => setSubtitleFile(f), setSubDragOver);
+  const subDropHandlers = makeDropHandlers([".srt", ".vtt", ".txt", ".json"], (f) => setSubtitleFile(f), setSubDragOver);
 
   const dropZoneBase = `w-full border-2 border-dashed rounded-lg py-4 flex flex-col items-center gap-1.5 transition-colors`;
   const dropZoneActive = "border-blue-500 bg-blue-500/10";
   const dropZoneIdle = `${bd} hover:border-blue-500/50`;
+
+  /** 선택된 자막 파일의 타입 표시 */
+  const subFileLabel = subtitleFile
+    ? `${subtitleFile.name}${getSubtitleImportType(subtitleFile) === "json" ? " (JSON 모드)" : ""}`
+    : null;
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={onClose}>
@@ -187,7 +187,7 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
             />
           </div>
 
-          {/* 영상 파일 — 클릭 + 드래그 앤 드롭 */}
+          {/* 영상 파일 */}
           <div>
             <label className={`block text-xs font-medium ${ts} mb-1.5`}>영상 파일 <span className="text-red-500">*</span></label>
             <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleVideoSelected(f); }} />
@@ -200,14 +200,14 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
             </button>
           </div>
 
-          {/* 자막 파일 */}
+          {/* 자막 파일 — SRT / VTT / JSON 지원 */}
           <div>
-            <label className={`block text-xs font-medium ${ts} mb-1.5`}>자막 파일 <span className="text-red-500">*</span> (SRT / VTT)</label>
-            <input ref={subRef} type="file" accept=".srt,.vtt,.txt" className="hidden" onChange={(e) => setSubtitleFile(e.target.files?.[0] || null)} />
+            <label className={`block text-xs font-medium ${ts} mb-1.5`}>자막 파일 <span className="text-red-500">*</span> (SRT / VTT / JSON)</label>
+            <input ref={subRef} type="file" accept=".srt,.vtt,.txt,.json" className="hidden" onChange={(e) => setSubtitleFile(e.target.files?.[0] || null)} />
             <button onClick={() => subRef.current?.click()} className={`${dropZoneBase} ${subDragOver ? dropZoneActive : dropZoneIdle}`} {...subDropHandlers}>
               <FileText size={20} className={subDragOver ? "text-blue-500" : ts} />
-              {subtitleFile
-                ? <span className="text-xs text-blue-500 font-medium">{subtitleFile.name}</span>
+              {subFileLabel
+                ? <span className="text-xs text-blue-500 font-medium">{subFileLabel}</span>
                 : <span className={`text-xs ${subDragOver ? "text-blue-500" : ts}`}>클릭하거나 파일을 드래그하여 첨부</span>
               }
             </button>

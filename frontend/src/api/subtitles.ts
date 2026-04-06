@@ -29,13 +29,15 @@ export const subtitlesApi = {
     api.post<Subtitle[]>(`${base(pid)}/bulk-speaker`, { from_speaker: from, to_speaker: to }).then((r) => r.data),
 
   batchUpdate: (pid: number, items: Subtitle[]) =>
-    api.put<Subtitle[]>(
-      `${base(pid)}/batch-update`,
-      items.map((s) => ({
-        id: s.id, start_ms: s.start_ms, end_ms: s.end_ms, type: s.type,
-        speaker: s.speaker, speaker_pos: s.speaker_pos, text_pos: s.text_pos, text: s.text,
-      }))
-    ).then((r) => r.data),
+  api.put<Subtitle[]>(
+    `${base(pid)}/batch-update`,
+    items.map((s) => ({
+      id: s.id, start_ms: s.start_ms, end_ms: s.end_ms, type: s.type,
+      track_type: s.track_type, speaker: s.speaker, speaker_pos: s.speaker_pos,
+      text_pos: s.text_pos, position: s.position, text: s.text,
+      source_id: s.source_id,
+    }))
+  ).then((r) => r.data),
 
   undo: (pid: number) =>
     api.post<Subtitle[]>(`${base(pid)}/undo`).then((r) => r.data),

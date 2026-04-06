@@ -34,6 +34,14 @@ export const projectsApi = {
     form.append("file", file);
     return api.post(`/projects/${id}/upload/video`, form, { headers: { "Content-Type": "multipart/form-data" } });
   },
+  uploadJson: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post(`/projects/${id}/upload/json`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  downloadJson: (id: number) => `/api/projects/${id}/download/json`,
   downloadSubtitle: (id: number) => `/api/projects/${id}/download/subtitle`,
   videoStreamUrl: (id: number) => `/api/projects/${id}/stream/video`,
   getWaveform: (id: number) =>

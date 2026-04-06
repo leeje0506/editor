@@ -10,9 +10,11 @@ interface Props {
   maxChars?: number;
   maxLines?: number;
   readOnly?: boolean;
+  editorMode?: "srt" | "json";
+
 }
 
-export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly }: Props) {
+export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, editorMode = "srt" }: Props) {
   const { subtitles, selectedId, updateLocal, navigateNext, navigatePrev } = useSubtitleStore();
   const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
   const sel = subtitles.find((s) => s.id === selectedId);

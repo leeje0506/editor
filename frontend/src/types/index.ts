@@ -34,7 +34,12 @@ export interface Project {
   error_count: number;
   reject_count: number;
   first_submitted_at: string | null;
+  fps: number | null;
+  import_type: "srt" | "json";
 }
+
+export type TrackType = "dialogue" | "sfx" | "bgm" | "ambience";
+export type Position = "default" | "top" | "deleted";
 
 export interface Subtitle {
   id: number;
@@ -42,11 +47,14 @@ export interface Subtitle {
   start_ms: number;
   end_ms: number;
   type: "dialogue" | "effect";
+  track_type: TrackType;
   speaker: string;
   speaker_pos: "default" | "top" | "deleted";
   text_pos: "default" | "top" | "deleted";
+  position: Position;
   text: string;
   error: string;
+  source_id: string | null;
 }
 
 export interface SubtitleCreate {
@@ -54,21 +62,43 @@ export interface SubtitleCreate {
   start_ms: number;
   end_ms: number;
   type?: "dialogue" | "effect";
+  track_type?: TrackType;
   speaker?: string;
-  speaker_pos: "default" | "top" | "deleted";
-  text_pos: "default" | "top" | "deleted";
+  speaker_pos?: "default" | "top" | "deleted";
+  text_pos?: "default" | "top" | "deleted";
+  position?: Position;
   text?: string;
+  source_id?: string;
 }
 
 export interface SubtitleUpdate {
   start_ms?: number;
   end_ms?: number;
   type?: "dialogue" | "effect";
+  track_type?: TrackType;
   speaker?: string;
-  speaker_pos: "default" | "top" | "deleted";
-  text_pos: "default" | "top" | "deleted";
+  speaker_pos?: "default" | "top" | "deleted";
+  text_pos?: "default" | "top" | "deleted";
+  position?: Position;
   text?: string;
+  source_id?: string;
 }
+
+/** 트랙 타입별 표시 라벨 */
+export const TRACK_LABELS: Record<TrackType, string> = {
+  dialogue: "대사",
+  sfx: "효과음",
+  bgm: "배경음악",
+  ambience: "환경음",
+};
+
+/** 트랙 타입별 색상 (테일윈드 클래스용) */
+export const TRACK_COLORS: Record<TrackType, { bg: string; text: string; border: string }> = {
+  dialogue: { bg: "bg-blue-500/20", text: "text-blue-400", border: "border-blue-500/30" },
+  sfx:      { bg: "bg-yellow-500/20", text: "text-yellow-400", border: "border-yellow-500/30" },
+  bgm:      { bg: "bg-purple-500/20", text: "text-purple-400", border: "border-purple-500/30" },
+  ambience: { bg: "bg-green-500/20", text: "text-green-400", border: "border-green-500/30" },
+};
 
 export const ZOOM_LEVELS = [5000, 10000, 20000, 40000, 60000, 120000] as const;
 export const DEFAULT_ZOOM_IDX = 5;
