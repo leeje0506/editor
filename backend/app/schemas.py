@@ -96,6 +96,8 @@ class ProjectResponse(BaseModel):
     created_at: Optional[str] = None
     subtitle_count: int = 0
     error_count: int = 0
+    fps: Optional[float] = None
+    import_type: str = "srt"
     class Config:
         from_attributes = True
 
@@ -105,19 +107,25 @@ class SubtitleCreate(BaseModel):
     start_ms: int
     end_ms: int
     type: Literal["dialogue", "effect"] = "dialogue"
+    track_type: Literal["dialogue", "sfx", "bgm", "ambience"] = "dialogue"
     speaker: str = ""
-    speaker_pos: Literal["default", "top"] = "default"
-    text_pos: Literal["default", "top"] = "default"
+    speaker_pos: Literal["default", "top", "deleted"] = "default"
+    text_pos: Literal["default", "top", "deleted"] = "default"
+    position: Literal["default", "top", "deleted"] = "default"
     text: str = ""
+    source_id: Optional[str] = None
 
 class SubtitleUpdate(BaseModel):
     start_ms: Optional[int] = None
     end_ms: Optional[int] = None
     type: Optional[Literal["dialogue", "effect"]] = None
+    track_type: Optional[Literal["dialogue", "sfx", "bgm", "ambience"]] = None
     speaker: Optional[str] = None
-    speaker_pos: Optional[Literal["default", "top"]] = None
-    text_pos: Optional[Literal["default", "top"]] = None
+    speaker_pos: Optional[Literal["default", "top", "deleted"]] = None
+    text_pos: Optional[Literal["default", "top", "deleted"]] = None
+    position: Optional[Literal["default", "top", "deleted"]] = None
     text: Optional[str] = None
+    source_id: Optional[str] = None
 
 class SubtitleResponse(BaseModel):
     id: int
@@ -125,11 +133,14 @@ class SubtitleResponse(BaseModel):
     start_ms: int
     end_ms: int
     type: str
+    track_type: str = "dialogue"
     speaker: str
     speaker_pos: str
     text_pos: str
+    position: str = "default"
     text: str
     error: str
+    source_id: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -138,10 +149,13 @@ class SubtitleBatchItem(BaseModel):
     start_ms: int
     end_ms: int
     type: Literal["dialogue", "effect"]
+    track_type: Literal["dialogue", "sfx", "bgm", "ambience"] = "dialogue"
     speaker: str
     speaker_pos: Literal["default", "top", "deleted"]
     text_pos: Literal["default", "top", "deleted"]
+    position: Literal["default", "top", "deleted"] = "default"
     text: str
+    source_id: Optional[str] = None
 
 class BatchDeleteRequest(BaseModel):
     ids: List[int]

@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Home, Moon, Sun, Save, Send, Settings, Clock, Download, Lock, LogOut, Subtitles } from "lucide-react";
+import { Home, Moon, Sun, Save, Send, Settings, Clock, Download, Lock, LogOut, Subtitles, FileJson, FileText } from "lucide-react";
 import { ProjectSettingsModal } from "../modals/ProjectSettingsModal";
 import type { Project } from "../../types";
+
+type EditorMode = "srt" | "json";
 
 interface Props {
   dark: boolean;
@@ -11,6 +13,7 @@ interface Props {
   onSaveAndExit: () => void;
   onSubmit: () => void;
   onDownload: () => void;
+  onDownloadJson?: () => void;
   onHome: () => void;
   onSettingsClosed?: () => void;
   onToggleSubtitlePanel?: () => void;
@@ -18,6 +21,8 @@ interface Props {
   elapsed: number;
   readOnly: boolean;
   isAdmin?: boolean;
+  editorMode: EditorMode;
+  onModeChange: (mode: EditorMode) => void;
 }
 
 function formatElapsed(seconds: number): string {
@@ -27,8 +32,13 @@ function formatElapsed(seconds: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmit, onDownload, onHome, onSettingsClosed, onToggleSubtitlePanel, project, elapsed, readOnly, isAdmin }: Props) {
+export function TopNav({
+  dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmit,
+  onDownload, onDownloadJson, onHome, onSettingsClosed, onToggleSubtitlePanel,
+  project, elapsed, readOnly, isAdmin, editorMode, onModeChange,
+}: Props) {
   const [showSettings, setShowSettings] = useState(false);
+  const [showDlMenu, setShowDlMenu] = useState(false);
 
   const dm = dark;
   const card = dm ? "bg-gray-800" : "bg-white";
@@ -38,6 +48,8 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmi
 
   const statusLabel = project?.status === "submitted" ? "제출됨" : project?.status === "approved" ? "승인됨" : "";
   const statusColor = project?.status === "submitted" ? "text-yellow-500 bg-yellow-500/10" : project?.status === "approved" ? "text-green-500 bg-green-500/10" : "";
+
+  const isJson = editorMode === "json";
 
   return (
     <>
@@ -62,6 +74,32 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmi
                   <Settings size={13} />
                 </button>
               )}
+
+              {/* 모드 토글 */}
+              <div className={`flex items-center border ${bd} rounded overflow-hidden ml-2`}>
+                <button
+                  onClick={() => onModeChange("srt")}
+                  className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                    !isJson
+                      ? "bg-blue-600 text-white"
+                      : dm ? "bg-gray-700 text-gray-400 hover:text-gray-200" : "bg-gray-100 text-gray-500 hover:text-gray-700"
+                  }`}
+                  title="SRT 편집 모드"
+                >
+                  <FileText size={11} /> SRT
+                </button>
+                <button
+                  onClick={() => onModeChange("json")}
+                  className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                    isJson
+                      ? "bg-purple-600 text-white"
+                      : dm ? "bg-gray-700 text-gray-400 hover:text-gray-200" : "bg-gray-100 text-gray-500 hover:text-gray-700"
+                  }`}
+                  title="JSON 편집 모드"
+                >
+                  <FileJson size={11} /> JSON
+                </button>
+              </div>
             </div>
             <div className={`text-[10px] ${ts} flex gap-2 items-center`}>
               <span>방송사: <strong className="text-blue-500">{project?.broadcaster || "-"}</strong></span>
@@ -69,6 +107,7 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmi
               <span className={`flex items-center gap-0.5 ${dm ? "text-yellow-400" : "text-yellow-600"}`}>
                 <Clock size={10} /> 소요 시간: {formatElapsed(elapsed)}
               </span>
+              {project?.fps && <span className={ts}>FPS: {project.fps}</span>}
             </div>
           </div>
         </div>
@@ -84,18 +123,36 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmi
 
           {readOnly ? (
             <>
-              <button
-                onClick={onDownload}
-                className={`flex items-center gap-1 border ${bd} ${card} ${ts} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
-                title="SRT 다운로드"
-              >
-                <Download size={13} /> 다운로드
-              </button>
+              {/* 다운로드 드롭다운 */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowDlMenu(!showDlMenu)}
+                  className={`flex items-center gap-1 border ${bd} ${card} ${ts} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
+                  title="다운로드"
+                >
+                  <Download size={13} /> 다운로드
+                </button>
+                {showDlMenu && (
+                  <div className={`absolute right-0 top-full mt-1 ${card} border ${bd} rounded shadow-lg z-50 min-w-[140px]`}>
+                    <button
+                      onClick={() => { onDownload(); setShowDlMenu(false); }}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs ${tp} hover:bg-blue-500/10`}
+                    >
+                      <FileText size={12} /> SRT 다운로드
+                    </button>
+                    <button
+                      onClick={() => { onDownloadJson?.(); setShowDlMenu(false); }}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs ${tp} hover:bg-purple-500/10`}
+                    >
+                      <FileJson size={12} /> JSON 다운로드
+                    </button>
+                  </div>
+                )}
+              </div>
               <span className={`text-[10px] ${ts} px-2`}>검수 모드 — 수정 불가</span>
             </>
           ) : (
             <>
-              {/* 자막 표시 설정 */}
               <button
                 onClick={() => onToggleSubtitlePanel?.()}
                 className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`}
@@ -108,16 +165,33 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmi
                 {dm ? <Sun size={14} /> : <Moon size={14} />}
               </button>
 
-              {/* 다운로드 */}
-              <button
-                onClick={onDownload}
-                className={`flex items-center gap-1 border ${bd} ${card} ${ts} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
-                title="SRT 다운로드"
-              >
-                <Download size={13} /> 다운로드
-              </button>
+              {/* 다운로드 드롭다운 */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowDlMenu(!showDlMenu)}
+                  className={`flex items-center gap-1 border ${bd} ${card} ${ts} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
+                  title="다운로드"
+                >
+                  <Download size={13} /> 다운로드
+                </button>
+                {showDlMenu && (
+                  <div className={`absolute right-0 top-full mt-1 ${card} border ${bd} rounded shadow-lg z-50 min-w-[140px]`}>
+                    <button
+                      onClick={() => { onDownload(); setShowDlMenu(false); }}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs ${tp} hover:bg-blue-500/10`}
+                    >
+                      <FileText size={12} /> SRT 다운로드
+                    </button>
+                    <button
+                      onClick={() => { onDownloadJson?.(); setShowDlMenu(false); }}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs ${tp} hover:bg-purple-500/10`}
+                    >
+                      <FileJson size={12} /> JSON 다운로드
+                    </button>
+                  </div>
+                )}
+              </div>
 
-              {/* 임시저장: 저장만 하고 화면 유지 */}
               <button
                 onClick={onSave}
                 className={`flex items-center gap-1 border ${bd} ${card} ${tp} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
@@ -126,7 +200,6 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmi
                 <Save size={13} /> 임시저장
               </button>
 
-              {/* 저장하고 나가기: 저장 후 홈으로 이동 */}
               <button
                 onClick={onSaveAndExit}
                 className={`flex items-center gap-1 border ${bd} ${card} ${tp} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
@@ -135,7 +208,6 @@ export function TopNav({ dark, setDark, savedMsg, onSave, onSaveAndExit, onSubmi
                 <LogOut size={13} /> 저장하고 나가기
               </button>
 
-              {/* 제출 */}
               <button onClick={onSubmit} className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded text-xs font-medium hover:bg-blue-700">
                 <Send size={13} /> 제출
               </button>

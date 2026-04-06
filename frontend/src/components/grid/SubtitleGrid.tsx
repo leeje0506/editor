@@ -8,10 +8,11 @@ import { GridFilters, type Filters } from "./GridFilters";
 
 interface Props {
   dark: boolean;
-  readOnly?: boolean;
+  readOnly?: boolean
+  editorMode?: "srt" | "json";
 }
 
-export function SubtitleGrid({ dark, readOnly }: Props) {
+export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [filters, setFilters] = useState<Filters>({ type: "전체", textPos: "전체", error: "전체", search: "" });
 
