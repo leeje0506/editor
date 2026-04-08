@@ -395,7 +395,7 @@ export function Timeline({ dark, peaks, onReload }: Props) {
                 style={{
                   left: `${r.leftPct}%`,
                   width: `${r.widthPct}%`,
-                  backgroundColor: `rgba(255, 0, 0, 0.5)`,
+                  backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(180,180,180,0.3) 3px, rgba(180,180,180,0.3) 4px)`,
                 }}
               />
             ))}
