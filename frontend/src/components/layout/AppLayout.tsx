@@ -172,7 +172,6 @@ export function AppLayout() {
 
       // 자막 로드 후 마지막 위치 복원 (제출/승인 제외)
       await init(pid);
-      console.log("restore:", p.last_position_ms, p.last_selected_id, p.status);
 
       if (p.status !== "submitted" && p.status !== "approved") {
         const posMs = (p as any).last_position_ms || 0;
@@ -209,9 +208,16 @@ export function AppLayout() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
+  // 30초마다 자동 저장 (작업 시간 + 자막 + 위치)
   useEffect(() => {
-    saveTimerRef.current = window.setInterval(() => {
-      if (pid) projectsApi.updateTimer(pid, elapsed).catch(() => {});
+    saveTimerRef.current = window.setInterval(async () => {
+      if (pid) {
+        try {
+          await saveAll();
+          await projectsApi.updateTimer(pid, elapsed);
+          await savePosition();
+        } catch {}
+      }
     }, 30000);
     return () => { if (saveTimerRef.current) clearInterval(saveTimerRef.current); };
   }, [pid, elapsed]);
@@ -341,8 +347,12 @@ export function AppLayout() {
     }
   };
 
-  const handleGoHome = () => {
-    if (pid) projectsApi.updateTimer(pid, elapsed).catch(() => {});
+  const handleGoHome = async () => {
+    try {
+      await saveAll();
+      await savePosition();
+      if (pid) await projectsApi.updateTimer(pid, elapsed);
+    } catch {}
     navigate("/");
   };
 
