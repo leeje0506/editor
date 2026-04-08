@@ -37,10 +37,9 @@ export function HomePage() {
   const location = useLocation();
   const { user, logout, isAdmin } = useAuthStore();
 
-  // 다크모드 — localStorage 저장/복원 (전역 유지)
   const [dark, setDark] = useState(() => {
     const saved = localStorage.getItem("editor_darkMode");
-    return saved !== null ? saved === "true" : true; // 기본값 다크
+    return saved !== null ? saved === "true" : true;
   });
   useEffect(() => { localStorage.setItem("editor_darkMode", String(dark)); }, [dark]);
 
@@ -81,7 +80,6 @@ export function HomePage() {
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  // ── 액션 핸들러 ──
   const handleDelete = async (id: number) => {
     if (!confirm("정말 삭제하시겠습니까?")) return;
     try { await projectsApi.delete(id); } catch {}
@@ -115,7 +113,6 @@ export function HomePage() {
     fetchProjects();
   };
 
-  // ── 필터링 ──
   const broadcasters = ["전체", ...bcStore.names];
 
   const counts = {
@@ -133,7 +130,6 @@ export function HomePage() {
     return true;
   });
 
-  // ── 스타일 ──
   const dm = dark;
   const bg = dm ? "bg-gray-950" : "bg-gray-50";
   const card = dm ? "bg-gray-900" : "bg-white";
@@ -142,7 +138,6 @@ export function HomePage() {
   const ts = dm ? "text-gray-400" : "text-gray-500";
   const ts2 = dm ? "text-gray-600" : "text-gray-400";
 
-  // ── Sidebar ──
   const Sidebar = () => (
     <aside className={`w-52 ${card} border-r ${cb} flex flex-col shrink-0`}>
       <nav className="flex-1 py-4 px-3 space-y-6 text-sm">
@@ -181,7 +176,6 @@ export function HomePage() {
     </aside>
   );
 
-  // ── Dashboard (admin) ──
   const Dashboard = () => (
     <div className="space-y-6 mb-8">
       <div className="grid grid-cols-4 gap-4">
@@ -244,10 +238,8 @@ export function HomePage() {
     </div>
   );
 
-  // ── Project row ──
   const ProjectRow = ({ p }: { p: Project }) => {
     const dd = dDay(p.deadline);
-    const isThisMenuOpen = menuOpen === p.id;
     return (
       <div className="px-5 py-4 flex items-center gap-4 group">
         <input type="checkbox" className={`w-4 h-4 rounded ${dm ? "border-gray-600 bg-gray-800" : "border-gray-300 bg-white"}`} />
@@ -338,9 +330,6 @@ export function HomePage() {
              p.status === "rejected" ? "재작업" :
              "작업 열기"}
           </button>
-          {/* <a href={projectsApi.downloadSubtitle(p.id)} target="_blank" className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}>
-            <Download size={14}/>
-          </a> */}
           <button
             onClick={async (e) => {
               e.stopPropagation();
@@ -361,32 +350,24 @@ export function HomePage() {
           >
             <Download size={14}/>
           </button>
-          <div className="relative" ref={isThisMenuOpen ? menuRef : undefined}>
-            <button onClick={(e) => { e.stopPropagation(); setMenuOpen(isThisMenuOpen ? null : p.id); }} className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}>
-              <MoreVertical size={14}/>
-            </button>
-            {isThisMenuOpen && (
-              <div className={`fixed ${card} border ${cb} rounded-xl shadow-2xl py-1 w-40 z-[9999]`} style={{ marginTop: 4 }}>
-                <button
-                  onClick={() => { setRenameId(p.id); setRenameVal(p.name); setMenuOpen(null); }}
-                  className={`flex items-center gap-2 w-full px-4 py-2 text-xs ${ts} hover:${dm?"bg-gray-800":"bg-gray-100"} hover:${dm?"text-white":"text-black"}`}
-                >
-                  <Pencil size={13}/> 이름 수정
-                </button>
-                {isAdmin() && (
-                  <button
-                    onClick={() => { setWorkerChangeId(p.id); setWorkerChangeVal(""); setMenuOpen(null); }}
-                    className={`flex items-center gap-2 w-full px-4 py-2 text-xs ${ts} hover:${dm?"bg-gray-800":"bg-gray-100"} hover:${dm?"text-white":"text-black"}`}
-                  >
-                    <UserCog size={13}/> 작업자 변경
-                  </button>
-                )}
-                <button onClick={() => handleDelete(p.id)} className={`flex items-center gap-2 w-full px-4 py-2 text-xs text-red-400 hover:${dm?"bg-gray-800":"bg-gray-100"}`}>
-                  <Trash2 size={13}/> 삭제
-                </button>
-              </div>
-            )}
-          </div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (menuOpen === p.id) {
+                setMenuOpen(null);
+              } else {
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                const spaceBelow = window.innerHeight - rect.bottom;
+                const top = spaceBelow < 140 ? rect.top - 120 : rect.bottom + 4;
+                const left = rect.right - 160;
+                setMenuPos({ top, left: Math.max(8, left) });
+                setMenuOpen(p.id);
+              }
+            }}
+            className={`p-1.5 border ${cb} rounded-lg ${ts} hover:${dm?"text-white":"text-black"}`}
+          >
+            <MoreVertical size={14}/>
+          </button>
         </div>
       </div>
     );
@@ -478,6 +459,45 @@ export function HomePage() {
           </div>
         </main>
       </div>
+
+      {/* ── 포탈 드롭다운 메뉴 ── */}
+      {menuOpen !== null && createPortal(
+        <div
+          ref={menuRef}
+          className={`fixed ${card} border ${cb} rounded-xl shadow-2xl py-1 w-40 z-[9999]`}
+          style={{ top: menuPos.top, left: menuPos.left }}
+        >
+          <button
+            onClick={() => {
+              const p = projects.find(pr => pr.id === menuOpen);
+              if (p) { setRenameId(p.id); setRenameVal(p.name); }
+              setMenuOpen(null);
+            }}
+            className={`flex items-center gap-2 w-full px-4 py-2 text-xs ${ts} hover:${dm?"bg-gray-800":"bg-gray-100"} hover:${dm?"text-white":"text-black"}`}
+          >
+            <Pencil size={13}/> 이름 수정
+          </button>
+          {isAdmin() && (
+            <button
+              onClick={() => {
+                setWorkerChangeId(menuOpen);
+                setWorkerChangeVal("");
+                setMenuOpen(null);
+              }}
+              className={`flex items-center gap-2 w-full px-4 py-2 text-xs ${ts} hover:${dm?"bg-gray-800":"bg-gray-100"} hover:${dm?"text-white":"text-black"}`}
+            >
+              <UserCog size={13}/> 작업자 변경
+            </button>
+          )}
+          <button
+            onClick={() => { if (menuOpen) handleDelete(menuOpen); }}
+            className={`flex items-center gap-2 w-full px-4 py-2 text-xs text-red-400 hover:${dm?"bg-gray-800":"bg-gray-100"}`}
+          >
+            <Trash2 size={13}/> 삭제
+          </button>
+        </div>,
+        document.body
+      )}
 
       {showNew && (
         <NewProjectModal
