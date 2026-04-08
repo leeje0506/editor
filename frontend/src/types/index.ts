@@ -36,6 +36,8 @@ export interface Project {
   first_submitted_at: string | null;
   fps: number | null;
   import_type: "srt" | "json";
+  last_position_ms?: number;
+  last_selected_id?: number | null;
 }
 
 export type TrackType = "dialogue" | "sfx" | "bgm" | "ambience";

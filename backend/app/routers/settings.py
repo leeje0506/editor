@@ -14,13 +14,24 @@ router = APIRouter()
 
 # 초기 기본값 (DB에 아무것도 없을 때 시딩용)
 DEFAULT_RULES = {
-    "TVING": {"max_lines": 2, "max_chars_per_line": 20, "bracket_chars": 5, "allow_overlap": False},
-    "LGHV": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "allow_overlap": False},
-    "SKBB": {"max_lines": 1, "max_chars_per_line": 20, "bracket_chars": 5, "allow_overlap": False},
-    "JTBC": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "allow_overlap": False},
-    "DLIV": {"max_lines": 3, "max_chars_per_line": 17, "bracket_chars": 5, "allow_overlap": False},
-    "자유작업": {"max_lines": 99, "max_chars_per_line": 999, "bracket_chars": 0, "allow_overlap": True},
+    "TVING": {"max_lines": 2, "max_chars_per_line": 20, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500},
+    "LGHV": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500},
+    "SKBB": {"max_lines": 1, "max_chars_per_line": 20, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500},
+    "JTBC": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500},
+    "DLIV": {"max_lines": 3, "max_chars_per_line": 17, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500},
+    "자유작업": {"max_lines": 99, "max_chars_per_line": 999, "bracket_chars": 0, "allow_overlap": True, "min_duration_ms": 0},
 }
+
+
+def _rule_to_dict(r: BroadcasterRule) -> dict:
+    """BroadcasterRule 모델 → dict 변환 (공통 헬퍼)"""
+    return {
+        "max_lines": r.max_lines,
+        "max_chars_per_line": r.max_chars_per_line,
+        "bracket_chars": r.bracket_chars,
+        "allow_overlap": r.allow_overlap,
+        "min_duration_ms": r.min_duration_ms,
+    }
 
 
 def seed_defaults(db: Session) -> None:
@@ -33,6 +44,7 @@ def seed_defaults(db: Session) -> None:
                 max_chars_per_line=r["max_chars_per_line"],
                 bracket_chars=r["bracket_chars"],
                 allow_overlap=r["allow_overlap"],
+                min_duration_ms=r["min_duration_ms"],
             ))
         db.commit()
 
@@ -47,12 +59,7 @@ def load_rules(db: Session = None) -> dict:
         seed_defaults(db)
         rules = {}
         for r in db.query(BroadcasterRule).filter(BroadcasterRule.is_active == True).all():
-            rules[r.name] = {
-                "max_lines": r.max_lines,
-                "max_chars_per_line": r.max_chars_per_line,
-                "bracket_chars": r.bracket_chars,
-                "allow_overlap": r.allow_overlap,
-            }
+            rules[r.name] = _rule_to_dict(r)
         return rules
     finally:
         if close_after:
@@ -65,12 +72,7 @@ def get_broadcaster_rules(db: Session = Depends(get_db)):
     seed_defaults(db)
     rules = {}
     for r in db.query(BroadcasterRule).filter(BroadcasterRule.is_active == True).all():
-        rules[r.name] = {
-            "max_lines": r.max_lines,
-            "max_chars_per_line": r.max_chars_per_line,
-            "bracket_chars": r.bracket_chars,
-            "allow_overlap": r.allow_overlap,
-        }
+        rules[r.name] = _rule_to_dict(r)
     return rules
 
 
@@ -87,6 +89,7 @@ def save_broadcaster_rules(rules: Dict[str, dict], db: Session = Depends(get_db)
             existing.max_chars_per_line = int(r.get("max_chars_per_line", 18))
             existing.bracket_chars = int(r.get("bracket_chars", 5))
             existing.allow_overlap = bool(r.get("allow_overlap", False))
+            existing.min_duration_ms = int(r.get("min_duration_ms", 500))
             existing.is_active = True
         else:
             db.add(BroadcasterRule(
@@ -95,6 +98,7 @@ def save_broadcaster_rules(rules: Dict[str, dict], db: Session = Depends(get_db)
                 max_chars_per_line=int(r.get("max_chars_per_line", 18)),
                 bracket_chars=int(r.get("bracket_chars", 5)),
                 allow_overlap=bool(r.get("allow_overlap", False)),
+                min_duration_ms=int(r.get("min_duration_ms", 500)),
                 is_active=True,
             ))
 
@@ -103,10 +107,5 @@ def save_broadcaster_rules(rules: Dict[str, dict], db: Session = Depends(get_db)
     # 저장 후 최신 데이터 반환
     result = {}
     for row in db.query(BroadcasterRule).filter(BroadcasterRule.is_active == True).all():
-        result[row.name] = {
-            "max_lines": row.max_lines,
-            "max_chars_per_line": row.max_chars_per_line,
-            "bracket_chars": row.bracket_chars,
-            "allow_overlap": row.allow_overlap,
-        }
+        result[row.name] = _rule_to_dict(row)
     return result

@@ -8,8 +8,19 @@ import { GridFilters, type Filters } from "./GridFilters";
 
 interface Props {
   dark: boolean;
-  readOnly?: boolean
+  readOnly?: boolean;
   editorMode?: "srt" | "json";
+}
+
+/** ms → "1.667" 형식 (초 단위, 소수 셋째 자리) */
+function msToDuration(ms: number): string {
+  return (ms / 1000).toFixed(3);
+}
+
+/** 오류 문자열 파싱 → Set */
+function parseErrors(err: string): Set<string> {
+  if (!err) return new Set();
+  return new Set(err.split(",").map((e) => e.trim()));
 }
 
 export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
@@ -38,6 +49,9 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
   const sr = dm ? "bg-blue-900/40" : "bg-blue-50/70";
   const mr = dm ? "bg-blue-900/20" : "bg-blue-50/30";
 
+  // 오류 셀 배경색
+  const errCellBg = dm ? "bg-orange-900/50" : "bg-orange-100";
+
   const filtered = useMemo(() => {
     return subtitles.filter((s) => {
       if (filters.type !== "전체" && s.type !== filters.type) return false;
@@ -49,17 +63,68 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
     });
   }, [subtitles, filters]);
 
-  // 선택 행 자동 스크롤
+  /**
+   * 오버랩 자막의 시작/종료 시간 셀 표시를 위한 맵.
+   * key: subtitle id, value: { startErr: boolean, endErr: boolean }
+   *
+   * 규칙:
+   * - 2구간 오버랩: 이전 자막의 종료, 다음 자막의 시작
+   * - 3구간+ 오버랩: 첫 자막의 종료, 중간 자막의 시작+종료, 끝 자막의 시작
+   */
+  const overlapCellMap = useMemo(() => {
+    const map = new Map<number, { startErr: boolean; endErr: boolean }>();
+
+    // 오버랩 태그가 달린 자막 id 수집 (seq 순서대로)
+    const overlapSubs = subtitles.filter((s) => s.error && s.error.includes("오버랩"));
+
+    // 연속된 오버랩 그룹으로 분리 (시간순으로 실제 겹치는 것끼리 묶기)
+    const groups: typeof overlapSubs[] = [];
+    let currentGroup: typeof overlapSubs = [];
+
+    for (const sub of overlapSubs) {
+      if (currentGroup.length === 0) {
+        currentGroup.push(sub);
+      } else {
+        // 현재 그룹의 마지막 자막과 겹치는지 확인
+        const last = currentGroup[currentGroup.length - 1];
+        if (sub.start_ms < last.end_ms) {
+          currentGroup.push(sub);
+        } else {
+          groups.push(currentGroup);
+          currentGroup = [sub];
+        }
+      }
+    }
+    if (currentGroup.length > 0) groups.push(currentGroup);
+
+    // 그룹별로 셀 표시 결정
+    for (const group of groups) {
+      if (group.length === 2) {
+        // 2구간: 이전 자막 종료, 다음 자막 시작
+        map.set(group[0].id, { startErr: false, endErr: true });
+        map.set(group[1].id, { startErr: true, endErr: false });
+      } else if (group.length >= 3) {
+        // 3구간+: 첫→종료만, 중간→시작+종료, 끝→시작만
+        for (let i = 0; i < group.length; i++) {
+          if (i === 0) {
+            map.set(group[i].id, { startErr: false, endErr: true });
+          } else if (i === group.length - 1) {
+            map.set(group[i].id, { startErr: true, endErr: false });
+          } else {
+            map.set(group[i].id, { startErr: true, endErr: true });
+          }
+        }
+      }
+    }
+
+    return map;
+  }, [subtitles]);
+
   useEffect(() => {
     const row = document.getElementById(`row-${selectedId}`);
     if (row && scrollRef.current) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedId]);
 
-  /**
-   * 싱글클릭:
-   * - 재생 중: 무효
-   * - 정지 중: 자막 선택 + 영상만 프리뷰 (재생바 안 움직임)
-   */
   const handleClick = (id: number) => {
     if (playing) return;
     selectSingle(id);
@@ -69,11 +134,6 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
     }
   };
 
-  /**
-   * 더블클릭:
-   * - 재생 중: 무효
-   * - 정지 중: 자막 선택 + 재생바 이동 + 재생 시작 + 파형 뷰 이동
-   */
   const handleDblClick = (id: number, e: React.MouseEvent) => {
     if (playing) return;
 
@@ -91,13 +151,11 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
     }
   };
 
-  // 자막 리스트에 표시될 라벨
   const posLabel = (v: string) => v === "top" ? "상단이동" : v === "deleted" ? "삭제" : "-";
-
 
   /* ── 컬럼 너비 상수 ── */
   const colW = {
-    seq: "w-10", start: "w-28", end: "w-28", type: "w-12",
+    seq: "w-10", start: "w-28", end: "w-28", dur: "w-14", type: "w-12",
     spkPos: "w-14", txtPos: "w-14", spk: "w-14", err: "w-16",
   };
 
@@ -107,6 +165,7 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
       <th className={`py-2 font-medium ${colW.seq} border-r ${bdl}`}>#</th>
       <th className={`py-2 font-medium ${colW.start} border-r ${bdl}`}>시작</th>
       <th className={`py-2 font-medium ${colW.end} border-r ${bdl}`}>종료</th>
+      <th className={`py-2 font-medium ${colW.dur} border-r ${bdl}`}>길이</th>
       <th className={`py-2 font-medium ${colW.type} border-r ${bdl}`}>유형</th>
       <th className={`py-2 font-medium ${colW.spkPos} border-r ${bdl}`}>화자 위치</th>
       <th className={`py-2 font-medium ${colW.txtPos} border-r ${bdl}`}>대사 위치</th>
@@ -122,7 +181,6 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
       <div className={`shrink-0 ${card}`}>
         <GridToolbar dark={dm} filteredCount={filtered.length} totalCount={subtitles.length} readOnly={readOnly} />
         <GridFilters dark={dm} filters={filters} onChange={setFilters} />
-        {/* 컬럼 헤더 — 스크롤 밖에서 고정 */}
         <table className={`w-full text-center text-[11px] ${ts}`}>
           <thead className={`border-b ${bd}`}>{headerRow}</thead>
         </table>
@@ -135,20 +193,35 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
             {filtered.map((sub) => {
               const isSel = selectedId === sub.id;
               const isMulti = multiSelect.has(sub.id) && !isSel;
+              const duration = sub.end_ms - sub.start_ms;
+              const errors = parseErrors(sub.error);
+              const hasError = errors.size > 0;
+              const overlap = overlapCellMap.get(sub.id);
+
+              // 행 배경: 선택 > 다중선택 > 기본 (오류는 셀 단위로 표시)
+              const rowBg = isSel ? sr : isMulti ? mr : "";
+
+              // 셀별 오류 배경
+              const startCellBg = overlap?.startErr ? errCellBg : "";
+              const endCellBg = overlap?.endErr ? errCellBg : "";
+              const durCellBg = errors.has("최소길이") ? errCellBg : "";
+              const textCellBg = errors.has("글자초과") ? errCellBg : "";
+
               return (
                 <tr
                   key={sub.id}
                   id={`row-${sub.id}`}
                   onClick={() => handleClick(sub.id)}
                   onDoubleClick={(e) => handleDblClick(sub.id, e)}
-                  className={`cursor-pointer transition-colors ${isSel ? sr : isMulti ? mr : hr}`}
+                  className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
                 >
                   <td className={`py-2 ${colW.seq} relative`}>
                     {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
                     {sub.seq}
                   </td>
-                  <td className={`py-2 ${colW.start} font-mono text-[10px] ${tp}`}>{msToTimecode(sub.start_ms)}</td>
-                  <td className={`py-2 ${colW.end} font-mono text-[10px] ${tp}`}>{msToTimecode(sub.end_ms)}</td>
+                  <td className={`py-2 ${colW.start} font-mono text-[10px] ${tp} ${startCellBg}`}>{msToTimecode(sub.start_ms)}</td>
+                  <td className={`py-2 ${colW.end} font-mono text-[10px] ${tp} ${endCellBg}`}>{msToTimecode(sub.end_ms)}</td>
+                  <td className={`py-2 ${colW.dur} font-mono text-[10px] ${tp} ${durCellBg}`}>{msToDuration(duration)}</td>
                   <td className={`py-2 ${colW.type}`}>
                     <span
                       className={`px-1.5 py-0.5 rounded text-[9px] ${
@@ -165,16 +238,20 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
                   <td className={`py-2 ${colW.spkPos} ${sub.speaker_pos === "deleted" ? "text-red-500" : sub.speaker_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.speaker_pos)}</td>
                   <td className={`py-2 ${colW.txtPos} ${sub.text_pos === "deleted" ? "text-red-500" : sub.text_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.text_pos)}</td>
                   <td className={`py-2 ${colW.spk} ${tp} font-bold`}>{sub.speaker || ""}</td>
-                  <td className={`py-2 text-left px-3 ${tp} max-w-[250px]`} title={sub.text}>
+                  <td className={`py-2 text-left px-3 ${tp} max-w-[250px] ${textCellBg}`} title={sub.text}>
                     <div className="text-[12px] leading-snug whitespace-pre-wrap break-all line-clamp-3">
                       {sub.text}
                     </div>
                   </td>
                   <td className={`py-2 ${colW.err}`}>
-                    {sub.error ? (
-                      <span className="text-red-500 bg-red-50 px-1.5 py-0.5 rounded text-[9px] border border-red-100 font-medium">
-                        {sub.error}
-                      </span>
+                    {hasError ? (
+                      <div className="flex flex-col items-center gap-0.5">
+                        {[...errors].map((e) => (
+                          <span key={e} className="text-red-500 bg-red-50 px-1.5 py-0.5 rounded text-[9px] border border-red-100 font-medium">
+                            {e}
+                          </span>
+                        ))}
+                      </div>
                     ) : (
                       <span className={ts}>-</span>
                     )}

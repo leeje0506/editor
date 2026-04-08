@@ -20,9 +20,13 @@ export const projectsApi = {
   reject: (id: number) => api.post<Project>(`/projects/${id}/reject`).then((r) => r.data),
   updateTimer: (id: number, elapsedSeconds: number) =>
     api.post<Project>(`/projects/${id}/timer`, { elapsed_seconds: elapsedSeconds }).then((r) => r.data),
-  markSaved: (id: number) => api.post<Project>(`/projects/${id}/save`).then((r) => r.data),
+  markSaved: (id: number, lastPositionMs?: number, lastSelectedId?: number | null) =>
+    api.post<Project>(`/projects/${id}/save`, {
+      last_position_ms: lastPositionMs ?? 0,
+      last_selected_id: lastSelectedId ?? null,
+    }).then((r) => r.data),
   getBroadcasterRules: () => api.get("/projects/rules/broadcasters").then((r) => r.data),
-  saveBroadcasterRules: (rules: Record<string, { max_lines: number; max_chars_per_line: number; allow_overlap: boolean }>) =>
+  saveBroadcasterRules: (rules: Record<string, any>) =>
     api.put("/settings/broadcaster-rules", rules).then((r) => r.data),
   uploadSubtitle: (id: number, file: File) => {
     const form = new FormData();

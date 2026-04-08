@@ -16,7 +16,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Project, Subtitle, User
-from app.schemas import ProjectCreate, ProjectUpdate, ProjectResponse, TimerUpdate
+from app.schemas import (
+    ProjectCreate, ProjectUpdate, ProjectResponse, TimerUpdate, SavePositionBody,
+)
 from app.routers.settings import load_rules
 from app.services.subtitle_service import (
     parse_srt, export_srt, resequence_and_validate, save_snapshot,
@@ -42,7 +44,6 @@ def _dt_str(dt):
 
 
 def get_video_duration_ms(filepath: str) -> int | None:
-    """ffprobe로 영상 길이(ms) 추출"""
     try:
         result = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filepath],
@@ -88,6 +89,8 @@ def _to_response(project: Project, db: Session) -> dict:
         "subtitle_count": sub_count, "error_count": err_count,
         "fps": project.fps,
         "import_type": project.import_type or "srt",
+        "last_position_ms": project.last_position_ms or 0,
+        "last_selected_id": project.last_selected_id,
     }
 
 
@@ -260,11 +263,20 @@ def update_timer(project_id: int, data: TimerUpdate, current_user: User = Depend
 
 
 @router.post("/{project_id}/save", response_model=ProjectResponse)
-def save_project(project_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def save_project(
+    project_id: int,
+    body: SavePositionBody = SavePositionBody(),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     p = db.query(Project).get(project_id)
     if not p:
         raise HTTPException(404)
     p.last_saved_at = datetime.now(timezone.utc)
+    if body.last_position_ms is not None:
+        p.last_position_ms = body.last_position_ms
+    if body.last_selected_id is not None:
+        p.last_selected_id = body.last_selected_id
     db.commit()
     db.refresh(p)
     return _to_response(p, db)
@@ -306,7 +318,6 @@ def upload_json_subtitle(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """video_project.json 업로드 → dialogues/sfx/bgm/ambience를 Subtitle 테이블에 삽입"""
     p = db.query(Project).get(project_id)
     if not p:
         raise HTTPException(404)
@@ -317,7 +328,6 @@ def upload_json_subtitle(
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise HTTPException(400, f"JSON 파싱 실패: {str(e)}")
 
-    # 파싱
     result = parse_video_project_json(data)
     subtitle_items = result["subtitles"]
     fps = result["fps"]
@@ -326,25 +336,21 @@ def upload_json_subtitle(
     if not subtitle_items:
         raise HTTPException(400, "audioContent에서 추출된 항목이 없습니다")
 
-    # 스냅샷 저장 + 기존 자막 삭제
     save_snapshot(db, project_id, "upload_json")
     db.query(Subtitle).filter(Subtitle.project_id == project_id).delete()
     db.flush()
 
-    # 배치 INSERT
     db.bulk_insert_mappings(Subtitle, [
         {**item, "project_id": project_id, "seq": i + 1}
         for i, item in enumerate(subtitle_items)
     ])
 
-    # 프로젝트 메타 업데이트
     p.subtitle_file = file.filename
     p.import_type = "json"
     p.fps = fps
     if result["total_duration_ms"] > 0:
         p.total_duration_ms = result["total_duration_ms"]
 
-    # 원본 JSON 전체 보존 (export 시 원본 구조 복원용)
     save_original_json(project_id, data)
 
     db.commit()
@@ -371,7 +377,6 @@ def download_json_subtitle(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Subtitle 레코드 → video_project.json audioContent 형식으로 다운로드"""
     p = db.query(Project).get(project_id)
     if not p:
         raise HTTPException(404)

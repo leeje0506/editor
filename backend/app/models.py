@@ -64,6 +64,8 @@ class Project(Base):
     # video_status = Column(String(20), default="none")  # none / uploading / ready / error
     fps = Column(Float, nullable=True)  # JSON import 시 frame↔ms 변환용
     import_type = Column(String(20), default="srt")  # srt / json
+    last_position_ms = Column(Integer, default=0)
+    last_selected_id = Column(Integer, nullable=True)
 
 class Subtitle(Base):
     __tablename__ = "subtitles"
@@ -124,6 +126,7 @@ class BroadcasterRule(Base):
     max_chars_per_line = Column(Integer, default=18)
     bracket_chars = Column(Integer, default=5)
     allow_overlap = Column(Boolean, default=False)  # 오버랩 허용 여부
+    min_duration_ms = Column(Integer, default=500)  # 최소 길이 (ms). 기본 0.5초
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),

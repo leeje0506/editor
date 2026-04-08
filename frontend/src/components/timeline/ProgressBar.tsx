@@ -7,8 +7,7 @@ interface Props {
 }
 
 /**
- * 파형 하단 전체 재생바 — requestAnimationFrame으로 DOM 직접 조작.
- * React 리렌더 없이 부드럽게 진행률 표시.
+ * 전체 재생바 — 재생 중에만 RAF, 정지 시 subscribe로 변경 감지.
  */
 export function ProgressBar({ dark }: Props) {
   const barRef = useRef<HTMLDivElement>(null);
@@ -17,16 +16,51 @@ export function ProgressBar({ dark }: Props) {
   const dm = dark;
 
   useEffect(() => {
-    const update = () => {
+    const applyPosition = () => {
       const { currentMs, totalMs } = usePlayerStore.getState();
       const pct = totalMs > 0 ? (currentMs / totalMs) * 100 : 0;
       if (barRef.current) barRef.current.style.width = `${pct}%`;
       if (knobRef.current) knobRef.current.style.left = `${pct}%`;
-      rafRef.current = requestAnimationFrame(update);
     };
 
-    rafRef.current = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(rafRef.current);
+    let isPlaying = usePlayerStore.getState().playing;
+
+    const startRaf = () => {
+      const tick = () => {
+        applyPosition();
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    const stopRaf = () => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    };
+
+    if (isPlaying) startRaf();
+
+    const unsub = usePlayerStore.subscribe((state, prev) => {
+      if (state.playing !== prev.playing) {
+        isPlaying = state.playing;
+        if (isPlaying) {
+          startRaf();
+        } else {
+          stopRaf();
+          applyPosition();
+        }
+      }
+      if (!isPlaying && state.currentMs !== prev.currentMs) {
+        applyPosition();
+      }
+    });
+
+    applyPosition();
+
+    return () => {
+      stopRaf();
+      unsub();
+    };
   }, []);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -38,7 +72,6 @@ export function ProgressBar({ dark }: Props) {
     usePlayerStore.getState().setCurrentMs(ms);
     usePlayerStore.getState().setVideoPreviewMs(null);
 
-    // 해당 위치에 자막 있으면 선택
     const subtitles = useSubtitleStore.getState().subtitles;
     const hit = subtitles.find((s) => ms >= s.start_ms && ms < s.end_ms);
     if (hit) useSubtitleStore.getState().selectSingle(hit.id);
@@ -56,7 +89,6 @@ export function ProgressBar({ dark }: Props) {
         className="absolute left-0 top-0 bottom-0 bg-red-500/80"
         style={{ width: "0%" }}
       />
-      {/* 현재 위치 인디케이터 */}
       <div ref={knobRef} className="absolute top-0 bottom-0 w-0.5 bg-red-400" style={{ left: "0%" }} />
       <div className="absolute inset-0 bg-transparent group-hover:bg-white/10 transition-colors" />
     </div>

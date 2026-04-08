@@ -27,13 +27,15 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
 
   const { currentMs, playing, muted, totalMs, togglePlay, toggleMute, setCurrentMs, setTotalMs } =
     usePlayerStore();
+  const playbackRate = usePlayerStore((s) => s.playbackRate);
   const setTimelineTotalMs = useTimelineStore((s) => s.setTotalMs);
+  const setTimelineScrollMs = useTimelineStore((s) => s.setScrollMs);
+  const timelineVisibleDuration = useTimelineStore((s) => s.visibleDuration);
   const videoPreviewMs = usePlayerStore((s) => s.videoPreviewMs);
   const subtitles = useSubtitleStore((s) => s.subtitles);
   const activeNow = subtitles.filter((s) => currentMs >= s.start_ms && currentMs < s.end_ms);
   const videoSrc = projectId ? `/api/projects/${projectId}/stream/video` : "";
 
-  // 컨테이너 높이 감시 → 영상 영역 높이 계산
   const [containerW, setContainerW] = useState(0);
   const [containerH, setContainerH] = useState(0);
 
@@ -50,10 +52,8 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
     return () => ro.disconnect();
   }, []);
 
-  // 영상 영역: 컨테이너에서 컨트롤바+재생바 뺀 나머지 전부
   const videoAreaH = Math.max(100, containerH - CONTROLS_H - PROGRESS_H);
 
-  // 영상 비율 유지하면서 컨테이너에 꽉 차게 계산 (contain 방식)
   let fitW = containerW;
   let fitH = containerW / videoAspect;
   if (fitH > videoAreaH) {
@@ -61,7 +61,19 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
     fitW = videoAreaH * videoAspect;
   }
 
-  /* ───── 좌측 드래그: 너비 변경 (비율 자동 유지) ───── */
+  /** 영상 프로그레스바 seek → 파형도 해당 위치를 왼쪽에 놓기 */
+  const seekAndScrollTimeline = useCallback((ms: number) => {
+    setCurrentMs(ms);
+    usePlayerStore.getState().setVideoPreviewMs(null);
+    const visDur = timelineVisibleDuration();
+    setTimelineScrollMs(Math.max(0, ms - visDur * 0.1));
+  }, [setCurrentMs, timelineVisibleDuration, setTimelineScrollMs]);
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v) v.playbackRate = playbackRate;
+  }, [playbackRate]);
+
+  /* ───── 좌측 드래그: 너비 변경 ───── */
   const handleLeftResize = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -105,13 +117,11 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
   const handleTimeUpdate = useCallback(() => {
     const v = videoRef.current;
     if (!v || seekingRef.current) return;
-    // videoPreviewMs가 설정되어 있으면 currentMs 동기화 건너뜀
     if (usePlayerStore.getState().videoPreviewMs !== null) return;
     const ms = Math.floor(v.currentTime * 1000);
     if (Math.abs(ms - currentMs) > 80) setCurrentMs(ms);
   }, [currentMs, setCurrentMs]);
 
-  // currentMs → video.currentTime 동기화 (videoPreviewMs가 null일 때만)
   useEffect(() => {
     const v = videoRef.current;
     if (!v || !v.duration) return;
@@ -124,7 +134,6 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
     }
   }, [currentMs]);
 
-  // videoPreviewMs 변경 시 영상만 seek (재생바 currentMs는 변경 안 함)
   useEffect(() => {
     const v = videoRef.current;
     if (!v || videoPreviewMs === null) return;
@@ -162,10 +171,8 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
 
   return (
     <div ref={containerRef} className="relative w-full h-full flex flex-col">
-      {/* 드래그 중 전역 오버레이 */}
       {resizing && <div className="fixed inset-0 z-50" />}
 
-      {/* 비디오 — 남은 공간 전부 차지, 영상은 비율 유지하며 최대 크기로 중앙 배치 */}
       <div className="flex-1 bg-black overflow-hidden relative flex items-center justify-center min-h-0">
         {videoSrc ? (
           <video
@@ -187,7 +194,6 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
         <SubtitleOverlay subtitles={activeNow} />
       </div>
 
-      {/* 재생바 (프로그레스 바) */}
       <div
         className="relative w-full cursor-pointer group"
         style={{ height: 6 }}
@@ -195,8 +201,7 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
           const rect = e.currentTarget.getBoundingClientRect();
           const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
           const ms = Math.round(pct * totalMs);
-          setCurrentMs(ms);
-          usePlayerStore.getState().setVideoPreviewMs(null);
+          seekAndScrollTimeline(ms);
         }}
         onMouseDown={(e) => {
           e.preventDefault();
@@ -204,7 +209,7 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
           const onMove = (ev: MouseEvent) => {
             const rect = bar.getBoundingClientRect();
             const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-            setCurrentMs(Math.round(pct * totalMs));
+            seekAndScrollTimeline(Math.round(pct * totalMs));
           };
           const onUp = () => {
             document.body.style.cursor = "";
@@ -224,7 +229,6 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
         <div className="absolute inset-0 bg-transparent group-hover:bg-white/10 rounded-sm transition-colors" />
       </div>
 
-      {/* 컨트롤 바 */}
       <div
         className="bg-black flex items-center justify-between px-3 text-white border-t border-zinc-800"
         style={{ height: CONTROLS_H }}
@@ -247,9 +251,6 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
         </div>
       </div>
 
-      {/* ═══ 리사이즈 핸들 ═══ */}
-
-      {/* 좌측 변 — 수평 리사이즈 */}
       <div
         className="absolute top-0 bottom-0 w-[6px] cursor-ew-resize z-30
                    group hover:bg-blue-500/30 active:bg-blue-500/50"
