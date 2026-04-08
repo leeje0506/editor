@@ -6,7 +6,8 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./subtitle_editor.db")
+# DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./subtitle_editor.db")
+DATABASE_URL = "postgresql://editor_user:editor_pass@localhost:5432/subtitle_editor"
 
 engine_kwargs = {}
 if DATABASE_URL.startswith("sqlite"):

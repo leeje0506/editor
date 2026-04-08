@@ -5,6 +5,8 @@ interface BroadcasterRule {
   max_lines: number;
   max_chars_per_line: number;
   bracket_chars: number;
+  allow_overlap: boolean;
+  min_duration_ms: number;
 }
 
 interface BroadcasterState {
@@ -26,15 +28,14 @@ export const useBroadcasterStore = create<BroadcasterState>((set, get) => ({
       set({ rules, names, loaded: true });
       return rules;
     } catch {
-      // 서버 연결 실패 시 폴백 (최초 1회만)
       if (!get().loaded) {
         const fallback: Record<string, BroadcasterRule> = {
-          "TVING": { max_lines: 2, max_chars_per_line: 20, bracket_chars: 5 },
-          "LGHV": { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5 },
-          "SKBB": { max_lines: 1, max_chars_per_line: 20, bracket_chars: 5 },
-          "JTBC": { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5 },
-          "DLIV": { max_lines: 3, max_chars_per_line: 17, bracket_chars: 5 },
-          "자유작업": { max_lines: 99, max_chars_per_line: 999, bracket_chars: 0 },
+          "TVING": { max_lines: 2, max_chars_per_line: 20, bracket_chars: 5, allow_overlap: false, min_duration_ms: 500 },
+          "LGHV": { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5, allow_overlap: false, min_duration_ms: 500 },
+          "SKBB": { max_lines: 1, max_chars_per_line: 20, bracket_chars: 5, allow_overlap: false, min_duration_ms: 500 },
+          "JTBC": { max_lines: 2, max_chars_per_line: 18, bracket_chars: 5, allow_overlap: false, min_duration_ms: 500 },
+          "DLIV": { max_lines: 3, max_chars_per_line: 17, bracket_chars: 5, allow_overlap: false, min_duration_ms: 500 },
+          "자유작업": { max_lines: 99, max_chars_per_line: 999, bracket_chars: 0, allow_overlap: true, min_duration_ms: 0 },
         };
         set({ rules: fallback, names: Object.keys(fallback), loaded: true });
       }

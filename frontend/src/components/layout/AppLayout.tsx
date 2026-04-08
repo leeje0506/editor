@@ -61,7 +61,6 @@ export function AppLayout() {
   const [showSubPanel, setShowSubPanel] = useState(false);
   const [peaks, setPeaks] = useState<number[] | null>(null);
 
-  // 편집 모드 — project.import_type에 따라 초기값 결정
   const [editorMode, setEditorMode] = useState<EditorMode>("srt");
 
   const [videoWidth, setVideoWidth] = useState(() => {
@@ -154,21 +153,51 @@ export function AppLayout() {
   // 프로젝트 로드
   useEffect(() => {
     if (!pid) return;
+
+    // 초기 상태 리셋
     usePlayerStore.getState().setCurrentMs(0);
     usePlayerStore.getState().setVideoPreviewMs(null);
     useTimelineStore.getState().zoomFit();
     useTimelineStore.getState().setScrollMs(0);
-    projectsApi.get(pid).then((p) => {
+
+    projectsApi.get(pid).then(async (p) => {
       setProject(p);
       setElapsed(p.elapsed_seconds || 0);
       setTotalMs(p.total_duration_ms);
       setTimelineTotalMs(p.total_duration_ms);
-      // import_type에 따라 초기 편집 모드 설정
+
       if (p.import_type === "json") {
         setEditorMode("json");
       }
+
+      // 자막 로드 후 마지막 위치 복원 (제출/승인 제외)
+      await init(pid);
+      console.log("restore:", p.last_position_ms, p.last_selected_id, p.status);
+
+      if (p.status !== "submitted" && p.status !== "approved") {
+        const posMs = (p as any).last_position_ms || 0;
+        const selId = (p as any).last_selected_id || null;
+
+        if (posMs > 0) {
+          usePlayerStore.getState().setCurrentMs(posMs);
+          usePlayerStore.getState().setVideoPreviewMs(posMs);
+
+          // 파형을 해당 위치로 스크롤
+          const visDur = useTimelineStore.getState().visibleDuration();
+          useTimelineStore.getState().setScrollMs(Math.max(0, posMs - visDur * 0.1));
+        }
+
+        if (selId) {
+          // 자막이 로드된 후 선택
+          const subs = useSubtitleStore.getState().subtitles;
+          const exists = subs.find((s) => s.id === selId);
+          if (exists) {
+            useSubtitleStore.getState().selectSingle(selId);
+          }
+        }
+      }
     }).catch(() => navigate("/"));
-    init(pid).catch(() => {});
+
     projectsApi.getWaveform(pid)
       .then((w) => setPeaks(w.peaks))
       .catch(() => setPeaks(null));
@@ -197,12 +226,22 @@ export function AppLayout() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [pid, elapsed]);
 
+  /** 현재 위치 정보를 서버에 저장 */
+  const savePosition = async () => {
+    if (!pid) return;
+    const currentMs = usePlayerStore.getState().currentMs;
+    const selectedId = useSubtitleStore.getState().selectedId;
+    try {
+      await projectsApi.markSaved(pid, currentMs, selectedId);
+    } catch {}
+  };
+
   const handleSave = async () => {
     try {
       await saveAll();
       if (pid) {
         await projectsApi.updateTimer(pid, elapsed);
-        await projectsApi.markSaved(pid);
+        await savePosition();
       }
       setSavedMsg("저장 완료!");
       setTimeout(() => setSavedMsg(""), 2000);
@@ -217,7 +256,7 @@ export function AppLayout() {
       await saveAll();
       if (pid) {
         await projectsApi.updateTimer(pid, elapsed);
-        await projectsApi.markSaved(pid);
+        await savePosition();
       }
       setSavedMsg("저장 완료!");
       setTimeout(() => navigate("/"), 600);
@@ -248,7 +287,6 @@ export function AppLayout() {
     }
   };
 
-  // SRT 다운로드
   const handleDownload = async () => {
     if (!pid || !project) return;
     try {
@@ -270,7 +308,6 @@ export function AppLayout() {
     }
   };
 
-  // JSON 다운로드
   const handleDownloadJson = async () => {
     if (!pid || !project) return;
     try {

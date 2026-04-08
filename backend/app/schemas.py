@@ -98,6 +98,8 @@ class ProjectResponse(BaseModel):
     error_count: int = 0
     fps: Optional[float] = None
     import_type: str = "srt"
+    last_position_ms: int = 0
+    last_selected_id: Optional[int] = None
     class Config:
         from_attributes = True
 
@@ -172,3 +174,7 @@ class BulkSpeakerRequest(BaseModel):
 
 class TimerUpdate(BaseModel):
     elapsed_seconds: int
+
+class SavePositionBody(BaseModel):
+    last_position_ms: Optional[int] = None
+    last_selected_id: Optional[int] = None

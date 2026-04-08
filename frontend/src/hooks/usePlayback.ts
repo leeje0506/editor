@@ -6,7 +6,7 @@ import { useTimelineStore } from "../store/useTimelineStore";
 /**
  * 재생 타이머 + 재생 중 자막 자동 추적.
  *
- * - 재생 중 100ms마다 currentMs 증가
+ * - 재생 중 100ms마다 currentMs를 배속 반영하여 증가
  * - 재생 중 현재 시간에 해당하는 자막 자동 선택 (QuickEditor 연동)
  * - lastActiveIdRef로 같은 자막 구간 내 중복 selectSingle 방지
  * - 플레이헤드가 뷰 밖으로 나가면 페이지 넘김
@@ -18,12 +18,12 @@ export function usePlayback() {
 
   useEffect(() => {
     if (playing) {
-      // 재생 시작 시 lastActiveIdRef 리셋
       lastActiveIdRef.current = null;
 
       intervalRef.current = window.setInterval(() => {
-        const { currentMs, totalMs } = usePlayerStore.getState();
-        const nextMs = currentMs + 100 >= totalMs ? 0 : currentMs + 100;
+        const { currentMs, totalMs, playbackRate } = usePlayerStore.getState();
+        const increment = Math.round(100 * playbackRate);
+        const nextMs = currentMs + increment >= totalMs ? 0 : currentMs + increment;
         usePlayerStore.setState({ currentMs: nextMs });
 
         // 재생 중 자막 자동 추적

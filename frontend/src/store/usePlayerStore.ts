@@ -5,14 +5,8 @@ interface PlayerState {
   playing: boolean;
   muted: boolean;
   totalMs: number;
-
-  /**
-   * 영상 프리뷰 전용 시간.
-   * - 자막 리스트 싱글클릭 시 설정 → 영상만 해당 위치로 seek (재생바는 안 움직임)
-   * - 재생 시작 시 null로 리셋 → 영상이 currentMs(재생바) 위치로 복귀
-   * - null이면 영상은 currentMs를 따름 (기존 동작)
-   */
   videoPreviewMs: number | null;
+  playbackRate: number; // 0.5 ~ 3.0
 
   setCurrentMs: (ms: number) => void;
   setTotalMs: (ms: number) => void;
@@ -21,6 +15,7 @@ interface PlayerState {
   seekForward: (ms?: number) => void;
   seekBackward: (ms?: number) => void;
   setVideoPreviewMs: (ms: number | null) => void;
+  setPlaybackRate: (rate: number) => void;
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -29,6 +24,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   muted: false,
   totalMs: 600000,
   videoPreviewMs: null,
+  playbackRate: 1.0,
 
   setCurrentMs: (ms) => set({ currentMs: Math.max(0, Math.min(ms, get().totalMs)) }),
   setTotalMs: (ms) =>
@@ -43,7 +39,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   togglePlay: () =>
     set((s) => {
       if (!s.playing) {
-        // 재생 시작 → videoPreviewMs 리셋 (영상이 재생바 위치로 복귀)
         return { playing: true, videoPreviewMs: null };
       }
       return { playing: false };
@@ -54,4 +49,5 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   seekBackward: (ms = 5000) =>
     set((s) => ({ currentMs: Math.max(0, s.currentMs - ms) })),
   setVideoPreviewMs: (ms) => set({ videoPreviewMs: ms }),
+  setPlaybackRate: (rate) => set({ playbackRate: Math.max(0.5, Math.min(3.0, rate)) }),
 }));

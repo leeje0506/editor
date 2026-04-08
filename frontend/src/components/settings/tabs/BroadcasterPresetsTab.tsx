@@ -8,6 +8,7 @@ interface Rule {
   max_lines: number;
   max_chars_per_line: number;
   allow_overlap: boolean;
+  min_duration_ms: number;
 }
 
 export function BroadcasterPresetsTab() {
@@ -16,6 +17,7 @@ export function BroadcasterPresetsTab() {
   const [newLines, setNewLines] = useState(2);
   const [newChars, setNewChars] = useState(18);
   const [newOverlap, setNewOverlap] = useState(false);
+  const [newMinDur, setNewMinDur] = useState(500);
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [editRule, setEditRule] = useState<Rule | null>(null);
   const [saving, setSaving] = useState(false);
@@ -26,7 +28,6 @@ export function BroadcasterPresetsTab() {
   const inp = "bg-gray-800 text-gray-100 border-gray-700";
   const ts = "text-gray-400";
 
-  // 서버에서 로드
   useEffect(() => {
     loadRules();
   }, []);
@@ -39,21 +40,25 @@ export function BroadcasterPresetsTab() {
         max_lines: r.max_lines,
         max_chars_per_line: r.max_chars_per_line,
         allow_overlap: r.allow_overlap ?? false,
+        min_duration_ms: r.min_duration_ms ?? 500,
       }));
       setRules(list);
     } catch {}
   };
 
-  // 서버에 저장
   const saveToServer = async (updatedRules: Rule[]) => {
     setSaving(true);
     try {
-      const payload: Record<string, { max_lines: number; max_chars_per_line: number; allow_overlap: boolean }> = {};
+      const payload: Record<string, any> = {};
       for (const r of updatedRules) {
-        payload[r.name] = { max_lines: r.max_lines, max_chars_per_line: r.max_chars_per_line, allow_overlap: r.allow_overlap };
+        payload[r.name] = {
+          max_lines: r.max_lines,
+          max_chars_per_line: r.max_chars_per_line,
+          allow_overlap: r.allow_overlap,
+          min_duration_ms: r.min_duration_ms,
+        };
       }
       await projectsApi.saveBroadcasterRules(payload);
-      // 전역 스토어 갱신
       await useBroadcasterStore.getState().fetch();
       setMsg("저장 완료!");
       setTimeout(() => setMsg(""), 2000);
@@ -71,7 +76,13 @@ export function BroadcasterPresetsTab() {
       setTimeout(() => setMsg(""), 2000);
       return;
     }
-    const updated = [...rules, { name: newName.trim(), max_lines: newLines, max_chars_per_line: newChars, allow_overlap: newOverlap }];
+    const updated = [...rules, {
+      name: newName.trim(),
+      max_lines: newLines,
+      max_chars_per_line: newChars,
+      allow_overlap: newOverlap,
+      min_duration_ms: newMinDur,
+    }];
     setRules(updated);
     await saveToServer(updated);
     setNewName("");
@@ -103,8 +114,11 @@ export function BroadcasterPresetsTab() {
     setEditRule(null);
   };
 
+  /** ms → 초 표시 */
+  const msToSec = (ms: number) => (ms / 1000).toFixed(1);
+
   return (
-    <div className="max-w-4xl">
+    <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <FileText size={20} className="text-blue-400" />
@@ -124,15 +138,20 @@ export function BroadcasterPresetsTab() {
               onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
               className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none ${inp} focus:border-blue-500`} />
           </div>
-          <div className="w-24">
+          <div className="w-20">
             <label className={`block text-xs ${ts} mb-1`}>최대 줄</label>
             <input type="number" value={newLines} onChange={e => setNewLines(+e.target.value)} className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none text-center ${inp}`} />
           </div>
-          <div className="w-24">
+          <div className="w-20">
             <label className={`block text-xs ${ts} mb-1`}>글자 수</label>
             <input type="number" value={newChars} onChange={e => setNewChars(+e.target.value)} className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none text-center ${inp}`} />
           </div>
           <div className="w-24">
+            <label className={`block text-xs ${ts} mb-1`}>최소길이(초)</label>
+            <input type="number" step="0.1" value={newMinDur / 1000} onChange={e => setNewMinDur(Math.round(parseFloat(e.target.value || "0") * 1000))}
+              className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none text-center ${inp}`} />
+          </div>
+          <div className="w-20">
             <label className={`block text-xs ${ts} mb-1`}>오버랩</label>
             <button
               onClick={() => setNewOverlap(!newOverlap)}
@@ -154,6 +173,7 @@ export function BroadcasterPresetsTab() {
           <span className="flex-1">방송사</span>
           <span className="w-20 text-center">최대 줄</span>
           <span className="w-20 text-center">글자 수</span>
+          <span className="w-20 text-center">최소길이</span>
           <span className="w-20 text-center">오버랩</span>
           <span className="w-20 text-center">작업</span>
         </div>
@@ -166,6 +186,9 @@ export function BroadcasterPresetsTab() {
                 <input type="number" value={editRule.max_lines} onChange={e => setEditRule({ ...editRule, max_lines: +e.target.value })}
                   className={`w-20 border rounded px-2 py-1 text-sm text-center outline-none ${inp}`} />
                 <input type="number" value={editRule.max_chars_per_line} onChange={e => setEditRule({ ...editRule, max_chars_per_line: +e.target.value })}
+                  className={`w-20 border rounded px-2 py-1 text-sm text-center outline-none ${inp}`} />
+                <input type="number" step="0.1" value={editRule.min_duration_ms / 1000}
+                  onChange={e => setEditRule({ ...editRule, min_duration_ms: Math.round(parseFloat(e.target.value || "0") * 1000) })}
                   className={`w-20 border rounded px-2 py-1 text-sm text-center outline-none ${inp}`} />
                 <div className="w-20 flex items-center justify-center">
                   <button
@@ -185,6 +208,7 @@ export function BroadcasterPresetsTab() {
                 <span className="flex-1 font-medium text-sm">{r.name}</span>
                 <span className={`w-20 text-center text-sm ${ts}`}>{r.max_lines}줄</span>
                 <span className={`w-20 text-center text-sm ${ts}`}>{r.max_chars_per_line}자</span>
+                <span className={`w-20 text-center text-sm ${ts}`}>{msToSec(r.min_duration_ms)}초</span>
                 <span className={`w-20 text-center text-xs ${r.allow_overlap ? "text-emerald-400" : "text-red-400"}`}>
                   {r.allow_overlap ? "허용" : "미허용"}
                 </span>
