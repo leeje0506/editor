@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, Moon, Sun, Save, Send, Settings, Clock, Download, Lock, LogOut, Subtitles, FileJson, FileText } from "lucide-react";
+import { Home, Moon, Sun, Save, Send, Settings, Clock, Download, Lock, LogOut, Type, FileJson, FileText } from "lucide-react";
 import { ProjectSettingsModal } from "../modals/ProjectSettingsModal";
 import type { Project } from "../../types";
 
@@ -74,32 +74,6 @@ export function TopNav({
                   <Settings size={13} />
                 </button>
               )}
-
-              {/* 모드 토글 */}
-              <div className={`flex items-center border ${bd} rounded overflow-hidden ml-2`}>
-                <button
-                  onClick={() => onModeChange("srt")}
-                  className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                    !isJson
-                      ? "bg-blue-600 text-white"
-                      : dm ? "bg-gray-700 text-gray-400 hover:text-gray-200" : "bg-gray-100 text-gray-500 hover:text-gray-700"
-                  }`}
-                  title="SRT 편집 모드"
-                >
-                  <FileText size={11} /> SRT
-                </button>
-                <button
-                  onClick={() => onModeChange("json")}
-                  className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                    isJson
-                      ? "bg-purple-600 text-white"
-                      : dm ? "bg-gray-700 text-gray-400 hover:text-gray-200" : "bg-gray-100 text-gray-500 hover:text-gray-700"
-                  }`}
-                  title="JSON 편집 모드"
-                >
-                  <FileJson size={11} /> JSON
-                </button>
-              </div>
             </div>
             <div className={`text-[10px] ${ts} flex gap-2 items-center`}>
               <span>방송사: <strong className="text-blue-500">{project?.broadcaster || "-"}</strong></span>
@@ -155,10 +129,10 @@ export function TopNav({
             <>
               <button
                 onClick={() => onToggleSubtitlePanel?.()}
-                className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`}
+                className={`flex items-center gap-1 border ${bd} rounded ${ts} px-2 py-1 text-[10px] font-medium hover:opacity-80`}
                 title="자막 표시 설정"
               >
-                <Subtitles size={14} />
+                <Type size={12} /> 자막설정
               </button>
 
               <button onClick={() => setDark(!dm)} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`}>

@@ -2,6 +2,7 @@ import { useRef, useMemo, useCallback, useEffect } from "react";
 import { Play, Pause, SkipBack, SkipForward, RefreshCw, Minus, Plus } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
+import { subtitlesApi } from "../../api/subtitles";
 import { useTimelineStore } from "../../store/useTimelineStore";
 import { useTimelineZoom } from "../../hooks/useTimelineZoom";
 import { ZoomControls } from "./ZoomControls";
@@ -124,8 +125,28 @@ export function Timeline({ dark, peaks, onReload }: Props) {
     return buildMockWavePath(tlLeft, visDur, totalMs);
   }, [peaks, peaksPerSec, tlLeft, visDur, totalMs]);
 
-  /* ── clipPath용 rect 데이터 계산 ── */
-  const { normalRects, selectedRect } = useMemo(() => {
+  /* ── 오버랩 구간 계산 (뷰 기준 퍼센트) ── */
+  const overlapRegions = useMemo(() => {
+    const regions: { leftPct: number; widthPct: number }[] = [];
+    // 오버랩 태그가 달린 자막들 (전체에서)
+    const overlapSubs = subtitles.filter((s) => s.error && s.error.includes("오버랩"));
+    for (let i = 0; i < overlapSubs.length; i++) {
+      for (let j = i + 1; j < overlapSubs.length; j++) {
+        const a = overlapSubs[i];
+        const b = overlapSubs[j];
+        if (b.start_ms >= a.end_ms) break;
+        const oStart = Math.max(a.start_ms, b.start_ms);
+        const oEnd = Math.min(a.end_ms, b.end_ms);
+        if (oEnd > oStart && oEnd > tlLeft && oStart < tlLeft + visDur) {
+          const leftPct = ((Math.max(oStart, tlLeft) - tlLeft) / visDur) * 100;
+          const rightPct = ((Math.min(oEnd, tlLeft + visDur) - tlLeft) / visDur) * 100;
+          regions.push({ leftPct, widthPct: rightPct - leftPct });
+        }
+      }
+    }
+    return regions;
+  }, [subtitles, tlLeft, visDur]);
+  const { normalRects, selectedRect, overlapRects } = useMemo(() => {
     const normal: { x: number; w: number; id: number }[] = [];
     let selected: { x: number; w: number } | null = null;
 
@@ -138,33 +159,68 @@ export function Timeline({ dark, peaks, onReload }: Props) {
         normal.push({ x, w, id: s.id });
       }
     }
-    return { normalRects: normal, selectedRect: selected };
-  }, [vtl, tlLeft, visDur, selectedId]);
+
+    // 오버랩 구간 계산: 실제 겹치는 ms 범위 → SVG rect
+    const overlap: { x: number; w: number }[] = [];
+    const overlapSubs = subtitles.filter((s) => s.error && s.error.includes("오버랩"));
+    for (let i = 0; i < overlapSubs.length; i++) {
+      for (let j = i + 1; j < overlapSubs.length; j++) {
+        const a = overlapSubs[i];
+        const b = overlapSubs[j];
+        if (b.start_ms >= a.end_ms) break;
+        // 겹치는 구간: max(a.start, b.start) ~ min(a.end, b.end)
+        const oStart = Math.max(a.start_ms, b.start_ms);
+        const oEnd = Math.min(a.end_ms, b.end_ms);
+        if (oEnd > oStart && oEnd > tlLeft && oStart < tlLeft + visDur) {
+          const ox = ((oStart - tlLeft) / visDur) * W;
+          const ow = ((oEnd - oStart) / visDur) * W;
+          overlap.push({ x: ox, w: Math.max(ow, 1) });
+        }
+      }
+    }
+
+    return { normalRects: normal, selectedRect: selected, overlapRects: overlap };
+  }, [vtl, subtitles, tlLeft, visDur, selectedId]);
+
+  const updateOne = useSubtitleStore((s) => s.updateOne);
 
   /* ── 자막 시간 드래그 ── */
   const startDrag = useCallback(
     (e: React.MouseEvent, handle: "start" | "end", subId: number) => {
       e.stopPropagation();
       e.preventDefault();
+      const field = handle === "start" ? "start_ms" : "end_ms";
+      let lastMs = 0;
       const onMove = (ev: MouseEvent) => {
         if (!tlRef.current) return;
         const rect = tlRef.current.getBoundingClientRect();
         const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-        const ms = Math.round(tlLeft + pct * visDur);
-        updateLocal(subId, { [handle === "start" ? "start_ms" : "end_ms"]: ms });
+        lastMs = Math.round(tlLeft + pct * visDur);
+        updateLocal(subId, { [field]: lastMs });
       };
       const onUp = () => {
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
+        // 드래그 완료 시 서버 검수 + 선택/스크롤 유지하며 자막 갱신
+        if (lastMs > 0) {
+          updateOne(subId, { [field]: lastMs }).then(() => {
+            const { projectId, selectedId, multiSelect } = useSubtitleStore.getState();
+            if (projectId) {
+              subtitlesApi.list(projectId).then((subs) => {
+                useSubtitleStore.setState({ subtitles: subs });
+              });
+            }
+          });
+        }
       };
       document.body.style.cursor = "ew-resize";
       document.body.style.userSelect = "none";
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [tlLeft, visDur, updateLocal],
+    [tlLeft, visDur, updateLocal, updateOne],
   );
 
   /* ── non-passive wheel ── */
@@ -289,11 +345,13 @@ export function Timeline({ dark, peaks, onReload }: Props) {
           <div className="absolute inset-x-0 top-4 bottom-[6px] pointer-events-none">
             <svg preserveAspectRatio="none" viewBox={`0 0 ${W} ${H}`} className="w-full h-full">
               <defs>
+                {/* 일반 자막 구간 클립 */}
                 <clipPath id="clip-normal">
                   {normalRects.map((r) => (
                     <rect key={r.id} x={r.x} y="0" width={Math.max(r.w, 1)} height={H} />
                   ))}
                 </clipPath>
+                {/* 선택 자막 구간 클립 */}
                 {selectedRect && (
                   <clipPath id="clip-selected">
                     <rect x={selectedRect.x} y="0" width={Math.max(selectedRect.w, 1)} height={H} />
@@ -323,7 +381,24 @@ export function Timeline({ dark, peaks, onReload }: Props) {
 
               {/* 센터 라인 */}
               <line x1="0" y1={MID} x2={W} y2={MID} stroke="rgba(55,65,81,0.3)" strokeWidth="1" />
+
+
             </svg>
+          </div>
+
+          {/* ══════ 오버랩 구간 격자무늬 오버레이 ══════ */}
+          <div className="absolute inset-x-0 top-4 bottom-[6px] pointer-events-none" style={{ zIndex: 5 }}>
+            {overlapRegions.map((r, i) => (
+              <div
+                key={`ol-${i}`}
+                className="absolute top-0 bottom-0"
+                style={{
+                  left: `${r.leftPct}%`,
+                  width: `${r.widthPct}%`,
+                  backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(180,180,180,0.3) 3px, rgba(180,180,180,0.3) 4px)`,
+                }}
+              />
+            ))}
           </div>
 
           {/* ══════ 자막 블록 오버레이 (텍스트 + 경계선 + 선택 하이라이트) ══════ */}

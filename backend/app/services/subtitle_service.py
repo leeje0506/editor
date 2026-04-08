@@ -20,21 +20,30 @@ def count_text_chars(text: str) -> int:
     return len(normalized.replace("\n", ""))
 
 
-def validate_subtitle(sub: Subtitle, project: Project) -> str:
+def _get_broadcaster_rule(db: Session, project: Project) -> BroadcasterRule | None:
+    """프로젝트의 방송사 규칙 조회"""
+    if not project.broadcaster:
+        return None
+    return db.query(BroadcasterRule).filter(
+        BroadcasterRule.name == project.broadcaster,
+        BroadcasterRule.is_active == True,
+    ).first()
+
+
+def validate_subtitle(sub: Subtitle, project: Project, min_duration_ms: int = 0) -> str:
     """
     검수 로직:
     - 글자수 체크: 대사글자수 + 화자예약글자수 > 기준값(max_chars_per_line * max_lines)
     - 줄 수 체크
     - 시간 오류 체크
+    - 최소 길이 체크
     (오버랩 검수는 resequence_and_validate에서 별도 처리)
     """
     errors: List[str] = []
 
-    # 글자수 체크: 전체 대사 글자수 + 화자 예약 vs 기준값
-    # 화자 예약 = 화자명 글자수 + 3 (괄호+공백 등)
+    # 글자수 체크
     total_chars = count_text_chars(sub.text)
     speaker_reserved = (len(sub.speaker) + 3) if sub.speaker else 0
-    # 기준값 = 실제 줄 수 × 줄당 글자수
     line_count = max(1, len(sub.text.split("\n")))
     limit = (project.max_chars_per_line or 18) * line_count
 
@@ -46,20 +55,13 @@ def validate_subtitle(sub: Subtitle, project: Project) -> str:
         errors.append("줄초과")
     if sub.end_ms <= sub.start_ms:
         errors.append("시간오류")
-    return errors[0] if errors else ""
 
+    # 최소 길이 체크
+    duration_ms = sub.end_ms - sub.start_ms
+    if min_duration_ms > 0 and duration_ms < min_duration_ms:
+        errors.append("최소길이")
 
-def _get_allow_overlap(db: Session, project: Project) -> bool:
-    """프로젝트의 방송사 규칙에서 오버랩 허용 여부를 가져옴"""
-    if not project.broadcaster:
-        return True  # 방송사 미설정이면 오버랩 허용
-    rule = db.query(BroadcasterRule).filter(
-        BroadcasterRule.name == project.broadcaster,
-        BroadcasterRule.is_active == True,
-    ).first()
-    if not rule:
-        return True  # 규칙 없으면 오버랩 허용
-    return rule.allow_overlap
+    return ",".join(errors) if errors else ""
 
 
 def resequence_and_validate(db: Session, project_id: int) -> List[Subtitle]:
@@ -71,21 +73,23 @@ def resequence_and_validate(db: Session, project_id: int) -> List[Subtitle]:
         .all()
     )
 
-    # 1단계: 순번 재계산 + 기본 검수 (글자초과/줄초과/시간오류)
+    # 방송사 규칙에서 min_duration_ms 가져오기
+    rule = _get_broadcaster_rule(db, project)
+    min_duration_ms = rule.min_duration_ms if rule else 0
+
+    # 1단계: 순번 재계산 + 기본 검수 (글자초과/줄초과/시간오류/최소길이)
     for i, sub in enumerate(subs, start=1):
         sub.seq = i
-        sub.error = validate_subtitle(sub, project)
+        sub.error = validate_subtitle(sub, project, min_duration_ms)
 
     # 2단계: 오버랩 검수 (방송사 규칙이 미허용인 경우만)
-    allow_overlap = _get_allow_overlap(db, project)
+    allow_overlap = rule.allow_overlap if rule else True
     if not allow_overlap:
         overlap_ids: set = set()
         for i in range(len(subs)):
             for j in range(i + 1, len(subs)):
-                # j의 start_ms가 i의 end_ms 이상이면 더 이상 겹칠 수 없음
                 if subs[j].start_ms >= subs[i].end_ms:
                     break
-                # 오버랩 발생: i의 end_ms > j의 start_ms
                 overlap_ids.add(subs[i].id)
                 overlap_ids.add(subs[j].id)
 
@@ -122,6 +126,15 @@ def save_snapshot(db: Session, project_id: int, action: str) -> None:
 
 
 def restore_snapshot(db: Session, project_id: int, snapshot: List[Dict]) -> List[Subtitle]:
+    # 빈 스냅샷이면 복원 거부 (자막 업로드 이전 상태로 되돌리는 것 방지)
+    if not snapshot:
+        return (
+            db.query(Subtitle)
+            .filter(Subtitle.project_id == project_id)
+            .order_by(Subtitle.start_ms, Subtitle.id)
+            .all()
+        )
+
     db.query(Subtitle).filter(Subtitle.project_id == project_id).delete()
     db.flush()
     for item in snapshot:
@@ -178,7 +191,6 @@ def parse_srt(content: str) -> List[Dict]:
             text_pos = "top"
             text = text.replace("{\\an8}", "").strip()
 
-        # 태그 제거 (UI에서는 보이지 않음)
         text = re.sub(r"\{\\ㅅ\}", "", text)
         text = re.sub(r"\{\\}", "", text)
         text = re.sub(r"\{/an8\}", "", text)
@@ -219,14 +231,12 @@ def export_srt(subtitles: List[Subtitle]) -> str:
         if sub.text_pos == "top":
             parts.append("{\\an8}")
 
-        # 화자 처리
         if sub.speaker:
             if sub.speaker_pos == "deleted":
                 parts.append(f"({sub.speaker}{{\\ㅅ}})")
             else:
                 parts.append(f"({sub.speaker}{{\\}})")
 
-        # 대사 처리
         if sub.text_pos == "deleted":
             if sub.type == "effect":
                 parts.append(f"{sub.text}{{\\ㅅ}}")
