@@ -2,9 +2,11 @@ import { useRef, useEffect, useMemo, useState } from "react";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useTimelineStore } from "../../store/useTimelineStore";
+import { useSettingsStore } from "../../store/useSettingsStore";
 import { msToTimecode } from "../../utils/time";
 import { GridToolbar } from "./GridToolbar";
 import { GridFilters, type Filters } from "./GridFilters";
+
 
 interface Props {
   dark: boolean;
@@ -38,6 +40,11 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
   const setVideoPreviewMs = usePlayerStore((s) => s.setVideoPreviewMs);
 
   const ensureVisible = useTimelineStore((s) => s.ensureVisible);
+
+  const listFontSize = useSettingsStore((s) => s.subtitleDisplay.listFontSize);
+
+  // 글자 크기에 비례하는 스케일 (기본 12px 기준)
+  const scale = listFontSize / 12;
 
   const dm = dark;
   const card = dm ? "bg-gray-800" : "bg-white";
@@ -153,25 +160,32 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
 
   const posLabel = (v: string) => v === "top" ? "상단이동" : v === "deleted" ? "삭제" : "-";
 
-  /* ── 컬럼 너비 상수 ── */
-  const colW = {
-    seq: "w-10", start: "w-28", end: "w-28", dur: "w-14", type: "w-12",
-    spkPos: "w-14", txtPos: "w-14", spk: "w-14", err: "w-16",
+  /* ── 컬럼 너비 (글자 크기에 비례) ── */
+  const cw = {
+    seq: Math.round(40 * scale),
+    start: Math.round(112 * scale),
+    end: Math.round(112 * scale),
+    dur: Math.round(56 * scale),
+    type: Math.round(48 * scale),
+    spkPos: Math.round(56 * scale),
+    txtPos: Math.round(56 * scale),
+    spk: Math.round(56 * scale),
+    err: Math.round(64 * scale),
   };
 
   /* ── 테이블 헤더 (고정) ── */
   const headerRow = (
     <tr>
-      <th className={`py-2 font-medium ${colW.seq} border-r ${bdl}`}>#</th>
-      <th className={`py-2 font-medium ${colW.start} border-r ${bdl}`}>시작</th>
-      <th className={`py-2 font-medium ${colW.end} border-r ${bdl}`}>종료</th>
-      <th className={`py-2 font-medium ${colW.dur} border-r ${bdl}`}>길이</th>
-      <th className={`py-2 font-medium ${colW.type} border-r ${bdl}`}>유형</th>
-      <th className={`py-2 font-medium ${colW.spkPos} border-r ${bdl}`}>화자 위치</th>
-      <th className={`py-2 font-medium ${colW.txtPos} border-r ${bdl}`}>대사 위치</th>
-      <th className={`py-2 font-medium ${colW.spk} border-r ${bdl}`}>화자</th>
+      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.seq }}>#</th>
+      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.start }}>시작</th>
+      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.end }}>종료</th>
+      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.dur }}>길이</th>
+      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.type }}>유형</th>
+      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.spkPos }}>화자 위치</th>
+      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.txtPos }}>대사 위치</th>
+      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.spk }}>화자</th>
       <th className={`py-2 font-medium text-left px-3 border-r ${bdl}`}>대사</th>
-      <th className={`py-2 font-medium ${colW.err}`}>검수</th>
+      <th className={`py-2 font-medium`} style={{ width: cw.err }}>검수</th>
     </tr>
   );
 
@@ -181,14 +195,14 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
       <div className={`shrink-0 ${card}`}>
         <GridToolbar dark={dm} filteredCount={filtered.length} totalCount={subtitles.length} readOnly={readOnly} />
         <GridFilters dark={dm} filters={filters} onChange={setFilters} />
-        <table className={`w-full text-center text-[11px] ${ts}`}>
+        <table className={`w-full text-center ${ts}`} style={{ fontSize: `${listFontSize}px` }}>
           <thead className={`border-b ${bd}`}>{headerRow}</thead>
         </table>
       </div>
 
       {/* ── 스크롤 영역: 자막 행만 ── */}
       <div ref={scrollRef} className={`flex-1 overflow-y-auto overflow-x-hidden ${card} min-h-0`}>
-        <table className={`w-full text-center text-[11px] ${ts}`}>
+        <table className={`w-full text-center ${ts}`} style={{ fontSize: `${listFontSize}px` }}>
           <tbody className={`divide-y ${dm ? "divide-gray-700/40" : "divide-gray-100"}`}>
             {filtered.map((sub) => {
               const isSel = selectedId === sub.id;
@@ -215,14 +229,14 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
                   onDoubleClick={(e) => handleDblClick(sub.id, e)}
                   className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
                 >
-                  <td className={`py-2 ${colW.seq} relative`}>
+                  <td className={`py-2 relative`} style={{ width: cw.seq }}>
                     {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
                     {sub.seq}
                   </td>
-                  <td className={`py-2 ${colW.start} font-mono text-[10px] ${tp} ${startCellBg}`}>{msToTimecode(sub.start_ms)}</td>
-                  <td className={`py-2 ${colW.end} font-mono text-[10px] ${tp} ${endCellBg}`}>{msToTimecode(sub.end_ms)}</td>
-                  <td className={`py-2 ${colW.dur} font-mono text-[10px] ${tp} ${durCellBg}`}>{msToDuration(duration)}</td>
-                  <td className={`py-2 ${colW.type}`}>
+                  <td className={`py-2 font-mono ${tp} ${startCellBg}`} style={{ width: cw.start }}>{msToTimecode(sub.start_ms)}</td>
+                  <td className={`py-2 font-mono ${tp} ${endCellBg}`} style={{ width: cw.end }}>{msToTimecode(sub.end_ms)}</td>
+                  <td className={`py-2 font-mono ${tp} ${durCellBg}`} style={{ width: cw.dur }}>{msToDuration(duration)}</td>
+                  <td className={`py-2`} style={{ width: cw.type }}>
                     <span
                       className={`px-1.5 py-0.5 rounded text-[9px] ${
                         sub.type === "effect"
@@ -235,15 +249,15 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
                       {sub.type === "effect" ? "효과" : "대사"}
                     </span>
                   </td>
-                  <td className={`py-2 ${colW.spkPos} ${sub.speaker_pos === "deleted" ? "text-red-500" : sub.speaker_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.speaker_pos)}</td>
-                  <td className={`py-2 ${colW.txtPos} ${sub.text_pos === "deleted" ? "text-red-500" : sub.text_pos === "top" ? "text-blue-500" : ts}`}>{posLabel(sub.text_pos)}</td>
-                  <td className={`py-2 ${colW.spk} ${tp} font-bold`}>{sub.speaker || ""}</td>
-                  <td className={`py-2 text-left px-3 ${tp} max-w-[250px] ${textCellBg}`} title={sub.text}>
-                    <div className="text-[12px] leading-snug whitespace-pre-wrap break-all line-clamp-3">
+                  <td className={`py-2 ${sub.speaker_pos === "deleted" ? "text-red-500" : sub.speaker_pos === "top" ? "text-blue-500" : ts}`} style={{ width: cw.spkPos }}>{posLabel(sub.speaker_pos)}</td>
+                  <td className={`py-2 ${sub.text_pos === "deleted" ? "text-red-500" : sub.text_pos === "top" ? "text-blue-500" : ts}`} style={{ width: cw.txtPos }}>{posLabel(sub.text_pos)}</td>
+                  <td className={`py-2 ${tp} font-bold`} style={{ width: cw.spk }}>{sub.speaker || ""}</td>
+                  <td className={`py-2 text-left px-3 ${tp} ${textCellBg}`} title={sub.text}>
+                    <div className="leading-snug whitespace-pre-wrap break-all line-clamp-3">
                       {sub.text}
                     </div>
                   </td>
-                  <td className={`py-2 ${colW.err}`}>
+                  <td className={`py-2`} style={{ width: cw.err }}>
                     {hasError ? (
                       <div className="flex flex-col items-center gap-0.5">
                         {[...errors].map((e) => (

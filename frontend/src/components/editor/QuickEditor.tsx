@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { AlertTriangle, Lock } from "lucide-react";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
+import { useSettingsStore } from "../../store/useSettingsStore";
 import { countTextChars } from "../../utils/validation";
 import { msToTimecode, timecodeToMs } from "../../utils/time";
 
@@ -11,19 +12,17 @@ interface Props {
   maxLines?: number;
   readOnly?: boolean;
   editorMode?: "srt" | "json";
-
 }
 
 export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, editorMode = "srt" }: Props) {
   const { subtitles, selectedId, updateLocal, navigateNext, navigatePrev } = useSubtitleStore();
   const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
+  const editorFontSize = useSettingsStore((s) => s.subtitleDisplay.editorFontSize);
   const sel = subtitles.find((s) => s.id === selectedId);
 
-  // 시작/종료 시간 — 로컬 문자열 state (hooks는 early return 전에 선언)
   const [startTc, setStartTc] = useState("00:00:00,000");
   const [endTc, setEndTc] = useState("00:00:00,000");
 
-  // 선택된 자막이 바뀌면 로컬 state 동기화
   useEffect(() => {
     if (sel) {
       setStartTc(msToTimecode(sel.start_ms));
@@ -138,7 +137,6 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
       <div className="flex flex-1 p-3 gap-3 min-h-0">
         {/* 왼쪽 컬럼: 시작/종료 + 유형/화자 */}
         <div className="w-72 flex flex-col gap-2 shrink-0">
-          {/* 시작 시간 + 유형 */}
           <div className="flex gap-2">
             <div className="w-36 shrink-0">
               <label className={`block text-[11px] ${ts} mb-0.5`}>시작</label>
@@ -219,7 +217,8 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
               const sub = e.deltaY > 0 ? navigateNext() : navigatePrev();
               if (sub) setCurrentMs(sub.start_ms);
             }}
-            className={`flex-1 border rounded p-3 text-base outline-none focus:border-blue-500 resize-none leading-relaxed ${inp} ${disabledCls}`}
+            style={{ fontSize: `${editorFontSize}px` }}
+            className={`flex-1 border rounded p-3 outline-none focus:border-blue-500 resize-none leading-relaxed ${inp} ${disabledCls}`}
             placeholder="자막 텍스트를 입력하세요..."
           />
         </div>
