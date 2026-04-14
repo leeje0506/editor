@@ -127,13 +127,13 @@ export function TopNav({
             </>
           ) : (
             <>
-              <button
+              {/* <button
                 onClick={() => onToggleSubtitlePanel?.()}
                 className={`flex items-center gap-1 border ${bd} rounded ${ts} px-2 py-1 text-[10px] font-medium hover:opacity-80`}
                 title="자막 표시 설정"
               >
                 <Type size={12} /> 자막설정
-              </button>
+              </button> */}
 
               <button onClick={() => setDark(!dm)} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`}>
                 {dm ? <Sun size={14} /> : <Moon size={14} />}

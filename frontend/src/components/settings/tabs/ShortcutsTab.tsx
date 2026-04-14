@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { RotateCcw, Keyboard } from "lucide-react";
-import { useSettingsStore, SHORTCUT_ACTIONS, DEFAULT_SHORTCUTS } from "../../../store/useSettingsStore";
+import { useSettingsStore, ALL_SHORTCUTS, DEFAULT_SHORTCUTS } from "../../../store/useSettingsStore";
 import { eventToKeyString } from "../../../hooks/useKeyboardShortcuts";
 
 export function ShortcutsTab() {
@@ -41,7 +41,7 @@ export function ShortcutsTab() {
 
       const conflict = updateShortcut(editingId, keyStr);
       if (conflict) {
-        const conflictAction = SHORTCUT_ACTIONS.find((a) => a.id === conflict);
+        const conflictAction = ALL_SHORTCUTS.find((a) => a.id === conflict);
         setConflictMsg(`"${conflictAction?.label || conflict}"에서 이미 사용 중`);
         const prevKey = shortcuts[editingId] || DEFAULT_SHORTCUTS[editingId];
         updateShortcut(editingId, prevKey);
@@ -106,7 +106,7 @@ export function ShortcutsTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-700">
-            {SHORTCUT_ACTIONS.map((action) => {
+            {ALL_SHORTCUTS.map((action) => {
               const currentKey = shortcuts[action.id] || DEFAULT_SHORTCUTS[action.id];
               const isEditing = editingId === action.id;
               const isDefault = currentKey === DEFAULT_SHORTCUTS[action.id];

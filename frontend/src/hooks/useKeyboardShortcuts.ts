@@ -1,43 +1,35 @@
 import { useEffect } from "react";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useSubtitleStore } from "../store/useSubtitleStore";
-import { useSettingsStore } from "../store/useSettingsStore";
+import { useSettingsStore, eventToKeyString } from "../store/useSettingsStore";
 
 /**
- * 키 이벤트를 단축키 문자열로 변환.
- * 예: Ctrl+S, Ctrl+Shift+Z, Space, ArrowUp, F9, Alt+I
- */
-export function eventToKeyString(e: KeyboardEvent): string {
-  const parts: string[] = [];
-  if (e.ctrlKey || e.metaKey) parts.push("Ctrl");
-  if (e.shiftKey) parts.push("Shift");
-  if (e.altKey) parts.push("Alt");
-
-  let key = e.key;
-  if (key === " ") key = "Space";
-  // modifier 키 자체는 무시
-  if (["Control", "Meta", "Shift", "Alt"].includes(key)) return "";
-  // 알파벳은 대문자로
-  if (key.length === 1 && key >= "a" && key <= "z") key = key.toUpperCase();
-
-  parts.push(key);
-  return parts.join("+");
-}
-
-/**
- * 입력 필드(textarea, input) 포커스 중일 때 무시해야 하는 액션들.
- * 이 목록에 없는 액션(undo, save 등)은 입력 중에도 동작함.
+ * 입력 필드 포커스 중 차단할 액션들.
  */
 const BLOCK_IN_INPUT: Set<string> = new Set([
-  "play_pause",   // Space — 텍스트/화자 입력 중에는 공백 입력
-  "prev",         // ArrowUp — textarea 커서 이동
-  "next",         // ArrowDown — textarea 커서 이동
-  "delete",       // Delete — 텍스트 삭제
-  "focus_text",   // Enter — textarea에서는 줄바꿈
+  "play_pause",
+  "prev",
+  "next",
+  "delete",
+  "focus_text",
+  "insert_after",
+  "insert_at_playhead",
+  "merge_prev",
+  "merge_next",
+  "split_at_cursor",
+  "next_error",
+  "undo",   // textarea에서는 브라우저 기본 Undo
+  "redo",   // textarea에서는 브라우저 기본 Redo
 ]);
 
-/** 전역 키보드 단축키 (커스텀 단축키 지원, 모든 상황에서 동작) */
-export function useKeyboardShortcuts(onSave: () => void) {
+/** 배속 순환: 100% → 150% → 200% → 100% → ... */
+const SPEED_CYCLE = [1.0, 1.5, 2.0];
+
+export function useKeyboardShortcuts(
+  onSave: () => void,
+  maxCharsPerLine: number = 20,
+  onReplace?: () => void
+) {
   const shortcuts = useSettingsStore((s) => s.shortcuts);
 
   useEffect(() => {
@@ -45,14 +37,14 @@ export function useKeyboardShortcuts(onSave: () => void) {
       const keyStr = eventToKeyString(e);
       if (!keyStr) return;
 
-      // 키 조합으로 액션 찾기
       const actionId = Object.entries(shortcuts).find(([, k]) => k === keyStr)?.[0];
       if (!actionId) return;
 
-      const tag = (e.target as HTMLElement).tagName;
-      const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes(tag);
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName ?? "";
+      const isInput =
+        ["INPUT", "TEXTAREA", "SELECT"].includes(tag) || Boolean(target?.isContentEditable);
 
-      // 입력 필드 포커스 중이면 특정 단축키 차단
       if (isInput && BLOCK_IN_INPUT.has(actionId)) return;
 
       e.preventDefault();
@@ -68,7 +60,7 @@ export function useKeyboardShortcuts(onSave: () => void) {
         case "set_start": {
           const selId = subtitleState.selectedId;
           if (selId) {
-            subtitleState.updateOne(selId, { start_ms: playerState.currentMs });
+            void subtitleState.updateOne(selId, { start_ms: playerState.currentMs });
           }
           break;
         }
@@ -76,72 +68,198 @@ export function useKeyboardShortcuts(onSave: () => void) {
         case "set_end": {
           const selId = subtitleState.selectedId;
           if (selId) {
-            subtitleState.updateOne(selId, { end_ms: playerState.currentMs });
+            void subtitleState.updateOne(selId, { end_ms: playerState.currentMs });
           }
           break;
         }
 
-        case "add_sync": {
-          subtitleState.addAfter();
+        case "cycle_speed": {
+          const current = playerState.playbackRate;
+          const idx = SPEED_CYCLE.indexOf(current);
+          const next = idx === -1 ? 1.5 : SPEED_CYCLE[(idx + 1) % SPEED_CYCLE.length];
+          playerState.setPlaybackRate(next);
           break;
         }
 
-        case "snap_prev": {
+        case "auto_wrap": {
           const selId = subtitleState.selectedId;
           if (!selId) break;
-          const subs = subtitleState.subtitles;
-          const idx = subs.findIndex((s) => s.id === selId);
-          if (idx > 0) {
-            subtitleState.updateOne(selId, { start_ms: subs[idx - 1].end_ms });
-          }
-          break;
-        }
 
-        case "snap_next": {
-          const selId = subtitleState.selectedId;
-          if (!selId) break;
-          const subs = subtitleState.subtitles;
-          const idx = subs.findIndex((s) => s.id === selId);
-          if (idx >= 0 && idx < subs.length - 1) {
-            subtitleState.updateOne(selId, { end_ms: subs[idx + 1].start_ms });
-          }
-          break;
-        }
+          const sub = subtitleState.subtitles.find((s) => s.id === selId);
+          if (!sub) break;
 
-        case "split":
-          subtitleState.splitSelected();
-          break;
+          const flat = sub.text.replace(/\n/g, " ").trim();
+          const maxC = maxCharsPerLine;
+          const words = flat.split(/\s+/).filter(Boolean);
 
-        case "undo":
-          subtitleState.undo();
-          break;
+          const lines: string[] = [];
+          let line = "";
 
-        case "redo":
-          // TODO: Redo 미구현 — 예약
-          break;
-
-        case "search":
-          {
-            // 먼저 검색창이 열려있는지 확인
-            let searchInput = document.querySelector<HTMLInputElement>("[data-grid-search]");
-            if (!searchInput) {
-              // 검색 버튼 클릭하여 검색창 열기
-              const searchBtn = document.querySelector<HTMLButtonElement>("[data-grid-search-toggle]");
-              if (searchBtn) searchBtn.click();
-              // DOM 업데이트 후 포커스
-              requestAnimationFrame(() => {
-                searchInput = document.querySelector<HTMLInputElement>("[data-grid-search]");
-                if (searchInput) searchInput.focus();
-              });
+          for (const w of words) {
+            if (line && (line + " " + w).length > maxC) {
+              lines.push(line);
+              line = w;
             } else {
-              searchInput.focus();
+              line = line ? line + " " + w : w;
+            }
+          }
+
+          if (line) lines.push(line);
+
+          subtitleState.updateLocal(selId, {
+            text: lines.length > 0 ? lines.join("\n") : "",
+          });
+          break;
+        }
+
+        case "remove_wrap": {
+          const selId = subtitleState.selectedId;
+          if (!selId) break;
+
+          const sub = subtitleState.subtitles.find((s) => s.id === selId);
+          if (!sub) break;
+
+          subtitleState.updateLocal(selId, {
+            text: sub.text.replace(/\n/g, " "),
+          });
+          break;
+        }
+
+        case "merge_prev": {
+          const { subtitles, selectedId } = subtitleState;
+          if (!selectedId) break;
+
+          const idx = subtitles.findIndex((s) => s.id === selectedId);
+          if (idx <= 0) break;
+
+          const prevSub = subtitles[idx - 1];
+          useSubtitleStore.setState({
+            selectedId,
+            multiSelect: new Set([prevSub.id, selectedId]),
+          });
+          void useSubtitleStore.getState().mergeSelected();
+          break;
+        }
+
+        case "merge_next": {
+          const { subtitles, selectedId } = subtitleState;
+          if (!selectedId) break;
+
+          const idx = subtitles.findIndex((s) => s.id === selectedId);
+          if (idx < 0 || idx >= subtitles.length - 1) break;
+
+          const nextSub = subtitles[idx + 1];
+          useSubtitleStore.setState({
+            selectedId,
+            multiSelect: new Set([selectedId, nextSub.id]),
+          });
+          void useSubtitleStore.getState().mergeSelected();
+          break;
+        }
+
+        case "split_at_cursor":
+          void subtitleState.splitSelected();
+          break;
+
+        case "insert_after":
+          void subtitleState.addAfter();
+          break;
+
+        case "insert_at_playhead": {
+          const { currentMs } = playerState;
+          const { subtitles } = subtitleState;
+
+          const prev = [...subtitles].reverse().find((s) => s.start_ms <= currentMs) ?? null;
+          const next = subtitles.find((s) => s.start_ms > currentMs) ?? null;
+
+          let startMs = currentMs;
+          if (prev && startMs <= prev.end_ms) {
+            startMs = prev.end_ms + 1;
+          }
+
+          let endMs = startMs + 1000;
+          if (next && endMs >= next.start_ms) {
+            endMs = next.start_ms - 1;
+          }
+
+          if (endMs <= startMs) {
+            endMs = startMs + 1;
+          }
+
+          void subtitleState.addAfter({
+            afterId: prev?.id ?? null,
+            startMs,
+            endMs,
+          });
+          break;
+        }
+
+        case "next_error": {
+          const { subtitles, selectedId } = subtitleState;
+          const currentIdx = subtitles.findIndex((s) => s.id === selectedId);
+
+          for (let i = currentIdx + 1; i < subtitles.length; i++) {
+            if (subtitles[i].error) {
+              subtitleState.selectSingle(subtitles[i].id);
+              playerState.setVideoPreviewMs(subtitles[i].start_ms);
+              return;
+            }
+          }
+
+          for (let i = 0; i <= Math.max(currentIdx, 0); i++) {
+            if (subtitles[i]?.error) {
+              subtitleState.selectSingle(subtitles[i].id);
+              playerState.setVideoPreviewMs(subtitles[i].start_ms);
+              return;
             }
           }
           break;
+        }
+
+        case "undo":
+          void subtitleState.undo();
+          break;
+
+        case "redo":
+          void subtitleState.redo();
+          break;
+
+        case "search": {
+          let searchInput = document.querySelector<HTMLInputElement>("[data-grid-search]");
+          if (!searchInput) {
+            const searchBtn = document.querySelector<HTMLButtonElement>("[data-grid-search-toggle]");
+            if (searchBtn) {
+              searchBtn.click();
+              requestAnimationFrame(() => {
+                const openedInput =
+                  document.querySelector<HTMLInputElement>("[data-grid-search]");
+                openedInput?.focus();
+              });
+            }
+          } else {
+            searchInput.focus();
+          }
+          break;
+        }
 
         case "replace":
-          // TODO: 찾아서 바꾸기 UI 미구현, 나중에 하기!
+          if (onReplace) onReplace();
           break;
+
+        case "goto_line": {
+          const input = prompt("이동할 자막 번호를 입력하세요:");
+          if (!input) break;
+
+          const seq = parseInt(input, 10);
+          if (Number.isNaN(seq)) break;
+
+          const targetSub = subtitleState.subtitles.find((s) => s.seq === seq);
+          if (targetSub) {
+            subtitleState.selectSingle(targetSub.id);
+            playerState.setVideoPreviewMs(targetSub.start_ms);
+          }
+          break;
+        }
 
         case "prev": {
           const sub = subtitleState.navigatePrev();
@@ -162,8 +280,10 @@ export function useKeyboardShortcuts(onSave: () => void) {
         }
 
         case "focus_text": {
-          const textarea = document.querySelector<HTMLTextAreaElement>("[data-quick-editor-textarea]");
-          if (textarea) textarea.focus();
+          const textarea = document.querySelector<HTMLTextAreaElement>(
+            "[data-quick-editor-textarea]"
+          );
+          textarea?.focus();
           break;
         }
 
@@ -172,12 +292,15 @@ export function useKeyboardShortcuts(onSave: () => void) {
           break;
 
         case "delete":
-          subtitleState.deleteSelected();
+          void subtitleState.deleteSelected();
           break;
       }
     };
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [shortcuts, onSave]);
+  }, [shortcuts, onSave, maxCharsPerLine, onReplace]);
 }
+
+// re-export for other modules
+export { eventToKeyString } from "../store/useSettingsStore";

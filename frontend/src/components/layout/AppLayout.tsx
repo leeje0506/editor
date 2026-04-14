@@ -15,6 +15,7 @@ import { SubtitleGrid } from "../grid/SubtitleGrid";
 import { QuickEditor } from "../editor/QuickEditor";
 import { Timeline } from "../timeline/Timeline";
 import { SubtitleDisplayPanel } from "../video/SubtitleDisplayPanel";
+import { FindReplaceModal } from "../modals/FindReplaceModal";
 import api from "../../api/client";
 
 type EditorMode = "srt" | "json";
@@ -61,6 +62,7 @@ export function AppLayout() {
   const [showSubPanel, setShowSubPanel] = useState(false);
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showFindReplace, setShowFindReplace] = useState(false);
 
   const [editorMode, setEditorMode] = useState<EditorMode>("srt");
 
@@ -257,7 +259,6 @@ export function AppLayout() {
       setSavedMsg("저장 실패");
       setTimeout(() => setSavedMsg(""), 2000);
     } finally {
-      await new Promise(r => setTimeout(r, 500));
       setSaving(false);
     }
   };
@@ -361,7 +362,7 @@ export function AppLayout() {
     navigate("/");
   };
 
-  useKeyboardShortcuts(handleSave);
+  useKeyboardShortcuts(handleSave, project?.max_chars_per_line ?? 18, () => setShowFindReplace(true));
   usePlayback();
 
   const dm = dark;
@@ -444,6 +445,10 @@ export function AppLayout() {
       <div className="shrink-0 overflow-hidden" style={{ height: timelineHeight }}>
         <Timeline dark={dm} peaks={peaks} />
       </div>
+
+      {showFindReplace && (
+        <FindReplaceModal dark={dm} onClose={() => setShowFindReplace(false)} />
+      )}
     </div>
   );
 }
