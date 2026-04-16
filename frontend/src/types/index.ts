@@ -102,5 +102,5 @@ export const TRACK_COLORS: Record<TrackType, { bg: string; text: string; border:
   ambience: { bg: "bg-green-500/20", text: "text-green-400", border: "border-green-500/30" },
 };
 
-export const ZOOM_LEVELS = [5000, 10000, 20000, 40000, 60000, 120000] as const;
-export const DEFAULT_ZOOM_IDX = 5;
+export const ZOOM_LEVELS = [8889, 10667, 13333, 17778, 26667, 53334] as const;
+export const DEFAULT_ZOOM_IDX = 4;
