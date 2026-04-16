@@ -340,9 +340,9 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
                       disabled={readOnly}
                       fontSize={listFontSize}
                       value={spkDeleted ? "deleted" : "default"}
-                      label={spkDeleted ? "삭제" : "기본"}
+                      label={spkDeleted ? "삭제" : "유지"}
                       colorCls={spkDeleted ? "text-red-500" : ""}
-                      options={[{ v: "default", label: "기본" }, { v: "deleted", label: "삭제" }]}
+                      options={[{ v: "default", label: "유지" }, { v: "deleted", label: "삭제" }]}
                       onSelect={(v) => updateLocal(sub.id, { speaker_pos: v as "default" | "top" | "deleted" })}
                       onCellClick={() => triggerSelect(sub.id)}
                     />
@@ -358,9 +358,9 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
                       disabled={readOnly}
                       fontSize={listFontSize}
                       value={txtDeleted ? "deleted" : "default"}
-                      label={txtDeleted ? "삭제" : "기본"}
+                      label={txtDeleted ? "삭제" : "유지"}
                       colorCls={txtDeleted ? "text-red-500" : ""}
-                      options={[{ v: "default", label: "기본" }, { v: "deleted", label: "삭제" }]}
+                      options={[{ v: "default", label: "유지" }, { v: "deleted", label: "삭제" }]}
                       onSelect={(v) => updateLocal(sub.id, { text_pos: v as "default" | "top" | "deleted" })}
                       onCellClick={() => triggerSelect(sub.id)}
                     />

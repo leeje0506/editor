@@ -145,7 +145,7 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
                     : `${card} ${ts} hover:opacity-80`
                 } ${disabledCls}`}
               >
-                기본
+                유지
               </button>
               <button
                 disabled={readOnly}
@@ -173,7 +173,7 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
                     : `${card} ${ts} hover:opacity-80`
                 } ${disabledCls}`}
               >
-                기본
+                유지
               </button>
               <button
                 disabled={readOnly}
