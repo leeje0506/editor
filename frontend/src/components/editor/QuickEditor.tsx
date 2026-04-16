@@ -65,19 +65,21 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
     }
   };
 
-  const hasSpeaker = !!sel.speaker;
-  const totalChars = countTextChars(sel.text);
-  const speakerReserved = hasSpeaker ? sel.speaker.length + 3 : 0;
-  const usedWithSpeaker = totalChars + speakerReserved;
-  const lineCount = Math.max(1, sel.text.split("\n").length);
-  const limit = maxChars * lineCount;
-  const isOver = usedWithSpeaker > limit;
-
   /* ── 삭제/위치 상태 계산 ── */
   const spkDeleted = sel.speaker_pos === "deleted";
   const txtDeleted = sel.text_pos === "deleted";
-  // 위치: speaker_pos 또는 text_pos 중 하나라도 top이면 상단
   const isTop = sel.speaker_pos === "top" || sel.text_pos === "top";
+
+  /* ── 글자수 계산 ── */
+  // 화자 예약: 화자가 있고 삭제 상태가 아닐 때만 (화자명) + 공백 = 화자명.length + 3
+  const speakerReserved = (sel.speaker && !spkDeleted) ? sel.speaker.length + 3 : 0;
+  const lines = sel.text.split("\n");
+  const lineCount = Math.max(1, lines.length);
+  const lineChars = lines.map((line) => countTextChars(line));
+  const totalChars = lineChars.reduce((a, b) => a + b, 0);
+  const totalWithSpeaker = totalChars + speakerReserved;
+  const limit = maxChars * lineCount;
+  const isOver = totalWithSpeaker > limit;
 
   /** 화자삭제 토글 */
   const toggleSpkDelete = () => {
@@ -277,17 +279,23 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
           <div className="flex items-center justify-between mb-1 shrink-0">
             <span className={`text-[11px] ${ts} font-medium`}>텍스트 입력</span>
             <div className={`text-[11px] ${ts}`}>
-              현재 글자 수 :{" "}
-              <span className={`font-bold ${isOver ? "text-red-500" : "text-blue-600"}`}>
-                {totalChars}
+              {lineChars.map((cnt, i) => {
+                const withSpeaker = i === 0 ? cnt + speakerReserved : cnt;
+                const lineOver = withSpeaker > maxChars;
+                return (
+                  <span key={i} style={{ marginRight: 6 }}>
+                    <span>{`${i + 1}줄 : `}</span>
+                    <span className={lineOver ? "text-red-500" : ""}>{withSpeaker}</span>
+                  </span>
+                );
+              })}
+              <span>{"전체 : "}</span>
+              <span className={isOver ? "text-red-500" : "text-blue-600"}>
+                {totalWithSpeaker}
               </span>
-              {hasSpeaker && (
-                <span className={isOver ? "text-red-500" : ""}>
-                  {" "}({usedWithSpeaker})
-                </span>
-              )}
-              {" / 기준 : "}
-              <span className={isOver ? "text-red-500" : ""}>{limit}</span>
+              <span style={{ display: "inline-block", padding: "0 8px" }}>|</span>
+              <span>{"기준 : "}</span>
+              <span className={isOver ? "text-red-500" : ""}>{maxChars}, {limit}</span>
             </div>
           </div>
           <textarea
