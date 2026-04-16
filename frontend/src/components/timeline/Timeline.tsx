@@ -4,6 +4,7 @@ import { usePlayerStore } from "../../store/usePlayerStore";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { subtitlesApi } from "../../api/subtitles";
 import { useTimelineStore } from "../../store/useTimelineStore";
+import { useSettingsStore } from "../../store/useSettingsStore";
 import { useTimelineZoom } from "../../hooks/useTimelineZoom";
 import { ZoomControls } from "./ZoomControls";
 import { Playhead } from "./Playhead";
@@ -94,6 +95,8 @@ export function Timeline({ dark, peaks, onReload }: Props) {
   const visibleDuration = useTimelineStore((s) => s.visibleDuration);
   const { handleWheel } = useTimelineZoom();
 
+  const waveFontSize = useSettingsStore((s) => s.subtitleDisplay.waveFontSize);
+
   const dm = dark;
   const bdl = dm ? "border-gray-700" : "border-gray-100";
   const ts = dm ? "text-gray-400" : "text-gray-500";
@@ -128,7 +131,6 @@ export function Timeline({ dark, peaks, onReload }: Props) {
   /* ── 오버랩 구간 계산 (뷰 기준 퍼센트) ── */
   const overlapRegions = useMemo(() => {
     const regions: { leftPct: number; widthPct: number }[] = [];
-    // 오버랩 태그가 달린 자막들 (전체에서)
     const overlapSubs = subtitles.filter((s) => s.error && s.error.includes("오버랩"));
     for (let i = 0; i < overlapSubs.length; i++) {
       for (let j = i + 1; j < overlapSubs.length; j++) {
@@ -146,7 +148,9 @@ export function Timeline({ dark, peaks, onReload }: Props) {
     }
     return regions;
   }, [subtitles, tlLeft, visDur]);
-  const { normalRects, selectedRect, overlapRects } = useMemo(() => {
+
+  /* ── clipPath용 rect 데이터 계산 ── */
+  const { normalRects, selectedRect } = useMemo(() => {
     const normal: { x: number; w: number; id: number }[] = [];
     let selected: { x: number; w: number } | null = null;
 
@@ -159,28 +163,8 @@ export function Timeline({ dark, peaks, onReload }: Props) {
         normal.push({ x, w, id: s.id });
       }
     }
-
-    // 오버랩 구간 계산: 실제 겹치는 ms 범위 → SVG rect
-    const overlap: { x: number; w: number }[] = [];
-    const overlapSubs = subtitles.filter((s) => s.error && s.error.includes("오버랩"));
-    for (let i = 0; i < overlapSubs.length; i++) {
-      for (let j = i + 1; j < overlapSubs.length; j++) {
-        const a = overlapSubs[i];
-        const b = overlapSubs[j];
-        if (b.start_ms >= a.end_ms) break;
-        // 겹치는 구간: max(a.start, b.start) ~ min(a.end, b.end)
-        const oStart = Math.max(a.start_ms, b.start_ms);
-        const oEnd = Math.min(a.end_ms, b.end_ms);
-        if (oEnd > oStart && oEnd > tlLeft && oStart < tlLeft + visDur) {
-          const ox = ((oStart - tlLeft) / visDur) * W;
-          const ow = ((oEnd - oStart) / visDur) * W;
-          overlap.push({ x: ox, w: Math.max(ow, 1) });
-        }
-      }
-    }
-
-    return { normalRects: normal, selectedRect: selected, overlapRects: overlap };
-  }, [vtl, subtitles, tlLeft, visDur, selectedId]);
+    return { normalRects: normal, selectedRect: selected };
+  }, [vtl, tlLeft, visDur, selectedId]);
 
   const updateOne = useSubtitleStore((s) => s.updateOne);
 
@@ -381,8 +365,6 @@ export function Timeline({ dark, peaks, onReload }: Props) {
 
               {/* 센터 라인 */}
               <line x1="0" y1={MID} x2={W} y2={MID} stroke="rgba(55,65,81,0.3)" strokeWidth="1" />
-
-
             </svg>
           </div>
 
@@ -437,11 +419,14 @@ export function Timeline({ dark, peaks, onReload }: Props) {
                   )}
 
                   {/* 자막 텍스트 */}
-                  <div className="absolute top-0.5 left-1 right-1 pointer-events-none">
-                    <span className={`text-[9px] leading-tight block truncate font-medium
+                  <div className="absolute top-0.5 left-1 right-1 pointer-events-none overflow-hidden">
+                    <span
+                      style={{ fontSize: `${waveFontSize}px` }}
+                      className={`leading-tight block whitespace-nowrap overflow-hidden font-medium
                       ${isSel ? "text-red-200 drop-shadow-[0_1px_3px_rgba(255,0,0,0.6)]"
                         : s.type === "effect" ? "text-yellow-400/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-                        : "text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"}`}>
+                        : "text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"}`}
+                    >
                       {s.text.replace(/\n/g, " ")}
                     </span>
                   </div>

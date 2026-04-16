@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { AlertTriangle, Lock } from "lucide-react";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
+import { useSettingsStore } from "../../store/useSettingsStore";
 import { countTextChars } from "../../utils/validation";
 import { msToTimecode, timecodeToMs } from "../../utils/time";
 
@@ -11,19 +12,17 @@ interface Props {
   maxLines?: number;
   readOnly?: boolean;
   editorMode?: "srt" | "json";
-
 }
 
 export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, editorMode = "srt" }: Props) {
   const { subtitles, selectedId, updateLocal, navigateNext, navigatePrev } = useSubtitleStore();
   const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
+  const editorFontSize = useSettingsStore((s) => s.subtitleDisplay.editorFontSize);
   const sel = subtitles.find((s) => s.id === selectedId);
 
-  // 시작/종료 시간 — 로컬 문자열 state (hooks는 early return 전에 선언)
   const [startTc, setStartTc] = useState("00:00:00,000");
   const [endTc, setEndTc] = useState("00:00:00,000");
 
-  // 선택된 자막이 바뀌면 로컬 state 동기화
   useEffect(() => {
     if (sel) {
       setStartTc(msToTimecode(sel.start_ms));
@@ -61,49 +60,56 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
     if (ms > 0 || value.trim() === "00:00:00,000") {
       upd({ [field]: ms });
     } else {
-      // 파싱 실패 → 원래 값으로 롤백
       if (field === "start_ms") setStartTc(msToTimecode(sel.start_ms));
       else setEndTc(msToTimecode(sel.end_ms));
     }
   };
 
-  const hasSpeaker = !!sel.speaker;
-  const totalChars = countTextChars(sel.text);
-  const speakerReserved = hasSpeaker ? sel.speaker.length + 3 : 0;
-  const usedWithSpeaker = totalChars + speakerReserved;
-  const lineCount = Math.max(1, sel.text.split("\n").length);
-  const limit = maxChars * lineCount;
-  const isOver = usedWithSpeaker > limit;
+  /* ── 삭제/위치 상태 계산 ── */
+  const spkDeleted = sel.speaker_pos === "deleted";
+  const txtDeleted = sel.text_pos === "deleted";
+  const isTop = sel.speaker_pos === "top" || sel.text_pos === "top";
 
-  const posBtn = (
-    label: string,
-    field: "speaker_pos" | "text_pos",
-    values: { v: string; l: string }[],
-    currentVal: string,
-  ) => (
-    <div className="flex items-center gap-1.5">
-      <span className={ts}>{label}:</span>
-      <div className={`flex rounded border ${bd} overflow-hidden`}>
-        {values.map(({ v, l }) => (
-          <button
-            key={v}
-            disabled={readOnly}
-            onClick={() => {
-              if (readOnly) return;
-              upd({ [field]: v });
-            }}
-            className={`px-2.5 py-0.5 text-[10px] border-r last:border-r-0 ${bd} ${
-              currentVal === v
-                ? v === "deleted" ? "bg-red-500 text-white font-medium" : "bg-blue-500 text-white font-medium"
-                : `${card} ${ts} hover:opacity-80`
-            } ${disabledCls}`}
-          >
-            {l}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+  /* ── 글자수 계산 ── */
+  // 화자 예약: 화자가 있고 삭제 상태가 아닐 때만 (화자명) + 공백 = 화자명.length + 3
+  const speakerReserved = (sel.speaker && !spkDeleted) ? sel.speaker.length + 3 : 0;
+  const lines = sel.text.split("\n");
+  const lineCount = Math.max(1, lines.length);
+  const lineChars = lines.map((line) => countTextChars(line));
+  const totalChars = lineChars.reduce((a, b) => a + b, 0);
+  const totalWithSpeaker = totalChars + speakerReserved;
+  const limit = maxChars * lineCount;
+  const isOver = totalWithSpeaker > limit;
+
+  /** 화자삭제 토글 */
+  const toggleSpkDelete = () => {
+    if (readOnly) return;
+    upd({ speaker_pos: spkDeleted ? "default" : "deleted" });
+  };
+
+  /** 대사삭제 토글 */
+  const toggleTxtDelete = () => {
+    if (readOnly) return;
+    upd({ text_pos: txtDeleted ? "default" : "deleted" });
+  };
+
+  /** 위치 토글: 기본 ↔ 상단. 상단 시 speaker_pos + text_pos 모두 top으로 */
+  const togglePosition = () => {
+    if (readOnly) return;
+    if (isTop) {
+      // 상단 → 기본: 삭제 상태가 아닌 것만 default로
+      const updates: Record<string, string> = {};
+      if (sel.speaker_pos === "top") updates.speaker_pos = "default";
+      if (sel.text_pos === "top") updates.text_pos = "default";
+      upd(updates);
+    } else {
+      // 기본 → 상단: 삭제 상태가 아닌 것만 top으로
+      const updates: Record<string, string> = {};
+      if (sel.speaker_pos !== "deleted") updates.speaker_pos = "top";
+      if (sel.text_pos !== "deleted") updates.text_pos = "top";
+      upd(updates);
+    }
+  };
 
   return (
     <div className={`h-full ${card} border-t ${bd} flex flex-col`}>
@@ -124,13 +130,92 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
             </span>
           )}
         </div>
+        {/* 삭제 + 위치 컨트롤 */}
         <div className="flex items-center gap-4 text-[11px]">
-          {posBtn("화자 위치", "speaker_pos", [
-            { v: "default", l: "유지" }, { v: "top", l: "상단" }, { v: "deleted", l: "삭제" },
-          ], sel.speaker_pos)}
-          {posBtn("대사 위치", "text_pos", [
-            { v: "default", l: "유지" }, { v: "top", l: "상단" }, { v: "deleted", l: "삭제" },
-          ], sel.text_pos)}
+          {/* 화자삭제 */}
+          <div className="flex items-center gap-1.5">
+            <span className={ts}>화자삭제:</span>
+            <div className={`flex rounded border ${bd} overflow-hidden`}>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (!spkDeleted) return; toggleSpkDelete(); }}
+                className={`px-2.5 py-0.5 text-[10px] border-r ${bd} ${
+                  !spkDeleted
+                    ? "bg-blue-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                유지
+              </button>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (spkDeleted) return; toggleSpkDelete(); }}
+                className={`px-2.5 py-0.5 text-[10px] ${
+                  spkDeleted
+                    ? "bg-red-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+          {/* 대사삭제 */}
+          <div className="flex items-center gap-1.5">
+            <span className={ts}>대사삭제:</span>
+            <div className={`flex rounded border ${bd} overflow-hidden`}>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (!txtDeleted) return; toggleTxtDelete(); }}
+                className={`px-2.5 py-0.5 text-[10px] border-r ${bd} ${
+                  !txtDeleted
+                    ? "bg-blue-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                유지
+              </button>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (txtDeleted) return; toggleTxtDelete(); }}
+                className={`px-2.5 py-0.5 text-[10px] ${
+                  txtDeleted
+                    ? "bg-red-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+          {/* 위치 */}
+          <div className="flex items-center gap-1.5">
+            <span className={ts}>위치:</span>
+            <div className={`flex rounded border ${bd} overflow-hidden`}>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (!isTop) return; togglePosition(); }}
+                className={`px-2.5 py-0.5 text-[10px] border-r ${bd} ${
+                  !isTop
+                    ? "bg-blue-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                하단
+              </button>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (isTop) return; togglePosition(); }}
+                className={`px-2.5 py-0.5 text-[10px] ${
+                  isTop
+                    ? "bg-blue-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                상단
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -138,7 +223,6 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
       <div className="flex flex-1 p-3 gap-3 min-h-0">
         {/* 왼쪽 컬럼: 시작/종료 + 유형/화자 */}
         <div className="w-72 flex flex-col gap-2 shrink-0">
-          {/* 시작 시간 + 유형 */}
           <div className="flex gap-2">
             <div className="w-36 shrink-0">
               <label className={`block text-[11px] ${ts} mb-0.5`}>시작</label>
@@ -195,17 +279,23 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
           <div className="flex items-center justify-between mb-1 shrink-0">
             <span className={`text-[11px] ${ts} font-medium`}>텍스트 입력</span>
             <div className={`text-[11px] ${ts}`}>
-              현재 글자 수 :{" "}
-              <span className={`font-bold ${isOver ? "text-red-500" : "text-blue-600"}`}>
-                {totalChars}
+              {lineChars.map((cnt, i) => {
+                const withSpeaker = i === 0 ? cnt + speakerReserved : cnt;
+                const lineOver = withSpeaker > maxChars;
+                return (
+                  <span key={i} style={{ marginRight: 6 }}>
+                    <span>{`${i + 1}줄 : `}</span>
+                    <span className={lineOver ? "text-red-500" : ""}>{withSpeaker}</span>
+                  </span>
+                );
+              })}
+              <span>{"전체 : "}</span>
+              <span className={isOver ? "text-red-500" : "text-blue-600"}>
+                {totalWithSpeaker}
               </span>
-              {hasSpeaker && (
-                <span className={isOver ? "text-red-500" : ""}>
-                  {" "}({usedWithSpeaker})
-                </span>
-              )}
-              {" / 기준 : "}
-              <span className={isOver ? "text-red-500" : ""}>{limit}</span>
+              <span style={{ display: "inline-block", padding: "0 8px" }}>|</span>
+              <span>{"기준 : "}</span>
+              <span className={isOver ? "text-red-500" : ""}>{maxChars}, {limit}</span>
             </div>
           </div>
           <textarea
@@ -219,7 +309,8 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
               const sub = e.deltaY > 0 ? navigateNext() : navigatePrev();
               if (sub) setCurrentMs(sub.start_ms);
             }}
-            className={`flex-1 border rounded p-3 text-base outline-none focus:border-blue-500 resize-none leading-relaxed ${inp} ${disabledCls}`}
+            style={{ fontSize: `${editorFontSize}px` }}
+            className={`flex-1 border rounded p-3 outline-none focus:border-blue-500 resize-none leading-relaxed ${inp} ${disabledCls}`}
             placeholder="자막 텍스트를 입력하세요..."
           />
         </div>

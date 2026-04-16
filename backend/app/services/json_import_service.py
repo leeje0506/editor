@@ -1,286 +1,378 @@
 """
 backend/app/services/json_import_service.py
-video_project.json → Subtitle 레코드 변환
 
-Import: audioContent에서 dialogues/sfx/bgm/ambience 추출 → ms 변환 → Subtitle 리스트
-Export: 보존된 원본 JSON에서 audioContent만 편집 데이터로 교체하여 원본 구조 유지
-
-Position 매핑:
-  dialogue: personPosition → speaker_pos, textPosition → text_pos
-  sfx/bgm/ambience: position → text_pos (speaker_pos는 "default" 고정)
+JSON import/export 서비스.
+- video_project.json (기존)
+- barrier_free JSON (신규: shots > closed_caption + audio_event)
 """
 from __future__ import annotations
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import json
 import os
 
-ORIGINAL_JSON_DIR = "uploads/json_originals"
-os.makedirs(ORIGINAL_JSON_DIR, exist_ok=True)
+from app.models import Subtitle
+
+ORIGINALS_DIR = "uploads/json_originals"
+os.makedirs(ORIGINALS_DIR, exist_ok=True)
 
 
-# ──────────────────────────────────────────
-# 유틸
-# ──────────────────────────────────────────
+# ══════════════════════════════════════════════
+# 공통
+# ══════════════════════════════════════════════
 
-def _frame_to_ms(frame: int, fps: float) -> int:
-    if fps <= 0:
-        return 0
-    return round((frame / fps) * 1000)
-
-
-def _ms_to_frame(ms: int, fps: float) -> int:
-    if fps <= 0:
-        return 0
-    return round((ms / 1000) * fps)
-
-
-def _resolve_person_name(person_id: str, libraries: Dict[str, Any]) -> str:
-    persons = libraries.get("persons", {})
-    person = persons.get(person_id)
-    if not person:
-        return person_id
-    return person.get("displayName") or person.get("name") or person_id
-
-
-def _resolve_person_id_with_mappings(
-    person_id: str, id_mappings: Optional[Dict[str, Any]]
-) -> str:
-    if not id_mappings:
-        return person_id
-    for mapping in id_mappings.get("persons", []):
-        if mapping.get("tempId") == person_id:
-            return mapping.get("finalId", person_id)
-    return person_id
-
-
-def _safe_pos(val: Any) -> str:
-    """position 값을 안전하게 변환. default/top/deleted만 허용."""
-    if val in ("default", "top", "deleted"):
-        return val
-    return "default"
-
-
-# ──────────────────────────────────────────
-# 원본 JSON 보존/로드
-# ──────────────────────────────────────────
-
-def save_original_json(project_id: int, data: dict) -> None:
-    path = os.path.join(ORIGINAL_JSON_DIR, f"project_{project_id}_original.json")
+def save_original_json(project_id: int, data: dict) -> str:
+    """원본 JSON 전체 보존 (export 시 원본 구조 복원용)"""
+    path = os.path.join(ORIGINALS_DIR, f"project_{project_id}_original.json")
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return path
 
 
 def load_original_json(project_id: int) -> dict | None:
-    path = os.path.join(ORIGINAL_JSON_DIR, f"project_{project_id}_original.json")
+    """보존된 원본 JSON 로드"""
+    path = os.path.join(ORIGINALS_DIR, f"project_{project_id}_original.json")
     if not os.path.exists(path):
         return None
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-# ──────────────────────────────────────────
-# Import: JSON → Subtitle 리스트
-# ──────────────────────────────────────────
+def detect_json_format(data: dict) -> str:
+    """JSON 포맷 자동 판별"""
+    if "shots" in data:
+        return "barrier_free"
+    if "audioContent" in data:
+        return "video_project"
+    # fallback: shots 키가 있으면 barrier_free
+    return "unknown"
 
-def parse_video_project_json(data: Dict[str, Any]) -> Dict[str, Any]:
-    video_info = data.get("videoInfo", {})
-    fps = video_info.get("fps", 24)
-    total_frames = video_info.get("totalFrames", 0)
-    total_duration_ms = _frame_to_ms(total_frames, fps) if total_frames else 0
 
-    libraries = data.get("libraries", {})
-    id_mappings = data.get("idMappings")
-    audio = data.get("audioContent", {})
-    subtitles: List[Dict[str, Any]] = []
+# ══════════════════════════════════════════════
+# Barrier-Free JSON 파싱
+# ══════════════════════════════════════════════
 
-    # 1) dialogues — personPosition → speaker_pos, textPosition → text_pos
-    for dlg in audio.get("dialogues", []):
-        person_id = dlg.get("personId", "")
-        resolved_pid = _resolve_person_id_with_mappings(person_id, id_mappings)
-        speaker_name = _resolve_person_name(resolved_pid, libraries)
+def _map_action(action: str | None) -> str:
+    """action 문자열 → position 값 매핑"""
+    if not action:
+        return "default"
+    a = action.strip()
+    if a == "삭제":
+        return "deleted"
+    if a == "이동":
+        return "top"
+    # "유지" 또는 기타
+    return "default"
 
-        subtitles.append({
-            "start_ms": _frame_to_ms(dlg.get("startFrame", 0), fps),
-            "end_ms": _frame_to_ms(dlg.get("endFrame", 0), fps),
-            "track_type": "dialogue",
-            "type": "dialogue",
-            "speaker": speaker_name,
-            "text": dlg.get("spokenText", "") or dlg.get("normalizedText", "") or "",
-            "speaker_pos": _safe_pos(dlg.get("personPosition")),
-            "text_pos": _safe_pos(dlg.get("textPosition")),
-            "position": "default",
-            "source_id": dlg.get("dialogueId", ""),
-        })
 
-    # 2) sfx — position → text_pos
-    for sfx in audio.get("sfx", []):
-        subtitles.append({
-            "start_ms": _frame_to_ms(sfx.get("startFrame", 0), fps),
-            "end_ms": _frame_to_ms(sfx.get("endFrame", 0), fps),
-            "track_type": "sfx",
-            "type": "effect",
-            "speaker": "",
-            "text": sfx.get("description", "") or "",
-            "speaker_pos": "default",
-            "text_pos": _safe_pos(sfx.get("position")),
-            "position": _safe_pos(sfx.get("position")),
-            "source_id": sfx.get("sfxId", ""),
-        })
+def parse_barrier_free_json(data: dict) -> dict:
+    """
+    barrier_free JSON 파싱.
+    shots[] > closed_caption[] + audio_event[] → Subtitle 리스트
+    
+    Returns:
+        {
+            "subtitles": [...],  # bulk_insert_mappings용 dict 리스트
+            "fps": None,
+            "total_duration_ms": int,
+        }
+    """
+    shots = data.get("shots", [])
+    items: List[Dict[str, Any]] = []
 
-    # 3) bgm — position → text_pos
-    for bgm in audio.get("bgm", []):
-        subtitles.append({
-            "start_ms": _frame_to_ms(bgm.get("startFrame", 0), fps),
-            "end_ms": _frame_to_ms(bgm.get("endFrame", 0), fps),
-            "track_type": "bgm",
-            "type": "effect",
-            "speaker": "",
-            "text": bgm.get("description", "") or "",
-            "speaker_pos": "default",
-            "text_pos": _safe_pos(bgm.get("position")),
-            "position": _safe_pos(bgm.get("position")),
-            "source_id": bgm.get("bgmId", ""),
-        })
+    for shot in shots:
+        # closed_caption → dialogue
+        for cc in shot.get("closed_caption", []):
+            speaker = cc.get("speaker", "") or ""
+            content = cc.get("content", "") or ""
+            start_ms = cc.get("start_ms", 0)
+            end_ms = cc.get("end_ms", 0)
+            subtitle_action = cc.get("subtitle_action", "유지")
+            speaker_action = cc.get("speaker_action", "유지")
 
-    # 4) ambience — position → text_pos
-    for amb in audio.get("ambience", []):
-        subtitles.append({
-            "start_ms": _frame_to_ms(amb.get("startFrame", 0), fps),
-            "end_ms": _frame_to_ms(amb.get("endFrame", 0), fps),
-            "track_type": "ambience",
-            "type": "effect",
-            "speaker": "",
-            "text": amb.get("description", "") or "",
-            "speaker_pos": "default",
-            "text_pos": _safe_pos(amb.get("position")),
-            "position": _safe_pos(amb.get("position")),
-            "source_id": amb.get("ambienceId", ""),
-        })
+            # type 판별: [...]로 감싸진 텍스트는 effect
+            sub_type = "dialogue"
+            text = content.strip()
+            if text.startswith("[") and text.endswith("]"):
+                sub_type = "effect"
 
-    subtitles.sort(key=lambda s: (s["start_ms"], s["end_ms"]))
+            items.append({
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "type": sub_type,
+                "track_type": "dialogue",
+                "speaker": speaker,
+                "speaker_pos": _map_action(speaker_action),
+                "text_pos": _map_action(subtitle_action),
+                "position": "default",
+                "text": text,
+                "source_id": None,
+            })
+
+        # audio_event → bgm/sfx/ambience
+        for ae in shot.get("audio_event", []):
+            ae_type = ae.get("type", "sfx")  # bgm, sfx 등
+            context = ae.get("context", "") or ""
+            start_ms = ae.get("start_ms", 0)
+            end_ms = ae.get("end_ms", 0)
+            move_action = ae.get("audio_move_action", "유지")
+
+            # track_type 매핑
+            track_type = ae_type if ae_type in ("bgm", "sfx", "ambience") else "sfx"
+
+            items.append({
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "type": "effect",
+                "track_type": track_type,
+                "speaker": "",
+                "speaker_pos": "default",
+                "text_pos": _map_action(move_action),
+                "position": _map_action(move_action),
+                "text": f"[{context}]" if context else "",
+                "source_id": None,
+            })
+
+    # start_ms 기준 정렬
+    items.sort(key=lambda x: (x["start_ms"], x["end_ms"]))
+
+    # total_duration 계산
+    total_duration_ms = 0
+    if items:
+        total_duration_ms = max(item["end_ms"] for item in items)
 
     return {
-        "fps": fps,
+        "subtitles": items,
+        "fps": None,
         "total_duration_ms": total_duration_ms,
-        "subtitles": subtitles,
     }
 
 
-# ──────────────────────────────────────────
-# Export: Subtitle 리스트 → 원본 JSON 구조
-# ──────────────────────────────────────────
+# ══════════════════════════════════════════════
+# Video Project JSON 파싱 (기존)
+# ══════════════════════════════════════════════
 
-def export_to_video_project_json(
-    subtitles: list,
-    fps: float,
-    project_id: int,
-) -> Dict[str, Any]:
+def _frame_to_ms(frame: int, fps: float) -> int:
+    """프레임 → ms 변환"""
+    if fps <= 0:
+        return 0
+    return round((frame / fps) * 1000)
+
+
+def _ms_to_frame(ms: int, fps: float) -> int:
+    """ms → 프레임 변환"""
+    if fps <= 0:
+        return 0
+    return round((ms / 1000) * fps)
+
+
+def _resolve_person_name(person_id: str, libraries: dict) -> str:
+    """personId → 화자명 resolve"""
+    persons = libraries.get("persons", [])
+    for p in persons:
+        if p.get("personId") == person_id or p.get("id") == person_id:
+            return p.get("displayName") or p.get("name") or person_id
+    return person_id or ""
+
+
+def _resolve_id(raw_id: str, id_mappings: dict) -> str:
+    """idMappings에서 temp ID → final ID 변환"""
+    if not id_mappings:
+        return raw_id
+    return id_mappings.get(raw_id, raw_id)
+
+
+def parse_video_project_json(data: dict) -> dict:
+    """
+    video_project.json 파싱.
+    audioContent의 dialogues/sfx/bgm/ambience → Subtitle 리스트
+
+    Returns:
+        {
+            "subtitles": [...],
+            "fps": float,
+            "total_duration_ms": int,
+            "libraries": dict,
+        }
+    """
+    fps = data.get("fps", 24.0) or 24.0
+    audio_content = data.get("audioContent", {})
+    libraries = data.get("libraries", {})
+    id_mappings = data.get("idMappings", {})
+
+    items: List[Dict[str, Any]] = []
+
+    # dialogues
+    for d in audio_content.get("dialogues", []):
+        start_frame = d.get("startFrame", 0)
+        end_frame = d.get("endFrame", 0)
+
+        # frame이 없으면 start_ms/end_ms 직접 사용
+        if start_frame == 0 and end_frame == 0 and ("start_ms" in d or "end_ms" in d):
+            s_ms = d.get("start_ms", 0)
+            e_ms = d.get("end_ms", 0)
+        else:
+            s_ms = _frame_to_ms(start_frame, fps)
+            e_ms = _frame_to_ms(end_frame, fps)
+
+        person_id = d.get("personId", "")
+        speaker = _resolve_person_name(person_id, libraries)
+        text = d.get("text", "") or d.get("content", "")
+        dialogue_id = d.get("dialogueId", "") or d.get("id", "")
+        dialogue_id = _resolve_id(dialogue_id, id_mappings)
+
+        person_pos = d.get("personPosition", "default") or "default"
+        text_pos = d.get("textPosition", "default") or "default"
+
+        # position 값 정규화
+        pos_map = {"default": "default", "top": "top", "deleted": "deleted"}
+        speaker_pos = pos_map.get(person_pos, "default")
+        text_pos = pos_map.get(text_pos, "default")
+
+        sub_type = "dialogue"
+        if text.strip().startswith("[") and text.strip().endswith("]"):
+            sub_type = "effect"
+
+        items.append({
+            "start_ms": s_ms,
+            "end_ms": e_ms,
+            "type": sub_type,
+            "track_type": "dialogue",
+            "speaker": speaker,
+            "speaker_pos": speaker_pos,
+            "text_pos": text_pos,
+            "position": "default",
+            "text": text,
+            "source_id": dialogue_id,
+        })
+
+    # sfx, bgm, ambience
+    for track_name, track_type in [("sfx", "sfx"), ("bgm", "bgm"), ("ambience", "ambience")]:
+        for item in audio_content.get(track_name, []):
+            start_frame = item.get("startFrame", 0)
+            end_frame = item.get("endFrame", 0)
+
+            if start_frame == 0 and end_frame == 0 and ("start_ms" in item or "end_ms" in item):
+                s_ms = item.get("start_ms", 0)
+                e_ms = item.get("end_ms", 0)
+            else:
+                s_ms = _frame_to_ms(start_frame, fps)
+                e_ms = _frame_to_ms(end_frame, fps)
+            text = item.get("text", "") or item.get("content", "") or item.get("description", "")
+            item_id = item.get(f"{track_name}Id", "") or item.get("id", "")
+            item_id = _resolve_id(item_id, id_mappings)
+            pos = item.get("position", "default") or "default"
+            pos_map = {"default": "default", "top": "top", "deleted": "deleted"}
+            text_pos = pos_map.get(pos, "default")
+
+            items.append({
+                "start_ms": s_ms,
+                "end_ms": e_ms,
+                "type": "effect",
+                "track_type": track_type,
+                "speaker": "",
+                "speaker_pos": "default",
+                "text_pos": text_pos,
+                "position": text_pos,
+                "text": text,
+                "source_id": item_id,
+            })
+
+    items.sort(key=lambda x: (x["start_ms"], x["end_ms"]))
+
+    total_duration_ms = 0
+    if items:
+        total_duration_ms = max(item["end_ms"] for item in items)
+
+    return {
+        "subtitles": items,
+        "fps": fps,
+        "total_duration_ms": total_duration_ms,
+        "libraries": libraries,
+    }
+
+
+# ══════════════════════════════════════════════
+# Export (video_project.json 형식)
+# ══════════════════════════════════════════════
+
+def export_to_video_project_json(subtitles: List[Subtitle], fps: float, project_id: int) -> dict:
+    """
+    Subtitle 레코드 → video_project.json audioContent 형식.
+    보존된 원본 JSON이 있으면 audioContent만 교체.
+    """
     original = load_original_json(project_id)
-    new_audio = _build_audio_content(subtitles, fps, original)
-
-    if original:
-        result = {**original}
-        result["audioContent"] = new_audio
-        return result
-    else:
-        return {"audioContent": new_audio}
-
-
-def _build_audio_content(
-    subtitles: list,
-    fps: float,
-    original: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
-    # 원본 lookup
-    orig_lookup: Dict[str, Dict[str, Any]] = {}
-    if original:
-        orig_audio = original.get("audioContent", {})
-        for key in ("dialogues", "sfx", "bgm", "ambience"):
-            for item in orig_audio.get(key, []):
-                item_id = (
-                    item.get("dialogueId") or item.get("sfxId") or
-                    item.get("bgmId") or item.get("ambienceId") or ""
-                )
-                if item_id:
-                    orig_lookup[item_id] = item
 
     dialogues = []
     sfx_list = []
     bgm_list = []
     ambience_list = []
 
-    for sub in subtitles:
-        track = getattr(sub, "track_type", "dialogue") or "dialogue"
-        source_id = getattr(sub, "source_id", "") or ""
-        speaker_pos = getattr(sub, "speaker_pos", "default") or "default"
-        text_pos = getattr(sub, "text_pos", "default") or "default"
+    # 원본 데이터 매핑 (source_id 기준)
+    original_map: Dict[str, dict] = {}
+    if original:
+        ac = original.get("audioContent", {})
+        for d in ac.get("dialogues", []):
+            did = d.get("dialogueId") or d.get("id", "")
+            if did:
+                original_map[did] = d
+        for track_name in ["sfx", "bgm", "ambience"]:
+            for item in ac.get(track_name, []):
+                iid = item.get(f"{track_name}Id") or item.get("id", "")
+                if iid:
+                    original_map[iid] = item
 
+    for sub in subtitles:
         start_frame = _ms_to_frame(sub.start_ms, fps)
         end_frame = _ms_to_frame(sub.end_ms, fps)
-        duration_frames = end_frame - start_frame
 
-        orig_item = orig_lookup.get(source_id, {})
+        if sub.track_type == "dialogue":
+            # 원본 필드 보존
+            base = {}
+            if sub.source_id and sub.source_id in original_map:
+                base = {**original_map[sub.source_id]}
 
-        if track == "dialogue":
-            dlg = {**orig_item}
-            dlg.update({
-                "dialogueId": source_id or f"dlg-{sub.seq:04d}",
-                "trackType": "A1",
+            base.update({
                 "startFrame": start_frame,
                 "endFrame": end_frame,
-                "durationFrames": duration_frames,
-                "personId": orig_item.get("personId", ""),
-                "personPosition": speaker_pos,
-                "spokenText": sub.text,
-                "normalizedText": sub.text,
-                "textPosition": text_pos,
+                "text": sub.text,
+                "personPosition": sub.speaker_pos,
+                "textPosition": sub.text_pos,
             })
-            if "description" in dlg:
-                dlg["description"] = sub.text
-            dialogues.append(dlg)
+            if sub.source_id:
+                base["dialogueId"] = sub.source_id
+            dialogues.append(base)
 
-        elif track == "sfx":
-            sfx = {**orig_item}
-            sfx.update({
-                "sfxId": source_id or f"sfx-{sub.seq:04d}",
-                "trackType": "A2",
+        elif sub.track_type in ("sfx", "bgm", "ambience"):
+            base = {}
+            if sub.source_id and sub.source_id in original_map:
+                base = {**original_map[sub.source_id]}
+
+            base.update({
                 "startFrame": start_frame,
                 "endFrame": end_frame,
-                "durationFrames": duration_frames,
-                "description": sub.text,
-                "position": text_pos,
+                "text": sub.text,
+                "position": sub.text_pos,
             })
-            sfx_list.append(sfx)
+            if sub.source_id:
+                base[f"{sub.track_type}Id"] = sub.source_id
 
-        elif track == "bgm":
-            bgm = {**orig_item}
-            bgm.update({
-                "bgmId": source_id or f"bgm-{sub.seq:04d}",
-                "trackType": "A3",
-                "startFrame": start_frame,
-                "endFrame": end_frame,
-                "durationFrames": duration_frames,
-                "description": sub.text,
-                "position": text_pos,
-            })
-            bgm_list.append(bgm)
+            if sub.track_type == "sfx":
+                sfx_list.append(base)
+            elif sub.track_type == "bgm":
+                bgm_list.append(base)
+            else:
+                ambience_list.append(base)
 
-        elif track == "ambience":
-            amb = {**orig_item}
-            amb.update({
-                "ambienceId": source_id or f"amb-{sub.seq:04d}",
-                "trackType": "A4",
-                "startFrame": start_frame,
-                "endFrame": end_frame,
-                "durationFrames": duration_frames,
-                "description": sub.text,
-                "position": text_pos,
-            })
-            ambience_list.append(amb)
-
-    return {
+    audio_content = {
         "dialogues": dialogues,
         "sfx": sfx_list,
         "bgm": bgm_list,
         "ambience": ambience_list,
     }
+
+    if original:
+        result = {**original}
+        result["audioContent"] = audio_content
+        return result
+
+    return {"audioContent": audio_content}

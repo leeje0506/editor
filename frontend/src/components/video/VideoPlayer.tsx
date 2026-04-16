@@ -16,7 +16,7 @@ interface Props {
 const CONTROLS_H = 36;
 const PROGRESS_H = 6;
 const MIN_W = 240;
-const MAX_W = 960;
+const MAX_W = 2400;
 
 export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);

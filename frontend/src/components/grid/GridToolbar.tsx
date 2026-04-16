@@ -33,12 +33,12 @@ export function GridToolbar({ dark, filteredCount, totalCount, readOnly }: Props
               (Total: {filteredCount} / {totalCount})
             </span>
           </span>
-          <button
+          {/* <button
             onClick={() => setShowKeys(true)}
             className={`flex items-center gap-0.5 border ${bd} ${dm ? "bg-gray-700" : "bg-gray-50"} ${ts} px-1.5 py-0.5 rounded text-[9px]`}
           >
             <Keyboard size={10} /> 단축키 안내
-          </button>
+          </button> */}
         </div>
 
         {!readOnly && (

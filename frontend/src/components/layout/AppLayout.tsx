@@ -15,6 +15,7 @@ import { SubtitleGrid } from "../grid/SubtitleGrid";
 import { QuickEditor } from "../editor/QuickEditor";
 import { Timeline } from "../timeline/Timeline";
 import { SubtitleDisplayPanel } from "../video/SubtitleDisplayPanel";
+import { FindReplaceModal } from "../modals/FindReplaceModal";
 import api from "../../api/client";
 
 type EditorMode = "srt" | "json";
@@ -60,6 +61,8 @@ export function AppLayout() {
   const [elapsed, setElapsed] = useState(0);
   const [showSubPanel, setShowSubPanel] = useState(false);
   const [peaks, setPeaks] = useState<number[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [showFindReplace, setShowFindReplace] = useState(false);
 
   const [editorMode, setEditorMode] = useState<EditorMode>("srt");
 
@@ -96,7 +99,7 @@ export function AppLayout() {
   const loadSettings = useSettingsStore((s) => s.load);
 
   const handleVideoWidthChange = useCallback((w: number) => {
-    const maxW = Math.floor(window.innerWidth * 0.6);
+    const maxW = Math.floor(window.innerWidth * 0.70);
     setVideoWidth(Math.min(w, maxW));
   }, []);
 
@@ -243,6 +246,7 @@ export function AppLayout() {
   };
 
   const handleSave = async () => {
+    setSaving(true);
     try {
       await saveAll();
       if (pid) {
@@ -254,6 +258,8 @@ export function AppLayout() {
     } catch {
       setSavedMsg("저장 실패");
       setTimeout(() => setSavedMsg(""), 2000);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -356,7 +362,7 @@ export function AppLayout() {
     navigate("/");
   };
 
-  useKeyboardShortcuts(handleSave);
+  useKeyboardShortcuts(handleSave, project?.max_chars_per_line ?? 18, () => setShowFindReplace(true));
   usePlayback();
 
   const dm = dark;
@@ -367,6 +373,19 @@ export function AppLayout() {
   return (
     <div className={`h-screen w-full ${bg} flex flex-col font-sans overflow-hidden select-none`}>
       {dragging && <div className="fixed inset-0 z-50 cursor-ns-resize" />}
+
+      {/* 저장 중 오버레이 */}
+      {saving && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
+          <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-2xl ${dm ? "bg-gray-800/90 text-gray-200" : "bg-white/90 text-gray-700"} border ${bd}`}>
+            <svg className="animate-spin h-4 w-4 text-blue-500" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span className="text-xs font-medium">저장 중...</span>
+          </div>
+        </div>
+      )}
 
       <TopNav
         dark={dm}
@@ -426,6 +445,10 @@ export function AppLayout() {
       <div className="shrink-0 overflow-hidden" style={{ height: timelineHeight }}>
         <Timeline dark={dm} peaks={peaks} />
       </div>
+
+      {showFindReplace && (
+        <FindReplaceModal dark={dm} onClose={() => setShowFindReplace(false)} />
+      )}
     </div>
   );
 }
