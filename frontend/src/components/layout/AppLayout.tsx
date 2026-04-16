@@ -99,7 +99,7 @@ export function AppLayout() {
   const loadSettings = useSettingsStore((s) => s.load);
 
   const handleVideoWidthChange = useCallback((w: number) => {
-    const maxW = Math.floor(window.innerWidth * 0.75);
+    const maxW = Math.floor(window.innerWidth * 0.70);
     setVideoWidth(Math.min(w, maxW));
   }, []);
 
