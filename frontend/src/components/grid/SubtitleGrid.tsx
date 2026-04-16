@@ -43,9 +43,6 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
 
   const listFontSize = useSettingsStore((s) => s.subtitleDisplay.listFontSize);
 
-  // 글자 크기에 비례하는 스케일 (기본 12px 기준)
-  const scale = listFontSize / 12;
-
   const dm = dark;
   const card = dm ? "bg-gray-800" : "bg-white";
   const tp = dm ? "text-gray-100" : "text-gray-800";
@@ -56,7 +53,6 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
   const sr = dm ? "bg-blue-900/40" : "bg-blue-50/70";
   const mr = dm ? "bg-blue-900/20" : "bg-blue-50/30";
 
-  // 오류 셀 배경색
   const errCellBg = dm ? "bg-orange-900/50" : "bg-orange-100";
 
   const filtered = useMemo(() => {
@@ -70,21 +66,9 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
     });
   }, [subtitles, filters]);
 
-  /**
-   * 오버랩 자막의 시작/종료 시간 셀 표시를 위한 맵.
-   * key: subtitle id, value: { startErr: boolean, endErr: boolean }
-   *
-   * 규칙:
-   * - 2구간 오버랩: 이전 자막의 종료, 다음 자막의 시작
-   * - 3구간+ 오버랩: 첫 자막의 종료, 중간 자막의 시작+종료, 끝 자막의 시작
-   */
   const overlapCellMap = useMemo(() => {
     const map = new Map<number, { startErr: boolean; endErr: boolean }>();
-
-    // 오버랩 태그가 달린 자막 id 수집 (seq 순서대로)
     const overlapSubs = subtitles.filter((s) => s.error && s.error.includes("오버랩"));
-
-    // 연속된 오버랩 그룹으로 분리 (시간순으로 실제 겹치는 것끼리 묶기)
     const groups: typeof overlapSubs[] = [];
     let currentGroup: typeof overlapSubs = [];
 
@@ -92,7 +76,6 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
       if (currentGroup.length === 0) {
         currentGroup.push(sub);
       } else {
-        // 현재 그룹의 마지막 자막과 겹치는지 확인
         const last = currentGroup[currentGroup.length - 1];
         if (sub.start_ms < last.end_ms) {
           currentGroup.push(sub);
@@ -104,14 +87,11 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
     }
     if (currentGroup.length > 0) groups.push(currentGroup);
 
-    // 그룹별로 셀 표시 결정
     for (const group of groups) {
       if (group.length === 2) {
-        // 2구간: 이전 자막 종료, 다음 자막 시작
         map.set(group[0].id, { startErr: false, endErr: true });
         map.set(group[1].id, { startErr: true, endErr: false });
       } else if (group.length >= 3) {
-        // 3구간+: 첫→종료만, 중간→시작+종료, 끝→시작만
         for (let i = 0; i < group.length; i++) {
           if (i === 0) {
             map.set(group[i].id, { startErr: false, endErr: true });
@@ -158,68 +138,88 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
     }
   };
 
-  const posLabel = (v: string) => v === "top" ? "상단이동" : v === "deleted" ? "삭제" : "-";
-
-  /* ── 컬럼 너비 (글자 크기에 비례) ── */
+  /* ── 컬럼 너비 (퍼센트 기반 — 전체 합 100%) ── */
   const cw = {
-    seq: Math.round(40 * scale),
-    start: Math.round(112 * scale),
-    end: Math.round(112 * scale),
-    dur: Math.round(56 * scale),
-    type: Math.round(48 * scale),
-    spkPos: Math.round(56 * scale),
-    txtPos: Math.round(56 * scale),
-    spk: Math.round(56 * scale),
-    err: Math.round(64 * scale),
+    seq: "3%",
+    start: "10%",
+    end: "10%",
+    dur: "5%",
+    type: "4%",
+    spk: "6%",
+    spkDel: "6%",
+    // 대사: 자동 (나머지)
+    txtDel: "6%",
+    pos: "5%",
   };
+  // 대사 = 100 - 3 - 10 - 10 - 5 - 4 - 6 - 6 - 6 - 5 = 45%
+
+  /* ── 공통 셀 스타일 ── */
+  const cellCls = "py-2 overflow-hidden text-ellipsis whitespace-nowrap";
+  const cellStyle: React.CSSProperties = { textAlign: "center" };
+
+  /* ── colgroup (헤더/바디 테이블 공유) ── */
+  const colGroup = (
+    <colgroup>
+      <col style={{ width: cw.seq }} />
+      <col style={{ width: cw.start }} />
+      <col style={{ width: cw.end }} />
+      <col style={{ width: cw.dur }} />
+      <col style={{ width: cw.type }} />
+      <col style={{ width: cw.spk }} />
+      <col style={{ width: cw.spkDel }} />
+      <col /> {/* 대사: 나머지 공간 */}
+      <col style={{ width: cw.txtDel }} />
+      <col style={{ width: cw.pos }} />
+    </colgroup>
+  );
 
   /* ── 테이블 헤더 (고정) ── */
   const headerRow = (
     <tr>
-      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.seq }}>#</th>
-      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.start }}>시작</th>
-      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.end }}>종료</th>
-      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.dur }}>길이</th>
-      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.type }}>유형</th>
-      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.spkPos }}>화자 위치</th>
-      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.txtPos }}>대사 위치</th>
-      <th className={`py-2 font-medium border-r ${bdl}`} style={{ width: cw.spk }}>화자</th>
-      <th className={`py-2 font-medium text-left px-3 border-r ${bdl}`}>대사</th>
-      <th className={`py-2 font-medium`} style={{ width: cw.err }}>검수</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>#</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>시작</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>종료</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>길이</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>유형</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>화자</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>화자삭제</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>대사</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>대사삭제</th>
+      <th className={`${cellCls} font-medium`} style={cellStyle}>위치</th>
     </tr>
   );
 
   return (
     <div className={`h-full flex flex-col overflow-hidden border-b ${bd}`}>
-      {/* ── 고정 영역: 툴바 + 필터 + 컬럼 헤더 ── */}
+      {/* ── 고정 영역: 툴바 + 필터 ── */}
       <div className={`shrink-0 ${card}`}>
         <GridToolbar dark={dm} filteredCount={filtered.length} totalCount={subtitles.length} readOnly={readOnly} />
         <GridFilters dark={dm} filters={filters} onChange={setFilters} />
-        <table className={`w-full text-center ${ts}`} style={{ fontSize: `${listFontSize}px` }}>
-          <thead className={`border-b ${bd}`}>{headerRow}</thead>
-        </table>
       </div>
 
-      {/* ── 스크롤 영역: 자막 행만 ── */}
+      {/* ── 단일 테이블 (thead sticky + tbody 스크롤) ── */}
       <div ref={scrollRef} className={`flex-1 overflow-y-auto overflow-x-hidden ${card} min-h-0`}>
-        <table className={`w-full text-center ${ts}`} style={{ fontSize: `${listFontSize}px` }}>
+        <table className={`w-full ${ts}`} style={{ fontSize: `${listFontSize}px`, tableLayout: "fixed" }}>
+          {colGroup}
+          <thead className={`border-b ${bd} ${card} sticky top-0 z-10`}>{headerRow}</thead>
           <tbody className={`divide-y ${dm ? "divide-gray-700/40" : "divide-gray-100"}`}>
             {filtered.map((sub) => {
               const isSel = selectedId === sub.id;
               const isMulti = multiSelect.has(sub.id) && !isSel;
               const duration = sub.end_ms - sub.start_ms;
               const errors = parseErrors(sub.error);
-              const hasError = errors.size > 0;
               const overlap = overlapCellMap.get(sub.id);
 
-              // 행 배경: 선택 > 다중선택 > 기본 (오류는 셀 단위로 표시)
               const rowBg = isSel ? sr : isMulti ? mr : "";
 
-              // 셀별 오류 배경
               const startCellBg = overlap?.startErr ? errCellBg : "";
               const endCellBg = overlap?.endErr ? errCellBg : "";
               const durCellBg = errors.has("최소길이") ? errCellBg : "";
               const textCellBg = errors.has("글자초과") ? errCellBg : "";
+
+              const spkDeleted = sub.speaker_pos === "deleted";
+              const txtDeleted = sub.text_pos === "deleted";
+              const isTop = sub.speaker_pos === "top" || sub.text_pos === "top";
 
               return (
                 <tr
@@ -229,46 +229,32 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
                   onDoubleClick={(e) => handleDblClick(sub.id, e)}
                   className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
                 >
-                  <td className={`py-2 relative`} style={{ width: cw.seq }}>
+                  <td className={`${cellCls} relative`} style={cellStyle}>
                     {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
                     {sub.seq}
                   </td>
-                  <td className={`py-2 font-mono ${tp} ${startCellBg}`} style={{ width: cw.start }}>{msToTimecode(sub.start_ms)}</td>
-                  <td className={`py-2 font-mono ${tp} ${endCellBg}`} style={{ width: cw.end }}>{msToTimecode(sub.end_ms)}</td>
-                  <td className={`py-2 font-mono ${tp} ${durCellBg}`} style={{ width: cw.dur }}>{msToDuration(duration)}</td>
-                  <td className={`py-2`} style={{ width: cw.type }}>
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-[9px] ${
-                        sub.type === "effect"
-                          ? "bg-purple-100 text-purple-600 border border-purple-200"
-                          : dm
-                            ? "bg-gray-700 text-gray-300 border border-gray-600"
-                            : "bg-gray-100 text-gray-600 border border-gray-200"
-                      }`}
-                    >
-                      {sub.type === "effect" ? "효과" : "대사"}
-                    </span>
+                  <td className={`${cellCls} font-mono ${tp} ${startCellBg}`} style={cellStyle}>{msToTimecode(sub.start_ms)}</td>
+                  <td className={`${cellCls} font-mono ${tp} ${endCellBg}`} style={cellStyle}>{msToTimecode(sub.end_ms)}</td>
+                  <td className={`${cellCls} font-mono ${tp} ${durCellBg}`} style={cellStyle}>{msToDuration(duration)}</td>
+                  <td className={`${cellCls}`} style={cellStyle}>
+                    {sub.type === "effect" ? "효과" : "대사"}
                   </td>
-                  <td className={`py-2 ${sub.speaker_pos === "deleted" ? "text-red-500" : sub.speaker_pos === "top" ? "text-blue-500" : ts}`} style={{ width: cw.spkPos }}>{posLabel(sub.speaker_pos)}</td>
-                  <td className={`py-2 ${sub.text_pos === "deleted" ? "text-red-500" : sub.text_pos === "top" ? "text-blue-500" : ts}`} style={{ width: cw.txtPos }}>{posLabel(sub.text_pos)}</td>
-                  <td className={`py-2 ${tp} font-bold`} style={{ width: cw.spk }}>{sub.speaker || ""}</td>
-                  <td className={`py-2 text-left px-3 ${tp} ${textCellBg}`} title={sub.text}>
-                    <div className="leading-snug whitespace-pre-wrap break-all line-clamp-3">
+                  <td className={`${cellCls} ${tp}`} style={cellStyle}>
+                    {sub.speaker || ""}
+                  </td>
+                  <td className={`${cellCls} ${spkDeleted ? "text-red-500" : ts}`} style={cellStyle}>
+                    {spkDeleted ? "삭제" : "-"}
+                  </td>
+                  <td className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`} style={{ textAlign: "left" }} title={sub.text}>
+                    <div className="leading-snug whitespace-pre-wrap break-all line-clamp-2">
                       {sub.text}
                     </div>
                   </td>
-                  <td className={`py-2`} style={{ width: cw.err }}>
-                    {hasError ? (
-                      <div className="flex flex-col items-center gap-0.5">
-                        {[...errors].map((e) => (
-                          <span key={e} className="text-red-500 bg-red-50 px-1.5 py-0.5 rounded text-[9px] border border-red-100 font-medium">
-                            {e}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className={ts}>-</span>
-                    )}
+                  <td className={`${cellCls} ${txtDeleted ? "text-red-500" : ts}`} style={cellStyle}>
+                    {txtDeleted ? "삭제" : "-"}
+                  </td>
+                  <td className={`${cellCls} ${isTop ? "text-blue-500 font-medium" : ts}`} style={cellStyle}>
+                    {isTop ? "상단" : "-"}
                   </td>
                 </tr>
               );

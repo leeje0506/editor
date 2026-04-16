@@ -60,7 +60,6 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
     if (ms > 0 || value.trim() === "00:00:00,000") {
       upd({ [field]: ms });
     } else {
-      // 파싱 실패 → 원래 값으로 롤백
       if (field === "start_ms") setStartTc(msToTimecode(sel.start_ms));
       else setEndTc(msToTimecode(sel.end_ms));
     }
@@ -74,35 +73,41 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
   const limit = maxChars * lineCount;
   const isOver = usedWithSpeaker > limit;
 
-  const posBtn = (
-    label: string,
-    field: "speaker_pos" | "text_pos",
-    values: { v: string; l: string }[],
-    currentVal: string,
-  ) => (
-    <div className="flex items-center gap-1.5">
-      <span className={ts}>{label}:</span>
-      <div className={`flex rounded border ${bd} overflow-hidden`}>
-        {values.map(({ v, l }) => (
-          <button
-            key={v}
-            disabled={readOnly}
-            onClick={() => {
-              if (readOnly) return;
-              upd({ [field]: v });
-            }}
-            className={`px-2.5 py-0.5 text-[10px] border-r last:border-r-0 ${bd} ${
-              currentVal === v
-                ? v === "deleted" ? "bg-red-500 text-white font-medium" : "bg-blue-500 text-white font-medium"
-                : `${card} ${ts} hover:opacity-80`
-            } ${disabledCls}`}
-          >
-            {l}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+  /* ── 삭제/위치 상태 계산 ── */
+  const spkDeleted = sel.speaker_pos === "deleted";
+  const txtDeleted = sel.text_pos === "deleted";
+  // 위치: speaker_pos 또는 text_pos 중 하나라도 top이면 상단
+  const isTop = sel.speaker_pos === "top" || sel.text_pos === "top";
+
+  /** 화자삭제 토글 */
+  const toggleSpkDelete = () => {
+    if (readOnly) return;
+    upd({ speaker_pos: spkDeleted ? "default" : "deleted" });
+  };
+
+  /** 대사삭제 토글 */
+  const toggleTxtDelete = () => {
+    if (readOnly) return;
+    upd({ text_pos: txtDeleted ? "default" : "deleted" });
+  };
+
+  /** 위치 토글: 기본 ↔ 상단. 상단 시 speaker_pos + text_pos 모두 top으로 */
+  const togglePosition = () => {
+    if (readOnly) return;
+    if (isTop) {
+      // 상단 → 기본: 삭제 상태가 아닌 것만 default로
+      const updates: Record<string, string> = {};
+      if (sel.speaker_pos === "top") updates.speaker_pos = "default";
+      if (sel.text_pos === "top") updates.text_pos = "default";
+      upd(updates);
+    } else {
+      // 기본 → 상단: 삭제 상태가 아닌 것만 top으로
+      const updates: Record<string, string> = {};
+      if (sel.speaker_pos !== "deleted") updates.speaker_pos = "top";
+      if (sel.text_pos !== "deleted") updates.text_pos = "top";
+      upd(updates);
+    }
+  };
 
   return (
     <div className={`h-full ${card} border-t ${bd} flex flex-col`}>
@@ -123,13 +128,92 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
             </span>
           )}
         </div>
+        {/* 삭제 + 위치 컨트롤 */}
         <div className="flex items-center gap-4 text-[11px]">
-          {posBtn("화자 위치", "speaker_pos", [
-            { v: "default", l: "유지" }, { v: "top", l: "상단" }, { v: "deleted", l: "삭제" },
-          ], sel.speaker_pos)}
-          {posBtn("대사 위치", "text_pos", [
-            { v: "default", l: "유지" }, { v: "top", l: "상단" }, { v: "deleted", l: "삭제" },
-          ], sel.text_pos)}
+          {/* 화자삭제 */}
+          <div className="flex items-center gap-1.5">
+            <span className={ts}>화자삭제:</span>
+            <div className={`flex rounded border ${bd} overflow-hidden`}>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (!spkDeleted) return; toggleSpkDelete(); }}
+                className={`px-2.5 py-0.5 text-[10px] border-r ${bd} ${
+                  !spkDeleted
+                    ? "bg-blue-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                기본
+              </button>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (spkDeleted) return; toggleSpkDelete(); }}
+                className={`px-2.5 py-0.5 text-[10px] ${
+                  spkDeleted
+                    ? "bg-red-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+          {/* 대사삭제 */}
+          <div className="flex items-center gap-1.5">
+            <span className={ts}>대사삭제:</span>
+            <div className={`flex rounded border ${bd} overflow-hidden`}>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (!txtDeleted) return; toggleTxtDelete(); }}
+                className={`px-2.5 py-0.5 text-[10px] border-r ${bd} ${
+                  !txtDeleted
+                    ? "bg-blue-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                기본
+              </button>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (txtDeleted) return; toggleTxtDelete(); }}
+                className={`px-2.5 py-0.5 text-[10px] ${
+                  txtDeleted
+                    ? "bg-red-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+          {/* 위치 */}
+          <div className="flex items-center gap-1.5">
+            <span className={ts}>위치:</span>
+            <div className={`flex rounded border ${bd} overflow-hidden`}>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (!isTop) return; togglePosition(); }}
+                className={`px-2.5 py-0.5 text-[10px] border-r ${bd} ${
+                  !isTop
+                    ? "bg-blue-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                기본
+              </button>
+              <button
+                disabled={readOnly}
+                onClick={() => { if (isTop) return; togglePosition(); }}
+                className={`px-2.5 py-0.5 text-[10px] ${
+                  isTop
+                    ? "bg-blue-500 text-white font-medium"
+                    : `${card} ${ts} hover:opacity-80`
+                } ${disabledCls}`}
+              >
+                상단
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
