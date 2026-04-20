@@ -17,7 +17,7 @@ export function TimelineTimeDisplay() {
     let isPlaying = usePlayerStore.getState().playing;
 
     const startInterval = () => {
-      intervalRef.current = window.setInterval(applyText, 100);
+      intervalRef.current = window.setInterval(applyText, 220);
     };
     const stopInterval = () => {
       clearInterval(intervalRef.current);
