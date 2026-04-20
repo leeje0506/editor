@@ -1,5 +1,6 @@
 import api from "./client";
 import type { Project } from "../types";
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 export const projectsApi = {
   list: (params?: { status?: string; broadcaster?: string; search?: string }) =>
@@ -45,9 +46,9 @@ export const projectsApi = {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
-  downloadJson: (id: number) => `/api/projects/${id}/download/json`,
-  downloadSubtitle: (id: number) => `/api/projects/${id}/download/subtitle`,
-  videoStreamUrl: (id: number) => `/api/projects/${id}/stream/video`,
+  downloadJson: (id: number) => `${API_BASE}/projects/${id}/download/json`,
+  downloadSubtitle: (id: number) => `${API_BASE}/projects/${id}/download/subtitle`,
+  videoStreamUrl: (id: number) => `${API_BASE}/projects/${id}/stream/video`,
   getWaveform: (id: number) =>
     api.get<{ peaks: number[]; peaks_per_second: number; duration_ms: number }>(`/projects/${id}/waveform`).then((r) => r.data),
 };
