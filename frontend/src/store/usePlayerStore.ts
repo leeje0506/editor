@@ -6,7 +6,14 @@ interface PlayerState {
   muted: boolean;
   totalMs: number;
   videoPreviewMs: number | null;
-  playbackRate: number; // 0.5 ~ 3.0
+  playbackRate: number;
+
+  // 시각용 시간 소스: video element ref
+  videoElement: HTMLVideoElement | null;
+  setVideoElement: (el: HTMLVideoElement | null) => void;
+
+  /** 시각용 현재 시간 (ms) — 재생 중엔 video.currentTime, 정지 중엔 currentMs */
+  getVisualMs: () => number;
 
   setCurrentMs: (ms: number) => void;
   setTotalMs: (ms: number) => void;
@@ -25,6 +32,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   totalMs: 600000,
   videoPreviewMs: null,
   playbackRate: 1.0,
+  videoElement: null,
+
+  setVideoElement: (el) => set({ videoElement: el }),
+
+  getVisualMs: () => {
+    const state = get();
+    if (state.playing && state.videoElement) {
+      return Math.floor(state.videoElement.currentTime * 1000);
+    }
+    return state.currentMs;
+  },
 
   setCurrentMs: (ms) => set({ currentMs: Math.max(0, Math.min(ms, get().totalMs)) }),
   setTotalMs: (ms) =>
