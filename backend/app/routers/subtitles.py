@@ -29,16 +29,9 @@ def _get_project(pid: int, db: Session) -> Project:
     return p
 
 
-def _get_min_duration_ms(project: Project, db: Session) -> int:
-    """프로젝트의 방송사 규칙에서 min_duration_ms 조회. 없으면 기본 500ms."""
-    if project.broadcaster:
-        rule = db.query(BroadcasterRule).filter(
-            BroadcasterRule.name == project.broadcaster,
-            BroadcasterRule.is_active == True,
-        ).first()
-        if rule and rule.min_duration_ms:
-            return rule.min_duration_ms
-    return 500
+def _get_min_duration_ms(project: Project) -> int:
+    """프로젝트의 min_duration_ms. 없으면 기본 500ms."""
+    return project.min_duration_ms if project.min_duration_ms else 500
 
 
 @router.get("", response_model=List[SubtitleResponse])
@@ -53,7 +46,7 @@ def create_subtitle(project_id: int, data: SubtitleCreate, db: Session = Depends
     p = _get_project(project_id, db)
     save_snapshot(db, project_id, "add")
 
-    min_dur = _get_min_duration_ms(p, db)
+    min_dur = _get_min_duration_ms(p)
 
     start = data.start_ms
     end = start + min_dur

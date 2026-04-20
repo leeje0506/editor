@@ -66,6 +66,7 @@ class Project(Base):
     import_type = Column(String(20), default="srt")  # srt / json
     last_position_ms = Column(Integer, default=0)
     last_selected_id = Column(Integer, nullable=True)
+    min_duration_ms = Column(Integer, default=500)
 
 class Subtitle(Base):
     __tablename__ = "subtitles"

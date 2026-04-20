@@ -74,6 +74,7 @@ def _to_response(project: Project, db: Session) -> dict:
         "description": project.description,
         "max_lines": project.max_lines, "max_chars_per_line": project.max_chars_per_line,
         "bracket_chars": project.bracket_chars,
+        "min_duration_ms": project.min_duration_ms or 500,
         "subtitle_file": project.subtitle_file, "video_file": project.video_file,
         "total_duration_ms": project.total_duration_ms,
         "video_duration_ms": project.video_duration_ms, "file_size_mb": project.file_size_mb,
@@ -120,10 +121,11 @@ def list_projects(
 @router.post("", response_model=ProjectResponse, status_code=201)
 def create_project(data: ProjectCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     bc = data.broadcaster or ""
-    rules = load_rules().get(bc, {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5})
+    rules = load_rules().get(bc, {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "min_duration_ms": 500})
     max_lines = data.max_lines if data.max_lines is not None else rules["max_lines"]
     max_chars = data.max_chars_per_line if data.max_chars_per_line is not None else rules["max_chars_per_line"]
     bracket_chars = data.bracket_chars if data.bracket_chars is not None else rules.get("bracket_chars", 5)
+    min_duration_ms = rules.get("min_duration_ms", 500)
     deadline = None
     if data.deadline:
         try:
@@ -140,6 +142,7 @@ def create_project(data: ProjectCreate, current_user: User = Depends(get_current
     project = Project(
         name=final_name, broadcaster=bc, description=data.description,
         max_lines=max_lines, max_chars_per_line=max_chars, bracket_chars=bracket_chars,
+        min_duration_ms=min_duration_ms,
         deadline=deadline, created_by=current_user.id,
         assigned_to=data.assigned_to,
     )
@@ -174,13 +177,15 @@ def update_project(project_id: int, data: ProjectUpdate, current_user: User = De
         raise HTTPException(403, "작업자 변경 권한이 없습니다")
     if "broadcaster" in update_data:
         bc = update_data["broadcaster"]
-        rules = load_rules().get(bc, {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5})
+        rules = load_rules().get(bc, {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "min_duration_ms": 500})
         if "max_lines" not in update_data:
             update_data["max_lines"] = rules["max_lines"]
         if "max_chars_per_line" not in update_data:
             update_data["max_chars_per_line"] = rules["max_chars_per_line"]
         if "bracket_chars" not in update_data:
             update_data["bracket_chars"] = rules.get("bracket_chars", 5)
+        if "min_duration_ms" not in update_data:
+            update_data["min_duration_ms"] = rules.get("min_duration_ms", 500)
     if "deadline" in update_data:
         dl = update_data.pop("deadline")
         p.deadline = datetime.fromisoformat(dl) if dl else None
