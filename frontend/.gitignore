@@ -371,6 +371,7 @@ wheels/
 venv/
 ENV/
 .env.production
+.env.development
 
 # IDE
 .vscode/
