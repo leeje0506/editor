@@ -2,9 +2,6 @@ import { useRef, useEffect } from "react";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { msToTimecode } from "../../utils/time";
 
-/**
- * 타임라인 좌하단 현재시간 표시 — 재생 중에만 RAF, 정지 시 subscribe.
- */
 export function TimelineTimeDisplay() {
   const ref = useRef<HTMLSpanElement>(null);
   const rafRef = useRef<number>(0);
@@ -12,8 +9,9 @@ export function TimelineTimeDisplay() {
   useEffect(() => {
     const applyText = () => {
       if (!ref.current) return;
-      const { currentMs, totalMs } = usePlayerStore.getState();
-      ref.current.textContent = `${msToTimecode(currentMs)} / ${msToTimecode(totalMs)}`;
+      const ms = usePlayerStore.getState().getVisualMs();
+      const totalMs = usePlayerStore.getState().totalMs;
+      ref.current.textContent = `${msToTimecode(ms)} / ${msToTimecode(totalMs)}`;
     };
 
     let isPlaying = usePlayerStore.getState().playing;
@@ -25,7 +23,6 @@ export function TimelineTimeDisplay() {
       };
       rafRef.current = requestAnimationFrame(tick);
     };
-
     const stopRaf = () => {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = 0;
@@ -36,12 +33,8 @@ export function TimelineTimeDisplay() {
     const unsub = usePlayerStore.subscribe((state, prev) => {
       if (state.playing !== prev.playing) {
         isPlaying = state.playing;
-        if (isPlaying) {
-          startRaf();
-        } else {
-          stopRaf();
-          applyText();
-        }
+        if (isPlaying) startRaf();
+        else { stopRaf(); applyText(); }
       }
       if (!isPlaying && (state.currentMs !== prev.currentMs || state.totalMs !== prev.totalMs)) {
         applyText();
@@ -49,11 +42,7 @@ export function TimelineTimeDisplay() {
     });
 
     applyText();
-
-    return () => {
-      stopRaf();
-      unsub();
-    };
+    return () => { stopRaf(); unsub(); };
   }, []);
 
   return (

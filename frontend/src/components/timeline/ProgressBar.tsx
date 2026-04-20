@@ -6,9 +6,6 @@ interface Props {
   dark: boolean;
 }
 
-/**
- * 전체 재생바 — 재생 중에만 RAF, 정지 시 subscribe로 변경 감지.
- */
 export function ProgressBar({ dark }: Props) {
   const barRef = useRef<HTMLDivElement>(null);
   const knobRef = useRef<HTMLDivElement>(null);
@@ -17,8 +14,9 @@ export function ProgressBar({ dark }: Props) {
 
   useEffect(() => {
     const applyPosition = () => {
-      const { currentMs, totalMs } = usePlayerStore.getState();
-      const pct = totalMs > 0 ? (currentMs / totalMs) * 100 : 0;
+      const ms = usePlayerStore.getState().getVisualMs();
+      const totalMs = usePlayerStore.getState().totalMs;
+      const pct = totalMs > 0 ? (ms / totalMs) * 100 : 0;
       if (barRef.current) barRef.current.style.width = `${pct}%`;
       if (knobRef.current) knobRef.current.style.left = `${pct}%`;
     };
@@ -32,7 +30,6 @@ export function ProgressBar({ dark }: Props) {
       };
       rafRef.current = requestAnimationFrame(tick);
     };
-
     const stopRaf = () => {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = 0;
@@ -43,12 +40,8 @@ export function ProgressBar({ dark }: Props) {
     const unsub = usePlayerStore.subscribe((state, prev) => {
       if (state.playing !== prev.playing) {
         isPlaying = state.playing;
-        if (isPlaying) {
-          startRaf();
-        } else {
-          stopRaf();
-          applyPosition();
-        }
+        if (isPlaying) startRaf();
+        else { stopRaf(); applyPosition(); }
       }
       if (!isPlaying && state.currentMs !== prev.currentMs) {
         applyPosition();
@@ -56,11 +49,7 @@ export function ProgressBar({ dark }: Props) {
     });
 
     applyPosition();
-
-    return () => {
-      stopRaf();
-      unsub();
-    };
+    return () => { stopRaf(); unsub(); };
   }, []);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -68,10 +57,8 @@ export function ProgressBar({ dark }: Props) {
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const totalMs = usePlayerStore.getState().totalMs;
     const ms = Math.round(pct * totalMs);
-
     usePlayerStore.getState().setCurrentMs(ms);
     usePlayerStore.getState().setVideoPreviewMs(null);
-
     const subtitles = useSubtitleStore.getState().subtitles;
     const hit = subtitles.find((s) => ms >= s.start_ms && ms < s.end_ms);
     if (hit) useSubtitleStore.getState().selectSingle(hit.id);
@@ -84,11 +71,7 @@ export function ProgressBar({ dark }: Props) {
       onClick={handleClick}
     >
       <div className={`absolute inset-0 ${dm ? "bg-gray-800" : "bg-gray-300"}`} />
-      <div
-        ref={barRef}
-        className="absolute left-0 top-0 bottom-0 bg-red-500/80"
-        style={{ width: "0%" }}
-      />
+      <div ref={barRef} className="absolute left-0 top-0 bottom-0 bg-red-500/80" style={{ width: "0%" }} />
       <div ref={knobRef} className="absolute top-0 bottom-0 w-0.5 bg-red-400" style={{ left: "0%" }} />
       <div className="absolute inset-0 bg-transparent group-hover:bg-white/10 transition-colors" />
     </div>

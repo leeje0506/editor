@@ -2,7 +2,6 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useTimelineStore } from "../../store/useTimelineStore";
-import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { msToTimecode } from "../../utils/time";
 import { SubtitleOverlay } from "./SubtitleOverlay";
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
@@ -23,22 +22,35 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const seekingRef = useRef(false);
+  const progressRef = useRef<HTMLDivElement>(null);
+  const timeRef = useRef<HTMLSpanElement>(null);
+  const rafRef = useRef<number>(0);
   const [videoAspect, setVideoAspect] = useState(16 / 9);
   const [resizing, setResizing] = useState(false);
 
-  const { currentMs, playing, muted, totalMs, togglePlay, toggleMute, setCurrentMs, setTotalMs } =
-    usePlayerStore();
+  const playing = usePlayerStore((s) => s.playing);
+  const muted = usePlayerStore((s) => s.muted);
+  const totalMs = usePlayerStore((s) => s.totalMs);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
+  const toggleMute = usePlayerStore((s) => s.toggleMute);
+  const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
+  const setTotalMs = usePlayerStore((s) => s.setTotalMs);
   const playbackRate = usePlayerStore((s) => s.playbackRate);
   const setTimelineTotalMs = useTimelineStore((s) => s.setTotalMs);
   const setTimelineScrollMs = useTimelineStore((s) => s.setScrollMs);
   const timelineVisibleDuration = useTimelineStore((s) => s.visibleDuration);
-  const videoPreviewMs = usePlayerStore((s) => s.videoPreviewMs);
-  const subtitles = useSubtitleStore((s) => s.subtitles);
-  const activeNow = subtitles.filter((s) => currentMs >= s.start_ms && currentMs < s.end_ms);
+
   const videoSrc = projectId ? `${API_BASE}/projects/${projectId}/stream/video` : "";
 
   const [containerW, setContainerW] = useState(0);
   const [containerH, setContainerH] = useState(0);
+
+  // video element를 store에 등록
+  useEffect(() => {
+    const v = videoRef.current;
+    usePlayerStore.getState().setVideoElement(v);
+    return () => usePlayerStore.getState().setVideoElement(null);
+  }, []);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -54,7 +66,6 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
   }, []);
 
   const videoAreaH = Math.max(100, containerH - CONTROLS_H - PROGRESS_H);
-
   let fitW = containerW;
   let fitH = containerW / videoAspect;
   if (fitH > videoAreaH) {
@@ -62,19 +73,62 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
     fitW = videoAreaH * videoAspect;
   }
 
-  /** 영상 프로그레스바 seek → 파형도 해당 위치를 왼쪽에 놓기 */
+  /* ── 프로그레스바 + 시간 텍스트: 재생 중 RAF, 정지 중 subscribe ── */
+  useEffect(() => {
+    const updateDom = () => {
+      const ms = usePlayerStore.getState().getVisualMs();
+      const total = usePlayerStore.getState().totalMs;
+      if (progressRef.current) {
+        progressRef.current.style.width = `${total > 0 ? (ms / total) * 100 : 0}%`;
+      }
+      if (timeRef.current) {
+        timeRef.current.textContent = `${msToTimecode(ms)} / ${msToTimecode(total)}`;
+      }
+    };
+
+    let isPlaying = usePlayerStore.getState().playing;
+
+    const startRaf = () => {
+      const tick = () => {
+        updateDom();
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    const stopRaf = () => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    };
+
+    if (isPlaying) startRaf();
+
+    const unsub = usePlayerStore.subscribe((state, prev) => {
+      if (state.playing !== prev.playing) {
+        isPlaying = state.playing;
+        if (isPlaying) startRaf();
+        else { stopRaf(); updateDom(); }
+      }
+      if (!isPlaying && (state.currentMs !== prev.currentMs || state.totalMs !== prev.totalMs)) {
+        updateDom();
+      }
+    });
+
+    updateDom();
+    return () => { stopRaf(); unsub(); };
+  }, []);
+
   const seekAndScrollTimeline = useCallback((ms: number) => {
     setCurrentMs(ms);
     usePlayerStore.getState().setVideoPreviewMs(null);
     const visDur = timelineVisibleDuration();
     setTimelineScrollMs(Math.max(0, ms - visDur * 0.1));
   }, [setCurrentMs, timelineVisibleDuration, setTimelineScrollMs]);
+
   useEffect(() => {
     const v = videoRef.current;
     if (v) v.playbackRate = playbackRate;
   }, [playbackRate]);
 
-  /* ───── 좌측 드래그: 너비 변경 ───── */
   const handleLeftResize = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -82,7 +136,6 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
       const startX = e.clientX;
       const startW = videoWidth;
       setResizing(true);
-
       const onMove = (ev: MouseEvent) => {
         ev.preventDefault();
         const dx = -(ev.clientX - startX);
@@ -103,7 +156,6 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
     [videoWidth, onWidthChange],
   );
 
-  /* ───── 비디오 메타/싱크 ───── */
   const handleLoadedMetadata = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -119,36 +171,48 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
     const v = videoRef.current;
     if (!v || seekingRef.current) return;
     if (usePlayerStore.getState().videoPreviewMs !== null) return;
+    if (usePlayerStore.getState().playing) return;
     const ms = Math.floor(v.currentTime * 1000);
-    if (Math.abs(ms - currentMs) > 80) setCurrentMs(ms);
-  }, [currentMs, setCurrentMs]);
+    const cur = usePlayerStore.getState().currentMs;
+    if (Math.abs(ms - cur) > 80) setCurrentMs(ms);
+  }, [setCurrentMs]);
 
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v || !v.duration) return;
-    if (usePlayerStore.getState().videoPreviewMs !== null) return;
-    const videoMs = Math.floor(v.currentTime * 1000);
-    if (Math.abs(videoMs - currentMs) > 200) {
-      seekingRef.current = true;
-      v.currentTime = currentMs / 1000;
-      setTimeout(() => (seekingRef.current = false), 100);
-    }
-  }, [currentMs]);
+    const unsub = usePlayerStore.subscribe((state, prev) => {
+      if (state.currentMs === prev.currentMs) return;
+      if (state.playing) return;
+      if (state.videoPreviewMs !== null) return;
+      const v = videoRef.current;
+      if (!v || !v.duration) return;
+      const videoMs = Math.floor(v.currentTime * 1000);
+      if (Math.abs(videoMs - state.currentMs) > 200) {
+        seekingRef.current = true;
+        v.currentTime = state.currentMs / 1000;
+        setTimeout(() => (seekingRef.current = false), 100);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v || videoPreviewMs === null) return;
-    const targetSec = videoPreviewMs / 1000;
-    if (Math.abs(v.currentTime - targetSec) > 0.1) {
-      seekingRef.current = true;
-      v.currentTime = targetSec;
-      const onSeeked = () => {
-        seekingRef.current = false;
-        v.removeEventListener("seeked", onSeeked);
-      };
-      v.addEventListener("seeked", onSeeked);
-    }
-  }, [videoPreviewMs]);
+    const unsub = usePlayerStore.subscribe((state, prev) => {
+      if (state.videoPreviewMs === prev.videoPreviewMs) return;
+      if (state.videoPreviewMs === null) return;
+      const v = videoRef.current;
+      if (!v) return;
+      const targetSec = state.videoPreviewMs / 1000;
+      if (Math.abs(v.currentTime - targetSec) > 0.1) {
+        seekingRef.current = true;
+        v.currentTime = targetSec;
+        const onSeeked = () => {
+          seekingRef.current = false;
+          v.removeEventListener("seeked", onSeeked);
+        };
+        v.addEventListener("seeked", onSeeked);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -192,7 +256,7 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
             <div className="text-zinc-700 text-lg font-bold opacity-10">영상 없음</div>
           </div>
         )}
-        <SubtitleOverlay subtitles={activeNow} />
+        <SubtitleOverlay />
       </div>
 
       <div
@@ -201,8 +265,7 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
         onClick={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-          const ms = Math.round(pct * totalMs);
-          seekAndScrollTimeline(ms);
+          seekAndScrollTimeline(Math.round(pct * usePlayerStore.getState().totalMs));
         }}
         onMouseDown={(e) => {
           e.preventDefault();
@@ -210,7 +273,7 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
           const onMove = (ev: MouseEvent) => {
             const rect = bar.getBoundingClientRect();
             const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-            seekAndScrollTimeline(Math.round(pct * totalMs));
+            seekAndScrollTimeline(Math.round(pct * usePlayerStore.getState().totalMs));
           };
           const onUp = () => {
             document.body.style.cursor = "";
@@ -223,10 +286,7 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
         }}
       >
         <div className="absolute inset-0 bg-gray-700 rounded-sm" />
-        <div
-          className="absolute left-0 top-0 bottom-0 bg-red-500 rounded-sm transition-none"
-          style={{ width: `${totalMs > 0 ? (currentMs / totalMs) * 100 : 0}%` }}
-        />
+        <div ref={progressRef} className="absolute left-0 top-0 bottom-0 bg-red-500 rounded-sm transition-none" />
         <div className="absolute inset-0 bg-transparent group-hover:bg-white/10 rounded-sm transition-colors" />
       </div>
 
@@ -238,9 +298,7 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
           <button onClick={togglePlay} className="hover:opacity-80">
             {playing ? <Pause size={16} /> : <Play size={16} />}
           </button>
-          <span className="text-[10px] font-mono text-gray-300">
-            {msToTimecode(currentMs)} / {msToTimecode(totalMs)}
-          </span>
+          <span ref={timeRef} className="text-[10px] font-mono text-gray-300" />
         </div>
         <div className="flex items-center gap-2">
           <button onClick={toggleMute}>
