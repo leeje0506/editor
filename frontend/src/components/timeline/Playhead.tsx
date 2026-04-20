@@ -2,6 +2,9 @@ import { useRef, useEffect } from "react";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useTimelineStore } from "../../store/useTimelineStore";
 
+const TARGET_FPS = 60;
+const FRAME_MS = 1000 / TARGET_FPS;
+
 export function Playhead() {
   const ref = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
@@ -23,10 +26,15 @@ export function Playhead() {
     };
 
     let isPlaying = usePlayerStore.getState().playing;
+    let lastFrameTime = 0;
 
     const startRaf = () => {
-      const tick = () => {
-        applyPosition();
+      lastFrameTime = 0;
+      const tick = (ts: number) => {
+        if (ts - lastFrameTime >= FRAME_MS) {
+          lastFrameTime = ts;
+          applyPosition();
+        }
         rafRef.current = requestAnimationFrame(tick);
       };
       rafRef.current = requestAnimationFrame(tick);

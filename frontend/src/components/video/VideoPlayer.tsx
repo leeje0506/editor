@@ -75,6 +75,10 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
 
   /* ── 프로그레스바 + 시간 텍스트: 재생 중 RAF, 정지 중 subscribe ── */
   useEffect(() => {
+    const TARGET_FPS = 60;
+    const FRAME_MS = 1000 / TARGET_FPS;
+    let lastFrameTime = 0;
+
     const updateDom = () => {
       const ms = usePlayerStore.getState().getVisualMs();
       const total = usePlayerStore.getState().totalMs;
@@ -89,8 +93,12 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
     let isPlaying = usePlayerStore.getState().playing;
 
     const startRaf = () => {
-      const tick = () => {
-        updateDom();
+      lastFrameTime = 0;
+      const tick = (ts: number) => {
+        if (ts - lastFrameTime >= FRAME_MS) {
+          lastFrameTime = ts;
+          updateDom();
+        }
         rafRef.current = requestAnimationFrame(tick);
       };
       rafRef.current = requestAnimationFrame(tick);

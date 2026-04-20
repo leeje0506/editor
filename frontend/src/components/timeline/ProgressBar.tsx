@@ -6,6 +6,9 @@ interface Props {
   dark: boolean;
 }
 
+const TARGET_FPS = 60;
+const FRAME_MS = 1000 / TARGET_FPS;
+
 export function ProgressBar({ dark }: Props) {
   const barRef = useRef<HTMLDivElement>(null);
   const knobRef = useRef<HTMLDivElement>(null);
@@ -22,10 +25,15 @@ export function ProgressBar({ dark }: Props) {
     };
 
     let isPlaying = usePlayerStore.getState().playing;
+    let lastFrameTime = 0;
 
     const startRaf = () => {
-      const tick = () => {
-        applyPosition();
+      lastFrameTime = 0;
+      const tick = (ts: number) => {
+        if (ts - lastFrameTime >= FRAME_MS) {
+          lastFrameTime = ts;
+          applyPosition();
+        }
         rafRef.current = requestAnimationFrame(tick);
       };
       rafRef.current = requestAnimationFrame(tick);

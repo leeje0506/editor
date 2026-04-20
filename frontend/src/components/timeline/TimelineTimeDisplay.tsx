@@ -4,7 +4,7 @@ import { msToTimecode } from "../../utils/time";
 
 export function TimelineTimeDisplay() {
   const ref = useRef<HTMLSpanElement>(null);
-  const rafRef = useRef<number>(0);
+  const intervalRef = useRef<number>(0);
 
   useEffect(() => {
     const applyText = () => {
@@ -16,25 +16,21 @@ export function TimelineTimeDisplay() {
 
     let isPlaying = usePlayerStore.getState().playing;
 
-    const startRaf = () => {
-      const tick = () => {
-        applyText();
-        rafRef.current = requestAnimationFrame(tick);
-      };
-      rafRef.current = requestAnimationFrame(tick);
+    const startInterval = () => {
+      intervalRef.current = window.setInterval(applyText, 100);
     };
-    const stopRaf = () => {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = 0;
+    const stopInterval = () => {
+      clearInterval(intervalRef.current);
+      intervalRef.current = 0;
     };
 
-    if (isPlaying) startRaf();
+    if (isPlaying) startInterval();
 
     const unsub = usePlayerStore.subscribe((state, prev) => {
       if (state.playing !== prev.playing) {
         isPlaying = state.playing;
-        if (isPlaying) startRaf();
-        else { stopRaf(); applyText(); }
+        if (isPlaying) startInterval();
+        else { stopInterval(); applyText(); }
       }
       if (!isPlaying && (state.currentMs !== prev.currentMs || state.totalMs !== prev.totalMs)) {
         applyText();
@@ -42,7 +38,7 @@ export function TimelineTimeDisplay() {
     });
 
     applyText();
-    return () => { stopRaf(); unsub(); };
+    return () => { stopInterval(); unsub(); };
   }, []);
 
   return (
