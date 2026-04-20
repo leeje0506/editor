@@ -1,54 +1,129 @@
+// src/api/projects.ts
 import api from "./client";
 import type { Project } from "../types";
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+import { ensureArray, ensureObject } from "./guards";
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
+
+type BroadcasterRule = {
+  max_lines: number;
+  max_chars_per_line: number;
+  bracket_chars: number;
+  allow_overlap: boolean;
+  min_duration_ms: number;
+};
 
 export const projectsApi = {
-  list: (params?: { status?: string; broadcaster?: string; search?: string }) =>
-    api.get<Project[]>("/projects", { params }).then((r) => r.data),
-  get: (id: number) => api.get<Project>(`/projects/${id}`).then((r) => r.data),
-  create: (data: {
+  list: async (params?: { status?: string; broadcaster?: string; search?: string }) => {
+    const r = await api.get("/projects", { params });
+    return ensureArray<Project>(r.data, "projectsApi.list");
+  },
+
+  get: async (id: number) => {
+    const r = await api.get(`/projects/${id}`);
+    return ensureObject<Project>(r.data, "projectsApi.get");
+  },
+
+  create: async (data: {
     name: string;
     broadcaster?: string;
     description?: string;
     deadline?: string;
     assigned_to?: number;
-  }) => api.post<Project>("/projects", data).then((r) => r.data),
-  update: (id: number, data: Record<string, unknown>) =>
-    api.patch<Project>(`/projects/${id}`, data).then((r) => r.data),
+  }) => {
+    const r = await api.post("/projects", data);
+    return ensureObject<Project>(r.data, "projectsApi.create");
+  },
+
+  update: async (id: number, data: Record<string, unknown>) => {
+    const r = await api.patch(`/projects/${id}`, data);
+    return ensureObject<Project>(r.data, "projectsApi.update");
+  },
+
   delete: (id: number) => api.delete(`/projects/${id}`),
-  submit: (id: number) => api.post<Project>(`/projects/${id}/submit`).then((r) => r.data),
-  approve: (id: number) => api.post<Project>(`/projects/${id}/approve`).then((r) => r.data),
-  reject: (id: number) => api.post<Project>(`/projects/${id}/reject`).then((r) => r.data),
-  updateTimer: (id: number, elapsedSeconds: number) =>
-    api.post<Project>(`/projects/${id}/timer`, { elapsed_seconds: elapsedSeconds }).then((r) => r.data),
-  markSaved: (id: number, lastPositionMs?: number, lastSelectedId?: number | null) =>
-    api.post<Project>(`/projects/${id}/save`, {
+
+  submit: async (id: number) => {
+    const r = await api.post(`/projects/${id}/submit`);
+    return ensureObject<Project>(r.data, "projectsApi.submit");
+  },
+
+  approve: async (id: number) => {
+    const r = await api.post(`/projects/${id}/approve`);
+    return ensureObject<Project>(r.data, "projectsApi.approve");
+  },
+
+  reject: async (id: number) => {
+    const r = await api.post(`/projects/${id}/reject`);
+    return ensureObject<Project>(r.data, "projectsApi.reject");
+  },
+
+  updateTimer: async (id: number, elapsedSeconds: number) => {
+    const r = await api.post(`/projects/${id}/timer`, {
+      elapsed_seconds: elapsedSeconds,
+    });
+    return ensureObject<Project>(r.data, "projectsApi.updateTimer");
+  },
+
+  markSaved: async (id: number, lastPositionMs?: number, lastSelectedId?: number | null) => {
+    const r = await api.post(`/projects/${id}/save`, {
       last_position_ms: lastPositionMs ?? 0,
       last_selected_id: lastSelectedId ?? null,
-    }).then((r) => r.data),
-  getBroadcasterRules: () => api.get("/projects/rules/broadcasters").then((r) => r.data),
-  saveBroadcasterRules: (rules: Record<string, any>) =>
-    api.put("/settings/broadcaster-rules", rules).then((r) => r.data),
+    });
+    return ensureObject<Project>(r.data, "projectsApi.markSaved");
+  },
+
+  getBroadcasterRules: async () => {
+    const r = await api.get("/projects/rules/broadcasters");
+    return ensureObject<Record<string, BroadcasterRule>>(
+      r.data,
+      "projectsApi.getBroadcasterRules",
+    );
+  },
+
+  saveBroadcasterRules: async (rules: Record<string, BroadcasterRule>) => {
+    const r = await api.put("/settings/broadcaster-rules", rules);
+    return ensureObject<Record<string, BroadcasterRule>>(
+      r.data,
+      "projectsApi.saveBroadcasterRules",
+    );
+  },
+
   uploadSubtitle: (id: number, file: File) => {
     const form = new FormData();
     form.append("file", file);
-    return api.post(`/projects/${id}/upload/subtitle`, form, { headers: { "Content-Type": "multipart/form-data" } });
+
+    return api.post(`/projects/${id}/upload/subtitle`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
   },
+
   uploadVideo: (id: number, file: File) => {
     const form = new FormData();
     form.append("file", file);
-    return api.post(`/projects/${id}/upload/video`, form, { headers: { "Content-Type": "multipart/form-data" } });
+
+    return api.post(`/projects/${id}/upload/video`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
   },
+
   uploadJson: (id: number, file: File) => {
     const form = new FormData();
     form.append("file", file);
+
     return api.post(`/projects/${id}/upload/json`, form, {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
+
   downloadJson: (id: number) => `${API_BASE}/projects/${id}/download/json`,
   downloadSubtitle: (id: number) => `${API_BASE}/projects/${id}/download/subtitle`,
   videoStreamUrl: (id: number) => `${API_BASE}/projects/${id}/stream/video`,
-  getWaveform: (id: number) =>
-    api.get<{ peaks: number[]; peaks_per_second: number; duration_ms: number }>(`/projects/${id}/waveform`).then((r) => r.data),
+
+  getWaveform: async (id: number) => {
+    const r = await api.get(`/projects/${id}/waveform`);
+    return ensureObject<{ peaks: number[]; peaks_per_second: number; duration_ms: number }>(
+      r.data,
+      "projectsApi.getWaveform",
+    );
+  },
 };
