@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Subtitle, Project, EditHistory
+from app.models import Subtitle, Project, EditHistory, BroadcasterRule
 from app.schemas import (
     SubtitleCreate, SubtitleUpdate, SubtitleResponse, SubtitleBatchItem,
     BatchDeleteRequest, MergeRequest, SplitRequest, BulkSpeakerRequest,
@@ -29,6 +29,11 @@ def _get_project(pid: int, db: Session) -> Project:
     return p
 
 
+def _get_min_duration_ms(project: Project) -> int:
+    """프로젝트의 min_duration_ms. 없으면 기본 500ms."""
+    return project.min_duration_ms if project.min_duration_ms else 500
+
+
 @router.get("", response_model=List[SubtitleResponse])
 def list_subtitles(project_id: int, db: Session = Depends(get_db)):
     _get_project(project_id, db)
@@ -37,11 +42,17 @@ def list_subtitles(project_id: int, db: Session = Depends(get_db)):
 
 @router.post("", response_model=List[SubtitleResponse], status_code=201)
 def create_subtitle(project_id: int, data: SubtitleCreate, db: Session = Depends(get_db)):
-    """싱크 추가: 선택된 싱크 바로 아래에, 끝시간+10ms부터 2초"""
-    _get_project(project_id, db)
+    """싱크 추가: 선택된 싱크 바로 아래에, 끝시간+1ms부터 min_duration_ms 길이"""
+    p = _get_project(project_id, db)
     save_snapshot(db, project_id, "add")
+
+    min_dur = _get_min_duration_ms(p)
+
+    start = data.start_ms
+    end = start + min_dur
+
     sub = Subtitle(
-        project_id=project_id, start_ms=data.start_ms, end_ms=data.end_ms,
+        project_id=project_id, start_ms=start, end_ms=end,
         type=data.type, speaker=data.speaker, speaker_pos=data.speaker_pos,
         text_pos=data.text_pos, text=data.text, seq=0,
     )
@@ -87,9 +98,7 @@ def batch_delete(project_id: int, data: BatchDeleteRequest, db: Session = Depend
 
 @router.post("/{subtitle_id}/split", response_model=List[SubtitleResponse])
 def split_subtitle(project_id: int, subtitle_id: int, data: SplitRequest, db: Session = Depends(get_db)):
-    """
-    분할: 시간을 절반으로, 대사도 스마트 분할(공백 기준)
-    """
+    """분할: 시간을 절반으로, 대사도 스마트 분할(공백 기준)"""
     _get_project(project_id, db)
     sub = db.query(Subtitle).filter(Subtitle.id == subtitle_id, Subtitle.project_id == project_id).first()
     if not sub:
@@ -99,7 +108,6 @@ def split_subtitle(project_id: int, subtitle_id: int, data: SplitRequest, db: Se
     split_at = data.split_at_ms if data.split_at_ms else (sub.start_ms + sub.end_ms) // 2
     original_end = sub.end_ms
 
-    # 대사 스마트 분할
     text_first, text_second = smart_split_text(sub.text)
 
     sub.end_ms = split_at

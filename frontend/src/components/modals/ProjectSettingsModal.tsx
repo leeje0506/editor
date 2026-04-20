@@ -34,6 +34,7 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
   const [broadcaster, setBroadcaster] = useState("");
   const [maxLines, setMaxLines] = useState(2);
   const [maxChars, setMaxChars] = useState(18);
+  const [minDuration, setMinDuration] = useState(0.5);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -69,6 +70,7 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
       setBroadcaster(p.broadcaster);
       setMaxLines(p.max_lines);
       setMaxChars(p.max_chars_per_line);
+      setMinDuration(((p as any).min_duration_ms || 500) / 1000);
     });
   }, [pid]);
 
@@ -87,6 +89,7 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
     if (rules) {
       setMaxLines(rules.max_lines);
       setMaxChars(rules.max_chars_per_line);
+      if (rules.min_duration_ms) setMinDuration(rules.min_duration_ms / 1000);
     }
   };
 
@@ -98,6 +101,7 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
       if (isAdmin) {
         updateData.max_lines = maxLines;
         updateData.max_chars_per_line = maxChars;
+        updateData.min_duration_ms = Math.round(minDuration * 1000);
       }
       await projectsApi.update(pid, updateData);
       await initSubs(pid);
@@ -241,6 +245,10 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                     <label className={`block ${ts} mb-1`}>줄당 최대 글자</label>
                     <input type="number" value={maxChars} onChange={(e) => setMaxChars(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
                   </div>
+                  <div className="flex-1">
+                    <label className={`block ${ts} mb-1`}>최소 길이(초)</label>
+                    <input type="number" step={0.1} min={0.1} value={minDuration} onChange={(e) => setMinDuration(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
+                  </div>
                 </div>
               )}
 
@@ -286,7 +294,6 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
             <div className="space-y-5 text-xs">
               <div className={`font-medium ${tp} text-sm`}>글자 크기</div>
 
-              {/* 영상 플레이어 자막 크기 */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className={ts}>영상 플레이어 자막 크기</label>
@@ -299,7 +306,6 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 />
               </div>
 
-              {/* 자막 리스트 글자 크기 */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className={ts}>자막 리스트 글자 크기</label>
@@ -312,7 +318,6 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 />
               </div>
 
-              {/* 퀵에디터 글자 크기 */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className={ts}>퀵에디터 글자 크기</label>
@@ -325,7 +330,6 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 />
               </div>
 
-              {/* 파형 내 대사 글자 크기 */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className={ts}>파형 내 대사 글자 크기</label>
@@ -341,7 +345,6 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
               <div className={`border-t ${bd} pt-4`}>
                 <div className={`font-medium ${tp} text-sm mb-3`}>자막 위치</div>
 
-                {/* 기본 위치 */}
                 <div className="mb-3">
                   <div className="flex items-center justify-between mb-1">
                     <label className={ts}>기본 위치 (유지)</label>
@@ -354,7 +357,6 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                   />
                 </div>
 
-                {/* 상단 위치 */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className={ts}>상단 위치 (상단이동)</label>
@@ -398,7 +400,6 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
               )}
 
               <div className="grid grid-cols-2 gap-4">
-                {/* ── 기본 단축키 (변경 불가) ── */}
                 <div>
                   <div className={`text-sm font-medium ${tp} mb-2`}>기본 단축키</div>
                   <div className={`text-[10px] ${ts} mb-2`}>변경할 수 없습니다</div>
@@ -420,7 +421,6 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                   </div>
                 </div>
 
-                {/* ── 커스텀 단축키 (변경 가능) ── */}
                 <div>
                   <div className={`text-sm font-medium ${tp} mb-2`}>커스텀 단축키</div>
                   <div className={`text-[10px] ${ts} mb-2`}>클릭 후 키를 눌러 변경</div>
