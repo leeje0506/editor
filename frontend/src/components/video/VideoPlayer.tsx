@@ -5,6 +5,7 @@ import { useTimelineStore } from "../../store/useTimelineStore";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { msToTimecode } from "../../utils/time";
 import { SubtitleOverlay } from "./SubtitleOverlay";
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 interface Props {
   dark: boolean;
@@ -34,7 +35,7 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
   const videoPreviewMs = usePlayerStore((s) => s.videoPreviewMs);
   const subtitles = useSubtitleStore((s) => s.subtitles);
   const activeNow = subtitles.filter((s) => currentMs >= s.start_ms && currentMs < s.end_ms);
-  const videoSrc = projectId ? `/api/projects/${projectId}/stream/video` : "";
+  const videoSrc = projectId ? `${API_BASE}/projects/${projectId}/stream/video` : "";
 
   const [containerW, setContainerW] = useState(0);
   const [containerH, setContainerH] = useState(0);

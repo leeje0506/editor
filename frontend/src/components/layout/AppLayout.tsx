@@ -17,6 +17,7 @@ import { Timeline } from "../timeline/Timeline";
 import { SubtitleDisplayPanel } from "../video/SubtitleDisplayPanel";
 import { FindReplaceModal } from "../modals/FindReplaceModal";
 import api from "../../api/client";
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 type EditorMode = "srt" | "json";
 
@@ -228,7 +229,8 @@ export function AppLayout() {
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (pid) {
-        navigator.sendBeacon(`/api/projects/${pid}/timer`, JSON.stringify({ elapsed_seconds: elapsed }));
+        navigator.sendBeacon(`${API_BASE}/projects/${pid}/timer`, JSON.stringify({ elapsed_seconds: elapsed })
+);
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
