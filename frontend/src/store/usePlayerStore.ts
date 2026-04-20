@@ -55,12 +55,21 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       };
     }),
   togglePlay: () =>
-    set((s) => {
-      if (!s.playing) {
-        return { playing: true, videoPreviewMs: null };
-      }
-      return { playing: false };
-    }),
+  set((s) => {
+    if (!s.playing) {
+      return { playing: true, videoPreviewMs: null };
+    }
+
+    // pause 시 video의 현재 위치를 currentMs에 스냅샷
+    const pausedMs = s.videoElement
+      ? Math.floor(s.videoElement.currentTime * 1000)
+      : s.currentMs;
+
+    return {
+      playing: false,
+      currentMs: Math.max(0, Math.min(pausedMs, s.totalMs)),
+    };
+  }),
   toggleMute: () => set((s) => ({ muted: !s.muted })),
   seekForward: (ms = 5000) =>
     set((s) => ({ currentMs: Math.min(s.totalMs, s.currentMs + ms) })),
