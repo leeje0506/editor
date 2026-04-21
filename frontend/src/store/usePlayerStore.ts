@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useActivityStore } from "./useActivityStore";
 
 interface PlayerState {
   currentMs: number;
@@ -22,6 +23,11 @@ interface PlayerState {
   seekBackward: (ms?: number) => void;
   setVideoPreviewMs: (ms: number | null) => void;
   setPlaybackRate: (rate: number) => void;
+}
+
+/** 사용자 의도 보고 (재생 grace 판정용) */
+function reportUserIntent() {
+  useActivityStore.getState().reportUserIntent();
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -53,8 +59,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         videoPreviewMs: s.videoPreviewMs === null ? null : Math.min(s.videoPreviewMs, safeMs),
       };
     }),
+
   togglePlay: () =>
     set((s) => {
+      reportUserIntent();
+
       const snapMs = s.videoElement
         ? Math.floor(s.videoElement.currentTime * 1000)
         : s.currentMs;
@@ -65,11 +74,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       }
       return { playing: false, currentMs: safeMs };
     }),
+
   toggleMute: () => set((s) => ({ muted: !s.muted })),
-  seekForward: (ms = 5000) =>
-    set((s) => ({ currentMs: Math.min(s.totalMs, s.currentMs + ms) })),
-  seekBackward: (ms = 5000) =>
-    set((s) => ({ currentMs: Math.max(0, s.currentMs - ms) })),
+
+  seekForward: (ms = 5000) => {
+    reportUserIntent();
+    set((s) => ({ currentMs: Math.min(s.totalMs, s.currentMs + ms) }));
+  },
+
+  seekBackward: (ms = 5000) => {
+    reportUserIntent();
+    set((s) => ({ currentMs: Math.max(0, s.currentMs - ms) }));
+  },
+
   setVideoPreviewMs: (ms) => set({ videoPreviewMs: ms }),
-  setPlaybackRate: (rate) => set({ playbackRate: Math.max(0.5, Math.min(3.0, rate)) }),
+
+  setPlaybackRate: (rate) => {
+    reportUserIntent();
+    set({ playbackRate: Math.max(0.5, Math.min(3.0, rate)) });
+  },
 }));

@@ -5,8 +5,10 @@ import { usePlayerStore } from "../../store/usePlayerStore";
 import { useTimelineStore } from "../../store/useTimelineStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
+import { useActivityStore } from "../../store/useActivityStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { usePlayback } from "../../hooks/usePlayback";
+import { useIdleDetector } from "../../hooks/useIdleDetector";
 import { projectsApi } from "../../api/projects";
 import type { Project } from "../../types";
 import { TopNav } from "../nav/TopNav";
@@ -16,9 +18,9 @@ import { QuickEditor } from "../editor/QuickEditor";
 import { Timeline } from "../timeline/Timeline";
 import { SubtitleDisplayPanel } from "../video/SubtitleDisplayPanel";
 import { FindReplaceModal } from "../modals/FindReplaceModal";
+import { IdleWarningModal } from "../modals/IdleWarningModal";
 import { DEFAULT_ZOOM_IDX } from "../../types";
 import api from "../../api/client";
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 type EditorMode = "srt" | "json";
 
@@ -87,9 +89,6 @@ export function AppLayout() {
   useEffect(() => { localStorage.setItem("editor_timelineHeight", String(timelineHeight)); }, [timelineHeight]);
   useEffect(() => { localStorage.setItem("editor_darkMode", String(dark)); }, [dark]);
 
-  const timerRef = useRef<number | null>(null);
-  const saveTimerRef = useRef<number | null>(null);
-
   const init = useSubtitleStore((s) => s.init);
   const saveAll = useSubtitleStore((s) => s.saveAll);
   const setTotalMs = usePlayerStore((s) => s.setTotalMs);
@@ -99,6 +98,28 @@ export function AppLayout() {
   const user = useAuthStore((s) => s.user);
   const isWorker = !user?.role || !["master", "manager"].includes(user.role);
   const loadSettings = useSettingsStore((s) => s.load);
+
+  /* ── elapsed ref (useIdleDetector에서 최신 값 접근용) ── */
+  const elapsedRef = useRef(elapsed);
+  useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
+
+  const getElapsed = useCallback(() => elapsedRef.current, []);
+  const addElapsed = useCallback((delta: number) => {
+    setElapsed((prev) => prev + delta);
+  }, []);
+
+  /* ── Idle 모달 상태 구독 ── */
+  const idleModalOpen = useActivityStore((s) => s.idleModalOpen);
+
+  /* ── useIdleDetector 연결 ── */
+  const { executeAutoExit } = useIdleDetector({
+    projectId: pid,
+    getElapsed,
+    addElapsed,
+    onAutoSaved: () => {
+      setSavedMsg("자동 저장 완료");
+    },
+  });
 
   const handleVideoWidthChange = useCallback((w: number) => {
     const maxW = Math.floor(window.innerWidth * 0.70);
@@ -207,35 +228,12 @@ export function AppLayout() {
     loadSettings();
   }, [pid]);
 
-  useEffect(() => {
-    timerRef.current = window.setInterval(() => setElapsed((prev) => prev + 1), 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, []);
-
-  // 30초마다 자동 저장 (작업 시간 + 자막 + 위치)
-  useEffect(() => {
-    saveTimerRef.current = window.setInterval(async () => {
-      if (pid) {
-        try {
-          await saveAll();
-          await projectsApi.updateTimer(pid, elapsed);
-          await savePosition();
-        } catch {}
-      }
-    }, 30000);
-    return () => { if (saveTimerRef.current) clearInterval(saveTimerRef.current); };
-  }, [pid, elapsed]);
-
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (pid) {
-        navigator.sendBeacon(`${API_BASE}/projects/${pid}/timer`, JSON.stringify({ elapsed_seconds: elapsed })
-);
-      }
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [pid, elapsed]);
+  /* ── 기존 timerRef / saveTimerRef / beforeunload 제거 ──
+   * 이제 useIdleDetector가 다음을 담당:
+   *   - 1초 tick → 활동 기준 시간 누적
+   *   - 30초 flush → 서버 타이머 전송 + 자막 자동 저장 + 위치 저장
+   *   - beforeunload → sendBeacon 시간 전송
+   */
 
   /** 현재 위치 정보를 서버에 저장 */
   const savePosition = async () => {
@@ -252,7 +250,8 @@ export function AppLayout() {
     try {
       await saveAll();
       if (pid) {
-        await projectsApi.updateTimer(pid, elapsed);
+        useActivityStore.getState().flushAccumulated();
+        await projectsApi.updateTimer(pid, elapsedRef.current);
         await savePosition();
       }
       setSavedMsg("저장 완료!");
@@ -269,7 +268,8 @@ export function AppLayout() {
     try {
       await saveAll();
       if (pid) {
-        await projectsApi.updateTimer(pid, elapsed);
+        useActivityStore.getState().flushAccumulated();
+        await projectsApi.updateTimer(pid, elapsedRef.current);
         await savePosition();
       }
       setSavedMsg("저장 완료!");
@@ -290,7 +290,8 @@ export function AppLayout() {
     }
     try {
       await saveAll();
-      await projectsApi.updateTimer(pid, elapsed);
+      useActivityStore.getState().flushAccumulated();
+      await projectsApi.updateTimer(pid, elapsedRef.current);
       await projectsApi.submit(pid);
       setSavedMsg("제출 완료!");
       setTimeout(() => navigate("/"), 600);
@@ -359,7 +360,10 @@ export function AppLayout() {
     try {
       await saveAll();
       await savePosition();
-      if (pid) await projectsApi.updateTimer(pid, elapsed);
+      if (pid) {
+        useActivityStore.getState().flushAccumulated();
+        await projectsApi.updateTimer(pid, elapsedRef.current);
+      }
     } catch {}
     navigate("/");
   };
@@ -387,6 +391,11 @@ export function AppLayout() {
             <span className="text-xs font-medium">저장 중...</span>
           </div>
         </div>
+      )}
+
+      {/* 유휴 경고 모달 */}
+      {idleModalOpen && (
+        <IdleWarningModal dark={dm} onTimeout={executeAutoExit} />
       )}
 
       <TopNav
