@@ -368,6 +368,22 @@ export function AppLayout() {
     navigate("/");
   };
 
+  /** 프로젝트 새로고침 (영상/자막 업로드 후) */
+  const reloadProject = useCallback(async () => {
+    if (!pid) return;
+    try {
+      const p = await projectsApi.get(pid);
+      setProject(p);
+      setTotalMs(p.total_duration_ms);
+      setTimelineTotalMs(p.total_duration_ms);
+      await init(pid);
+      // 파형 재로드
+      projectsApi.getWaveform(pid)
+        .then((w) => setPeaks(w.peaks))
+        .catch(() => setPeaks(null));
+    } catch {}
+  }, [pid, init, setTotalMs, setTimelineTotalMs]);
+
   useKeyboardShortcuts(handleSave, project?.max_chars_per_line ?? 18, () => setShowFindReplace(true));
   usePlayback();
 
@@ -421,7 +437,7 @@ export function AppLayout() {
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <div className={`flex-1 flex flex-col ${card} border-r ${bd} min-h-0 overflow-hidden`}>
           <div className="flex-1 min-h-0 overflow-hidden">
-            <SubtitleGrid dark={dm} readOnly={isReadOnly(project, isWorker)} editorMode={editorMode} />
+            <SubtitleGrid dark={dm} readOnly={isReadOnly(project, isWorker)} editorMode={editorMode} projectId={pid} onSubtitleUploaded={reloadProject} />
           </div>
           <HResizeHandle dark={dm} onMouseDown={handleEditorTopDrag} />
           <div className="shrink-0 overflow-hidden" style={{ height: editorHeight }}>
@@ -444,6 +460,8 @@ export function AppLayout() {
             projectId={pid}
             videoWidth={videoWidth}
             onWidthChange={handleVideoWidthChange}
+            hasVideo={!!project?.video_file}
+            onVideoUploaded={reloadProject}
           />
           {showSubPanel && (
             <SubtitleDisplayPanel dark={dm} onClose={() => setShowSubPanel(false)} />

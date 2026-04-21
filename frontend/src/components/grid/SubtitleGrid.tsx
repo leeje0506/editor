@@ -7,11 +7,17 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { msToTimecode } from "../../utils/time";
 import { GridToolbar } from "./GridToolbar";
 import { GridFilters, type Filters } from "./GridFilters";
+import { FileText, Loader2 } from "lucide-react";
+import { projectsApi } from "../../api/projects";
 
 interface Props {
   dark: boolean;
   readOnly?: boolean;
   editorMode?: "srt" | "json";
+  /** 프로젝트 ID (자막 업로드용) */
+  projectId?: number;
+  /** 자막 업로드 완료 후 콜백 */
+  onSubtitleUploaded?: () => void;
 }
 
 function msToDuration(ms: number): string {
@@ -33,7 +39,7 @@ interface DropCellProps {
   colorCls?: string;
   fontSize: number;
   onSelect: (v: string) => void;
-  onCellClick: () => void; // 행 선택 트리거
+  onCellClick: () => void;
 }
 
 function DropCell({ value, label, options, dark, disabled, colorCls, fontSize, onSelect, onCellClick }: DropCellProps) {
@@ -41,7 +47,6 @@ function DropCell({ value, label, options, dark, disabled, colorCls, fontSize, o
   const cellRef = useRef<HTMLDivElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
-  // 바깥 클릭 닫기
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -56,7 +61,6 @@ function DropCell({ value, label, options, dark, disabled, colorCls, fontSize, o
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // 드롭다운 위치 계산
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
   useEffect(() => {
     if (open && cellRef.current) {
@@ -67,7 +71,7 @@ function DropCell({ value, label, options, dark, disabled, colorCls, fontSize, o
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onCellClick(); // 행 선택
+    onCellClick();
     if (disabled) return;
     setOpen((prev) => !prev);
   };
@@ -117,9 +121,11 @@ function DropCell({ value, label, options, dark, disabled, colorCls, fontSize, o
 }
 
 /* ── SubtitleGrid ── */
-export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
+export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, onSubtitleUploaded }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [filters, setFilters] = useState<Filters>({ type: "전체", textPos: "전체", error: "전체", search: "" });
+  const [uploading, setUploading] = useState(false);
 
   const subtitles = useSubtitleStore((s) => s.subtitles);
   const selectedId = useSubtitleStore((s) => s.selectedId);
@@ -145,7 +151,6 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
   const mr = dm ? "bg-blue-900/20" : "bg-blue-50/30";
   const errCellBg = dm ? "bg-orange-900/50" : "bg-orange-100";
 
-  /** 화자 목록 (중복 제거, 빈 화자 포함) */
   const speakerOptions = useMemo(() => {
     const names = [...new Set(subtitles.map((s) => s.speaker).filter(Boolean))].sort();
     return [
@@ -222,7 +227,6 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
     }
   };
 
-  /** 드롭다운 셀 클릭 시 행 선택 */
   const triggerSelect = useCallback((subId: number) => {
     if (playing) return;
     if (selectedId !== subId) {
@@ -231,6 +235,25 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
       if (sub) setVideoPreviewMs(sub.start_ms);
     }
   }, [playing, selectedId, selectSingle, subtitles, setVideoPreviewMs]);
+
+  /* ── 자막 파일 업로드 핸들러 ── */
+  const handleSubtitleFileUpload = useCallback(async (file: File) => {
+    if (!projectId || uploading) return;
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "";
+      if (ext === "json") {
+        await projectsApi.uploadJson(projectId, file);
+      } else {
+        await projectsApi.uploadSubtitle(projectId, file);
+      }
+      onSubtitleUploaded?.();
+    } catch {
+      // 실패 시 무시
+    } finally {
+      setUploading(false);
+    }
+  }, [projectId, uploading, onSubtitleUploaded]);
 
   const cw = { seq: "3%", start: "10%", end: "10%", dur: "5%", type: "5%", spk: "6%", spkDel: "6%", txtDel: "6%", pos: "5%" };
   const cellCls = "py-2 overflow-hidden text-ellipsis whitespace-nowrap";
@@ -266,135 +289,167 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt" }: Props) {
     </tr>
   );
 
+  /** 자막 0개일 때 empty state */
+  const isEmpty = subtitles.length === 0;
+
   return (
     <div className={`h-full flex flex-col overflow-hidden border-b ${bd}`}>
       <div className={`shrink-0 ${card}`}>
         <GridToolbar dark={dm} filteredCount={filtered.length} totalCount={subtitles.length} readOnly={readOnly} />
-        <GridFilters dark={dm} filters={filters} onChange={setFilters} />
+        {!isEmpty && <GridFilters dark={dm} filters={filters} onChange={setFilters} />}
       </div>
-      <div ref={scrollRef} className={`flex-1 overflow-y-auto overflow-x-hidden ${card} min-h-0`}>
-        <table className={`w-full ${ts}`} style={{ fontSize: `${listFontSize}px`, tableLayout: "fixed" }}>
-          {colGroup}
-          <thead className={`border-b ${bd} ${card} sticky top-0 z-10`}>{headerRow}</thead>
-          <tbody className={`divide-y ${dm ? "divide-gray-700/40" : "divide-gray-100"}`}>
-            {filtered.map((sub) => {
-              const isSel = selectedId === sub.id;
-              const isMulti = multiSelect.has(sub.id) && !isSel;
-              const duration = sub.end_ms - sub.start_ms;
-              const errors = parseErrors(sub.error);
-              const overlap = overlapCellMap.get(sub.id);
-              const rowBg = isSel ? sr : isMulti ? mr : "";
-              const startCellBg = overlap?.startErr ? errCellBg : "";
-              const endCellBg = overlap?.endErr ? errCellBg : "";
-              const durCellBg = errors.has("최소길이") ? errCellBg : "";
-              const textCellBg = errors.has("글자초과") ? errCellBg : "";
-              const spkDeleted = sub.speaker_pos === "deleted";
-              const txtDeleted = sub.text_pos === "deleted";
-              const isTop = sub.speaker_pos === "top" || sub.text_pos === "top";
 
-              return (
-                <tr
-                  key={sub.id}
-                  id={`row-${sub.id}`}
-                  onClick={() => handleClick(sub.id)}
-                  onDoubleClick={(e) => handleDblClick(sub.id, e)}
-                  className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
-                >
-                  <td className={`${cellCls} relative`} style={cellStyle}>
-                    {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
-                    {sub.seq}
-                  </td>
-                  <td className={`${cellCls} font-mono ${tp} ${startCellBg}`} style={cellStyle}>{msToTimecode(sub.start_ms)}</td>
-                  <td className={`${cellCls} font-mono ${tp} ${endCellBg}`} style={cellStyle}>{msToTimecode(sub.end_ms)}</td>
-                  <td className={`${cellCls} font-mono ${tp} ${durCellBg}`} style={cellStyle}>{msToDuration(duration)}</td>
-                  {/* 유형 */}
-                  <td className={`${cellCls}`} style={cellStyle}>
-                    <DropCell
-                      dark={dm}
-                      disabled={readOnly}
-                      fontSize={listFontSize}
-                      value={sub.type}
-                      label={sub.type === "effect" ? "효과" : "대사"}
-                      options={[{ v: "dialogue", label: "대사" }, { v: "effect", label: "효과" }]}
-                      onSelect={(v) => updateLocal(sub.id, { type: v as "dialogue" | "effect" })}
-                      onCellClick={() => triggerSelect(sub.id)}
-                    />
-                  </td>
-                  {/* 화자 */}
-                  <td className={`${cellCls} ${tp}`} style={cellStyle}>
-                    <DropCell
-                      dark={dm}
-                      disabled={readOnly}
-                      fontSize={listFontSize}
-                      value={sub.speaker}
-                      label={sub.speaker || "-"}
-                      options={speakerOptions}
-                      onSelect={(v) => updateLocal(sub.id, { speaker: v })}
-                      onCellClick={() => triggerSelect(sub.id)}
-                    />
-                  </td>
-                  {/* 화자삭제 */}
-                  <td className={`${cellCls}`} style={cellStyle}>
-                    <DropCell
-                      dark={dm}
-                      disabled={readOnly}
-                      fontSize={listFontSize}
-                      value={spkDeleted ? "deleted" : "default"}
-                      label={spkDeleted ? "삭제" : "유지"}
-                      colorCls={spkDeleted ? "text-red-500" : ""}
-                      options={[{ v: "default", label: "유지" }, { v: "deleted", label: "삭제" }]}
-                      onSelect={(v) => updateLocal(sub.id, { speaker_pos: v as "default" | "top" | "deleted" })}
-                      onCellClick={() => triggerSelect(sub.id)}
-                    />
-                  </td>
-                  {/* 대사 */}
-                  <td className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`} style={{ textAlign: "left" }} title={sub.text}>
-                    <div className="leading-snug whitespace-pre-wrap break-all line-clamp-2">{sub.text}</div>
-                  </td>
-                  {/* 대사삭제 */}
-                  <td className={`${cellCls}`} style={cellStyle}>
-                    <DropCell
-                      dark={dm}
-                      disabled={readOnly}
-                      fontSize={listFontSize}
-                      value={txtDeleted ? "deleted" : "default"}
-                      label={txtDeleted ? "삭제" : "유지"}
-                      colorCls={txtDeleted ? "text-red-500" : ""}
-                      options={[{ v: "default", label: "유지" }, { v: "deleted", label: "삭제" }]}
-                      onSelect={(v) => updateLocal(sub.id, { text_pos: v as "default" | "top" | "deleted" })}
-                      onCellClick={() => triggerSelect(sub.id)}
-                    />
-                  </td>
-                  {/* 위치 */}
-                  <td className={`${cellCls}`} style={cellStyle}>
-                    <DropCell
-                      dark={dm}
-                      disabled={readOnly}
-                      fontSize={listFontSize}
-                      value={isTop ? "top" : "default"}
-                      label={isTop ? "상단" : "하단"}
-                      colorCls={isTop ? "text-blue-500" : ""}
-                      options={[{ v: "default", label: "하단" }, { v: "top", label: "상단" }]}
-                      onSelect={(v) => {
-                        const updates: Partial<{ speaker_pos: "default" | "top" | "deleted"; text_pos: "default" | "top" | "deleted" }> = {};
-                        if (v === "top") {
-                          if (sub.speaker_pos !== "deleted") updates.speaker_pos = "top";
-                          if (sub.text_pos !== "deleted") updates.text_pos = "top";
-                        } else {
-                          if (sub.speaker_pos === "top") updates.speaker_pos = "default";
-                          if (sub.text_pos === "top") updates.text_pos = "default";
-                        }
-                        updateLocal(sub.id, updates);
-                      }}
-                      onCellClick={() => triggerSelect(sub.id)}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {isEmpty ? (
+        /* ── 자막 없음: 업로드 버튼 ── */
+        <div className={`flex-1 flex items-center justify-center ${card}`}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".srt,.vtt,.txt,.json"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleSubtitleFileUpload(f);
+            }}
+          />
+          {uploading ? (
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 size={28} className="text-blue-500 animate-spin" />
+              <span className={`text-xs ${ts}`}>자막 파일 처리 중...</span>
+            </div>
+          ) : (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-dashed ${
+                dm ? "border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5" : "border-gray-300 hover:border-blue-400 hover:bg-blue-50"
+              } transition-colors group`}
+            >
+              <FileText size={28} className={`${dm ? "text-gray-600" : "text-gray-400"} group-hover:text-blue-500 transition-colors`} />
+              <span className={`text-sm font-medium ${dm ? "text-gray-500" : "text-gray-400"} group-hover:text-blue-400 transition-colors`}>자막 파일 추가</span>
+              <span className={`text-[10px] ${dm ? "text-gray-700" : "text-gray-300"}`}>SRT, VTT, JSON 파일을 업로드하세요</span>
+            </button>
+          )}
+        </div>
+      ) : (
+        /* ── 자막 테이블 ── */
+        <div ref={scrollRef} className={`flex-1 overflow-y-auto overflow-x-hidden ${card} min-h-0`}>
+          <table className={`w-full ${ts}`} style={{ fontSize: `${listFontSize}px`, tableLayout: "fixed" }}>
+            {colGroup}
+            <thead className={`border-b ${bd} ${card} sticky top-0 z-10`}>{headerRow}</thead>
+            <tbody className={`divide-y ${dm ? "divide-gray-700/40" : "divide-gray-100"}`}>
+              {filtered.map((sub) => {
+                const isSel = selectedId === sub.id;
+                const isMulti = multiSelect.has(sub.id) && !isSel;
+                const duration = sub.end_ms - sub.start_ms;
+                const errors = parseErrors(sub.error);
+                const overlap = overlapCellMap.get(sub.id);
+                const rowBg = isSel ? sr : isMulti ? mr : "";
+                const startCellBg = overlap?.startErr ? errCellBg : "";
+                const endCellBg = overlap?.endErr ? errCellBg : "";
+                const durCellBg = errors.has("최소길이") ? errCellBg : "";
+                const textCellBg = errors.has("글자초과") ? errCellBg : "";
+                const spkDeleted = sub.speaker_pos === "deleted";
+                const txtDeleted = sub.text_pos === "deleted";
+                const isTop = sub.speaker_pos === "top" || sub.text_pos === "top";
+
+                return (
+                  <tr
+                    key={sub.id}
+                    id={`row-${sub.id}`}
+                    onClick={() => handleClick(sub.id)}
+                    onDoubleClick={(e) => handleDblClick(sub.id, e)}
+                    className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
+                  >
+                    <td className={`${cellCls} relative`} style={cellStyle}>
+                      {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
+                      {sub.seq}
+                    </td>
+                    <td className={`${cellCls} font-mono ${tp} ${startCellBg}`} style={cellStyle}>{msToTimecode(sub.start_ms)}</td>
+                    <td className={`${cellCls} font-mono ${tp} ${endCellBg}`} style={cellStyle}>{msToTimecode(sub.end_ms)}</td>
+                    <td className={`${cellCls} font-mono ${tp} ${durCellBg}`} style={cellStyle}>{msToDuration(duration)}</td>
+                    <td className={`${cellCls}`} style={cellStyle}>
+                      <DropCell
+                        dark={dm}
+                        disabled={readOnly}
+                        fontSize={listFontSize}
+                        value={sub.type}
+                        label={sub.type === "effect" ? "효과" : "대사"}
+                        options={[{ v: "dialogue", label: "대사" }, { v: "effect", label: "효과" }]}
+                        onSelect={(v) => updateLocal(sub.id, { type: v as "dialogue" | "effect" })}
+                        onCellClick={() => triggerSelect(sub.id)}
+                      />
+                    </td>
+                    <td className={`${cellCls} ${tp}`} style={cellStyle}>
+                      <DropCell
+                        dark={dm}
+                        disabled={readOnly}
+                        fontSize={listFontSize}
+                        value={sub.speaker}
+                        label={sub.speaker || "-"}
+                        options={speakerOptions}
+                        onSelect={(v) => updateLocal(sub.id, { speaker: v })}
+                        onCellClick={() => triggerSelect(sub.id)}
+                      />
+                    </td>
+                    <td className={`${cellCls}`} style={cellStyle}>
+                      <DropCell
+                        dark={dm}
+                        disabled={readOnly}
+                        fontSize={listFontSize}
+                        value={spkDeleted ? "deleted" : "default"}
+                        label={spkDeleted ? "삭제" : "유지"}
+                        colorCls={spkDeleted ? "text-red-500" : ""}
+                        options={[{ v: "default", label: "유지" }, { v: "deleted", label: "삭제" }]}
+                        onSelect={(v) => updateLocal(sub.id, { speaker_pos: v as "default" | "top" | "deleted" })}
+                        onCellClick={() => triggerSelect(sub.id)}
+                      />
+                    </td>
+                    <td className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`} style={{ textAlign: "left" }} title={sub.text}>
+                      <div className="leading-snug whitespace-pre-wrap break-all line-clamp-2">{sub.text}</div>
+                    </td>
+                    <td className={`${cellCls}`} style={cellStyle}>
+                      <DropCell
+                        dark={dm}
+                        disabled={readOnly}
+                        fontSize={listFontSize}
+                        value={txtDeleted ? "deleted" : "default"}
+                        label={txtDeleted ? "삭제" : "유지"}
+                        colorCls={txtDeleted ? "text-red-500" : ""}
+                        options={[{ v: "default", label: "유지" }, { v: "deleted", label: "삭제" }]}
+                        onSelect={(v) => updateLocal(sub.id, { text_pos: v as "default" | "top" | "deleted" })}
+                        onCellClick={() => triggerSelect(sub.id)}
+                      />
+                    </td>
+                    <td className={`${cellCls}`} style={cellStyle}>
+                      <DropCell
+                        dark={dm}
+                        disabled={readOnly}
+                        fontSize={listFontSize}
+                        value={isTop ? "top" : "default"}
+                        label={isTop ? "상단" : "하단"}
+                        colorCls={isTop ? "text-blue-500" : ""}
+                        options={[{ v: "default", label: "하단" }, { v: "top", label: "상단" }]}
+                        onSelect={(v) => {
+                          const updates: Partial<{ speaker_pos: "default" | "top" | "deleted"; text_pos: "default" | "top" | "deleted" }> = {};
+                          if (v === "top") {
+                            if (sub.speaker_pos !== "deleted") updates.speaker_pos = "top";
+                            if (sub.text_pos !== "deleted") updates.text_pos = "top";
+                          } else {
+                            if (sub.speaker_pos === "top") updates.speaker_pos = "default";
+                            if (sub.text_pos === "top") updates.text_pos = "default";
+                          }
+                          updateLocal(sub.id, updates);
+                        }}
+                        onCellClick={() => triggerSelect(sub.id)}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

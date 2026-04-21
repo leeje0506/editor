@@ -1,9 +1,10 @@
 import { useRef, useEffect, useCallback, useState } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, Film, Loader2 } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useTimelineStore } from "../../store/useTimelineStore";
 import { msToTimecode } from "../../utils/time";
 import { SubtitleOverlay } from "./SubtitleOverlay";
+import { projectsApi } from "../../api/projects";
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 interface Props {
@@ -11,6 +12,10 @@ interface Props {
   projectId?: number;
   videoWidth: number;
   onWidthChange: (w: number) => void;
+  /** 영상 파일이 서버에 존재하는지 */
+  hasVideo?: boolean;
+  /** 영상 업로드 완료 후 프로젝트 새로고침 */
+  onVideoUploaded?: () => void;
 }
 
 const CONTROLS_H = 36;
@@ -18,15 +23,17 @@ const PROGRESS_H = 6;
 const MIN_W = 240;
 const MAX_W = 2400;
 
-export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Props) {
+export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange, hasVideo = true, onVideoUploaded }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const seekingRef = useRef(false);
   const progressRef = useRef<HTMLDivElement>(null);
   const timeRef = useRef<HTMLSpanElement>(null);
   const rafRef = useRef<number>(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [videoAspect, setVideoAspect] = useState(16 / 9);
   const [resizing, setResizing] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const playing = usePlayerStore((s) => s.playing);
   const muted = usePlayerStore((s) => s.muted);
@@ -40,7 +47,7 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
   const setTimelineScrollMs = useTimelineStore((s) => s.setScrollMs);
   const timelineVisibleDuration = useTimelineStore((s) => s.visibleDuration);
 
-  const videoSrc = projectId ? `${API_BASE}/projects/${projectId}/stream/video` : "";
+  const videoSrc = hasVideo && projectId ? `${API_BASE}/projects/${projectId}/stream/video` : "";
 
   const [containerW, setContainerW] = useState(0);
   const [containerH, setContainerH] = useState(0);
@@ -242,6 +249,22 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
     }
   };
 
+  /* ── 영상 파일 업로드 핸들러 ── */
+  const handleVideoFileUpload = useCallback(async (file: File) => {
+    if (!projectId || uploading) return;
+    setUploading(true);
+    try {
+      await projectsApi.uploadVideo(projectId, file);
+      onVideoUploaded?.();
+    } catch {
+      // 실패 시 무시 (재시도 가능)
+    } finally {
+      setUploading(false);
+    }
+  }, [projectId, uploading, onVideoUploaded]);
+
+  const dm = dark;
+
   return (
     <div ref={containerRef} className="relative w-full h-full flex flex-col">
       {resizing && <div className="fixed inset-0 z-50" />}
@@ -260,8 +283,33 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange }: Prop
             preload="auto"
           />
         ) : (
+          /* ── 영상 없음: 업로드 버튼 ── */
           <div className="w-full h-full flex items-center justify-center bg-zinc-900">
-            <div className="text-zinc-700 text-lg font-bold opacity-10">영상 없음</div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleVideoFileUpload(f);
+              }}
+            />
+            {uploading ? (
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 size={32} className="text-blue-500 animate-spin" />
+                <span className="text-xs text-gray-400">영상 업로드 중...</span>
+              </div>
+            ) : (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-dashed border-zinc-700 hover:border-blue-500/50 hover:bg-blue-500/5 transition-colors group"
+              >
+                <Film size={32} className="text-zinc-600 group-hover:text-blue-500 transition-colors" />
+                <span className="text-sm text-zinc-500 group-hover:text-blue-400 font-medium transition-colors">영상 파일 추가</span>
+                <span className="text-[10px] text-zinc-700">클릭하여 영상을 업로드하세요</span>
+              </button>
+            )}
           </div>
         )}
         <SubtitleOverlay />
