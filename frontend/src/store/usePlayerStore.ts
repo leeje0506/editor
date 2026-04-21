@@ -55,17 +55,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }),
   togglePlay: () =>
     set((s) => {
-      if (!s.playing) {
-        return { playing: true, videoPreviewMs: null };
-      }
-      // pause — video.currentTime 스냅샷
-      const pausedMs = s.videoElement
+      const snapMs = s.videoElement
         ? Math.floor(s.videoElement.currentTime * 1000)
         : s.currentMs;
-      return {
-        playing: false,
-        currentMs: Math.max(0, Math.min(pausedMs, s.totalMs)),
-      };
+      const safeMs = Math.max(0, Math.min(snapMs, s.totalMs));
+
+      if (!s.playing) {
+        return { playing: true, videoPreviewMs: null, currentMs: safeMs };
+      }
+      return { playing: false, currentMs: safeMs };
     }),
   toggleMute: () => set((s) => ({ muted: !s.muted })),
   seekForward: (ms = 5000) =>
