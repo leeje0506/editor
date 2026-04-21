@@ -8,11 +8,10 @@ interface PlayerState {
   videoPreviewMs: number | null;
   playbackRate: number;
 
-  // 시각용 시간 소스: video element ref
   videoElement: HTMLVideoElement | null;
   setVideoElement: (el: HTMLVideoElement | null) => void;
 
-  /** 시각용 현재 시간 (ms) — 재생 중엔 video.currentTime, 정지 중엔 currentMs */
+  /** 시각용 현재 시간 — 재생 중엔 video.currentTime, 정지 중엔 currentMs */
   getVisualMs: () => number;
 
   setCurrentMs: (ms: number) => void;
@@ -37,11 +36,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setVideoElement: (el) => set({ videoElement: el }),
 
   getVisualMs: () => {
-    const state = get();
-    if (state.playing && state.videoElement) {
-      return Math.floor(state.videoElement.currentTime * 1000);
+    const s = get();
+    if (s.playing && s.videoElement) {
+      return Math.floor(s.videoElement.currentTime * 1000);
     }
-    return state.currentMs;
+    return s.currentMs;
   },
 
   setCurrentMs: (ms) => set({ currentMs: Math.max(0, Math.min(ms, get().totalMs)) }),
@@ -55,21 +54,19 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       };
     }),
   togglePlay: () =>
-  set((s) => {
-    if (!s.playing) {
-      return { playing: true, videoPreviewMs: null };
-    }
-
-    // pause 시 video의 현재 위치를 currentMs에 스냅샷
-    const pausedMs = s.videoElement
-      ? Math.floor(s.videoElement.currentTime * 1000)
-      : s.currentMs;
-
-    return {
-      playing: false,
-      currentMs: Math.max(0, Math.min(pausedMs, s.totalMs)),
-    };
-  }),
+    set((s) => {
+      if (!s.playing) {
+        return { playing: true, videoPreviewMs: null };
+      }
+      // pause — video.currentTime 스냅샷
+      const pausedMs = s.videoElement
+        ? Math.floor(s.videoElement.currentTime * 1000)
+        : s.currentMs;
+      return {
+        playing: false,
+        currentMs: Math.max(0, Math.min(pausedMs, s.totalMs)),
+      };
+    }),
   toggleMute: () => set((s) => ({ muted: !s.muted })),
   seekForward: (ms = 5000) =>
     set((s) => ({ currentMs: Math.min(s.totalMs, s.currentMs + ms) })),
