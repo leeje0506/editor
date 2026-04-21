@@ -16,6 +16,7 @@ import { QuickEditor } from "../editor/QuickEditor";
 import { Timeline } from "../timeline/Timeline";
 import { SubtitleDisplayPanel } from "../video/SubtitleDisplayPanel";
 import { FindReplaceModal } from "../modals/FindReplaceModal";
+import { DEFAULT_ZOOM_IDX } from "../../types";
 import api from "../../api/client";
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
@@ -161,8 +162,7 @@ export function AppLayout() {
     // 초기 상태 리셋
     usePlayerStore.getState().setCurrentMs(0);
     usePlayerStore.getState().setVideoPreviewMs(null);
-    useTimelineStore.getState().zoomFit();
-    useTimelineStore.getState().setScrollMs(0);
+    useTimelineStore.setState({ zoomIdx: DEFAULT_ZOOM_IDX, scrollMs: 0 });
 
     projectsApi.get(pid).then(async (p) => {
       setProject(p);
