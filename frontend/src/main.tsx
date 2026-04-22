@@ -6,6 +6,7 @@ import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { HomePage } from "./components/home/HomePage";
 import { AppLayout } from "./components/layout/AppLayout";
 import { SettingsPage } from "./components/settings/SettingsPage";
+import { ActivityController } from "./components/activity/ActivityController";
 import "./index.css";
 
 function RootRedirect() {
@@ -18,6 +19,7 @@ function RootRedirect() {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
+      <ActivityController />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<RootRedirect />} />

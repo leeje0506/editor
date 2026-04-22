@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { useActivityStore } from "./useActivityStore";
 
 interface PlayerState {
   currentMs: number;
@@ -16,6 +15,8 @@ interface PlayerState {
   getVisualMs: () => number;
 
   setCurrentMs: (ms: number) => void;
+  /** state + video.currentTime을 동시에 맞추는 단일 seek 진입점 */
+  seekTo: (ms: number) => void;
   setTotalMs: (ms: number) => void;
   togglePlay: () => void;
   toggleMute: () => void;
@@ -23,11 +24,6 @@ interface PlayerState {
   seekBackward: (ms?: number) => void;
   setVideoPreviewMs: (ms: number | null) => void;
   setPlaybackRate: (rate: number) => void;
-}
-
-/** 사용자 의도 보고 (재생 grace 판정용) */
-function reportUserIntent() {
-  useActivityStore.getState().reportUserIntent();
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -50,6 +46,22 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   setCurrentMs: (ms) => set({ currentMs: Math.max(0, Math.min(ms, get().totalMs)) }),
+
+  seekTo: (ms) =>
+    set((s) => {
+      const safeMs = Math.max(0, Math.min(ms, s.totalMs));
+
+      // video.currentTime도 즉시 동기화
+      if (s.videoElement) {
+        s.videoElement.currentTime = safeMs / 1000;
+      }
+
+      return {
+        currentMs: safeMs,
+        videoPreviewMs: null,
+      };
+    }),
+
   setTotalMs: (ms) =>
     set((s) => {
       const safeMs = Math.max(0, ms);
@@ -62,35 +74,30 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   togglePlay: () =>
     set((s) => {
-      reportUserIntent();
-
+      if (!s.playing) {
+        // play 시작: currentMs를 덮지 않음 (seekTo에서 이미 맞춰져 있음)
+        return { playing: true, videoPreviewMs: null };
+      }
+      // pause: video.currentTime을 스냅샷
       const snapMs = s.videoElement
         ? Math.floor(s.videoElement.currentTime * 1000)
         : s.currentMs;
       const safeMs = Math.max(0, Math.min(snapMs, s.totalMs));
-
-      if (!s.playing) {
-        return { playing: true, videoPreviewMs: null, currentMs: safeMs };
-      }
       return { playing: false, currentMs: safeMs };
     }),
 
   toggleMute: () => set((s) => ({ muted: !s.muted })),
 
   seekForward: (ms = 5000) => {
-    reportUserIntent();
-    set((s) => ({ currentMs: Math.min(s.totalMs, s.currentMs + ms) }));
+    const s = get();
+    get().seekTo(s.currentMs + ms);
   },
 
   seekBackward: (ms = 5000) => {
-    reportUserIntent();
-    set((s) => ({ currentMs: Math.max(0, s.currentMs - ms) }));
+    const s = get();
+    get().seekTo(s.currentMs - ms);
   },
 
   setVideoPreviewMs: (ms) => set({ videoPreviewMs: ms }),
-
-  setPlaybackRate: (rate) => {
-    reportUserIntent();
-    set({ playbackRate: Math.max(0.5, Math.min(3.0, rate)) });
-  },
+  setPlaybackRate: (rate) => set({ playbackRate: Math.max(0.5, Math.min(3.0, rate)) }),
 }));

@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import type { Subtitle, SubtitleUpdate } from "../types";
 import { subtitlesApi } from "../api/subtitles";
-import { useActivityStore } from "./useActivityStore";
 
 interface AddAfterOptions {
   afterId?: number | null;
@@ -57,11 +56,6 @@ function findSelectedIdByIndex(subtitles: Subtitle[], index: number): number | n
   if (subtitles.length === 0) return null;
   const safeIndex = Math.max(0, Math.min(index, subtitles.length - 1));
   return subtitles[safeIndex]?.id ?? null;
-}
-
-/** 확정 작업 활동 보고 (시간 누적 기준) */
-function reportMeaningful() {
-  useActivityStore.getState().reportMeaningful();
 }
 
 export const useSubtitleStore = create<SubtitleState>((set, get) => ({
@@ -192,10 +186,7 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     return null;
   },
 
-  /* ── 확정 활동 래핑: 실제 데이터 변경 액션 ── */
-
   updateLocal: (id, data) => {
-    reportMeaningful();
     set((state) => ({
       subtitles: state.subtitles.map((sub) =>
         sub.id === id ? { ...sub, ...data } : sub
@@ -208,7 +199,6 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const { projectId } = get();
     if (!projectId) return;
 
-    reportMeaningful();
     const updated = await subtitlesApi.update(projectId, id, data);
 
     set((state) => ({
@@ -220,8 +210,6 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
   addAfter: async (options) => {
     const { projectId, subtitles, selectedId } = get();
     if (!projectId) return;
-
-    reportMeaningful();
 
     const baseId = options?.afterId ?? selectedId ?? null;
     const baseSub = baseId ? subtitles.find((s) => s.id === baseId) ?? null : null;
@@ -260,8 +248,6 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const { projectId, multiSelect, subtitles } = get();
     if (!projectId || multiSelect.size === 0) return;
 
-    reportMeaningful();
-
     const firstDeletedIndex = subtitles.findIndex((sub) => multiSelect.has(sub.id));
     const subs = await subtitlesApi.batchDelete(projectId, [...multiSelect]);
 
@@ -282,8 +268,6 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const { projectId, selectedId, subtitles } = get();
     if (!projectId || !selectedId) return;
 
-    reportMeaningful();
-
     const currentIndex = subtitles.findIndex((sub) => sub.id === selectedId);
     const subs = await subtitlesApi.split(projectId, selectedId);
 
@@ -302,8 +286,6 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
   mergeSelected: async () => {
     const { projectId, multiSelect, subtitles } = get();
     if (!projectId || multiSelect.size < 2) return;
-
-    reportMeaningful();
 
     const selectedIndexes = subtitles
       .map((sub, index) => (multiSelect.has(sub.id) ? index : -1))
@@ -326,8 +308,6 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
   bulkSpeaker: async (from, to) => {
     const { projectId, selectedId } = get();
     if (!projectId) return;
-
-    reportMeaningful();
 
     const subs = await subtitlesApi.bulkSpeaker(projectId, from, to);
     const nextSelectedId = findSafeSelectedId(subs, selectedId);
@@ -358,8 +338,6 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const { projectId, subtitles, selectedId } = get();
     if (!projectId) return;
 
-    reportMeaningful();
-
     try {
       const currentSnapshot = cloneSubtitles(subtitles);
       const subs = await subtitlesApi.undo(projectId);
@@ -379,8 +357,6 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
   redo: async () => {
     const { projectId, redoStack, selectedId } = get();
     if (!projectId || redoStack.length === 0) return;
-
-    reportMeaningful();
 
     const lastState = cloneSubtitles(redoStack[redoStack.length - 1]);
     const newStack = redoStack.slice(0, -1);

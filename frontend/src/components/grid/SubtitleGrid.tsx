@@ -219,8 +219,7 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
     else selectSingle(id);
     const sub = subtitles.find((s) => s.id === id);
     if (sub) {
-      usePlayerStore.getState().setCurrentMs(sub.start_ms);
-      usePlayerStore.getState().setVideoPreviewMs(null);
+      usePlayerStore.getState().seekTo(sub.start_ms);
       ensureVisible(sub.start_ms);
       const { playing: isPlaying, togglePlay } = usePlayerStore.getState();
       if (!isPlaying) togglePlay();

@@ -133,11 +133,10 @@ export function VideoPlayer({ dark, projectId, videoWidth, onWidthChange, hasVid
   }, []);
 
   const seekAndScrollTimeline = useCallback((ms: number) => {
-    setCurrentMs(ms);
-    usePlayerStore.getState().setVideoPreviewMs(null);
+    usePlayerStore.getState().seekTo(ms);
     const visDur = timelineVisibleDuration();
     setTimelineScrollMs(Math.max(0, ms - visDur * 0.1));
-  }, [setCurrentMs, timelineVisibleDuration, setTimelineScrollMs]);
+  }, [timelineVisibleDuration, setTimelineScrollMs]);
 
   useEffect(() => {
     const v = videoRef.current;

@@ -80,7 +80,6 @@ export function Timeline({ dark, peaks, onReload }: Props) {
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const seekForward = usePlayerStore((s) => s.seekForward);
   const seekBackward = usePlayerStore((s) => s.seekBackward);
-  const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
   const totalMs = usePlayerStore((s) => s.totalMs);
   const playbackRate = usePlayerStore((s) => s.playbackRate);
   const setPlaybackRate = usePlayerStore((s) => s.setPlaybackRate);
@@ -219,7 +218,7 @@ export function Timeline({ dark, peaks, onReload }: Props) {
     return () => el.removeEventListener("wheel", handler);
   }, [handleWheel]);
 
-  /* ── 파형 클릭 ── */
+  /* ── 파형 클릭 → seekTo 사용 ── */
   const onTrackClick = useCallback(
     (e: React.MouseEvent) => {
       if ((e.target as HTMLElement).closest("[data-h]")) return;
@@ -232,13 +231,12 @@ export function Timeline({ dark, peaks, onReload }: Props) {
         usePlayerStore.getState().togglePlay();
       }
 
-      setCurrentMs(clickMs);
-      usePlayerStore.getState().setVideoPreviewMs(null);
+      usePlayerStore.getState().seekTo(clickMs);
 
       const hit = subtitles.find((s) => clickMs >= s.start_ms && clickMs < s.end_ms);
       if (hit) selectSingle(hit.id);
     },
-    [tlLeft, visDur, setCurrentMs, subtitles, selectSingle],
+    [tlLeft, visDur, subtitles, selectSingle],
   );
 
   return (
