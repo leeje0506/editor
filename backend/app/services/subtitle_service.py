@@ -5,6 +5,13 @@ Python 3.9 호환
 글자수 카운트:
 - 공백 및 특수기호 포함, 줄바꿈만 제외
 - 글자 수 넘었는지 판단: 대사글자수 + 화자예약글자수 > 기준값(max_chars_per_line * max_lines)
+
+Position 체계 (v8 리팩터):
+  speaker_pos / text_pos : "default" | "top"   ← 위치만
+  speaker_deleted        : bool                ← 화자 삭제 표시
+  text_deleted           : bool                ← 대사 삭제 표시
+  삭제와 위치는 완전히 독립. 삭제 상태에서도 위치 변경 가능.
+  SRT export: speaker_deleted → 화자에 {\\ㅅ}, text_deleted → 대사에 {\\ㅅ}, text_pos=="top" → {\\an8}
 """
 from __future__ import annotations
 from typing import List, Dict, Tuple
@@ -41,9 +48,9 @@ def validate_subtitle(sub: Subtitle, project: Project, min_duration_ms: int = 0)
     """
     errors: List[str] = []
 
-    # 글자수 체크
+    # 글자수 체크 — 화자 예약: 화자가 있고 삭제 상태가 아닐 때만
     total_chars = count_text_chars(sub.text)
-    speaker_reserved = (len(sub.speaker) + 3) if sub.speaker else 0
+    speaker_reserved = (len(sub.speaker) + 3) if (sub.speaker and not sub.speaker_deleted) else 0
     line_count = max(1, len(sub.text.split("\n")))
     limit = (project.max_chars_per_line or 18) * line_count
 
@@ -82,23 +89,21 @@ def resequence_and_validate(db: Session, project_id: int) -> List[Subtitle]:
         sub.seq = i
         sub.error = validate_subtitle(sub, project, min_duration_ms)
 
-    # 2단계: 오버랩 검수 (방송사 규칙이 미허용인 경우만)
-    allow_overlap = rule.allow_overlap if rule else True
-    if not allow_overlap:
-        overlap_ids: set = set()
-        for i in range(len(subs)):
-            for j in range(i + 1, len(subs)):
-                if subs[j].start_ms >= subs[i].end_ms:
-                    break
-                overlap_ids.add(subs[i].id)
-                overlap_ids.add(subs[j].id)
+    # 2단계: 오버랩 검수 (항상 수행 — 허용 여부와 무관하게 표시)
+    overlap_ids: set = set()
+    for i in range(len(subs)):
+        for j in range(i + 1, len(subs)):
+            if subs[j].start_ms >= subs[i].end_ms:
+                break
+            overlap_ids.add(subs[i].id)
+            overlap_ids.add(subs[j].id)
 
-        for sub in subs:
-            if sub.id in overlap_ids:
-                if sub.error:
-                    sub.error = sub.error + ",오버랩"
-                else:
-                    sub.error = "오버랩"
+    for sub in subs:
+        if sub.id in overlap_ids:
+            if sub.error:
+                sub.error = sub.error + ",오버랩"
+            else:
+                sub.error = "오버랩"
 
     db.commit()
     for sub in subs:
@@ -116,8 +121,10 @@ def save_snapshot(db: Session, project_id: int, action: str) -> None:
     snapshot = [
         {
             "id": s.id, "seq": s.seq, "start_ms": s.start_ms, "end_ms": s.end_ms,
-            "type": s.type, "speaker": s.speaker, "speaker_pos": s.speaker_pos,
-            "text_pos": s.text_pos, "text": s.text,
+            "type": s.type, "speaker": s.speaker,
+            "speaker_pos": s.speaker_pos, "text_pos": s.text_pos,
+            "speaker_deleted": s.speaker_deleted, "text_deleted": s.text_deleted,
+            "text": s.text,
         }
         for s in subs
     ]
@@ -140,8 +147,12 @@ def restore_snapshot(db: Session, project_id: int, snapshot: List[Dict]) -> List
     for item in snapshot:
         db.add(Subtitle(
             project_id=project_id, start_ms=item["start_ms"], end_ms=item["end_ms"],
-            type=item["type"], speaker=item["speaker"], speaker_pos=item["speaker_pos"],
-            text_pos=item["text_pos"], text=item["text"],
+            type=item["type"], speaker=item["speaker"],
+            speaker_pos=item.get("speaker_pos", "default"),
+            text_pos=item.get("text_pos", "default"),
+            speaker_deleted=item.get("speaker_deleted", False),
+            text_deleted=item.get("text_deleted", False),
+            text=item["text"],
         ))
     db.commit()
     return resequence_and_validate(db, project_id)
@@ -186,30 +197,40 @@ def parse_srt(content: str) -> List[Dict]:
         end_ms = int(g[4]) * 3600000 + int(g[5]) * 60000 + int(g[6]) * 1000 + int(g[7])
         text = "\n".join(lines[2:])
 
+        # {\an8} → 상단 위치
         text_pos = "default"
         if "{\\an8}" in text:
             text_pos = "top"
             text = text.replace("{\\an8}", "").strip()
 
+        # {\ㅅ} → 삭제 표시 감지
+        has_delete_tag = "{\\ㅅ}" in text
         text = re.sub(r"\{\\ㅅ\}", "", text)
         text = re.sub(r"\{\\}", "", text)
         text = re.sub(r"\{/an8\}", "", text)
         text = text.strip()
 
+        # 화자 추출
         speaker = ""
         speaker_match = re.match(r"^\(([^)]+)\)\s*", text)
         if speaker_match:
             speaker = speaker_match.group(1)
             text = text[speaker_match.end():]
 
+        # 효과음 판별
         sub_type = "dialogue"
         if re.match(r"^\[.*\]$", text.strip()):
             sub_type = "effect"
 
+        # 삭제 태그가 있으면 화자/대사 모두 삭제 표시
         results.append({
             "start_ms": start_ms, "end_ms": end_ms, "type": sub_type,
-            "speaker": speaker, "speaker_pos": "default",
-            "text_pos": text_pos, "text": text,
+            "speaker": speaker,
+            "speaker_pos": "default",
+            "text_pos": text_pos,
+            "speaker_deleted": has_delete_tag and bool(speaker),
+            "text_deleted": has_delete_tag,
+            "text": text,
         })
     return results
 
@@ -228,20 +249,21 @@ def export_srt(subtitles: List[Subtitle]) -> str:
         out.append(f"{fmt(sub.start_ms)} --> {fmt(sub.end_ms)}")
 
         parts = []
+
+        # 상단 위치 태그 — 삭제 여부와 무관, 위치만 판별
         if sub.text_pos == "top":
             parts.append("{\\an8}")
 
+        # 화자
         if sub.speaker:
-            if sub.speaker_pos == "deleted":
+            if sub.speaker_deleted:
                 parts.append(f"({sub.speaker}{{\\ㅅ}})")
             else:
                 parts.append(f"({sub.speaker}{{\\}})")
 
-        if sub.text_pos == "deleted":
-            if sub.type == "effect":
-                parts.append(f"{sub.text}{{\\ㅅ}}")
-            else:
-                parts.append(f"{sub.text}{{\\ㅅ}}")
+        # 대사
+        if sub.text_deleted:
+            parts.append(f"{sub.text}{{\\ㅅ}}")
         else:
             parts.append(f"{sub.text}{{\\}}")
 

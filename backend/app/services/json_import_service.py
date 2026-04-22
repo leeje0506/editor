@@ -4,6 +4,18 @@ backend/app/services/json_import_service.py
 JSON import/export 서비스.
 - video_project.json (기존)
 - barrier_free JSON (신규: shots > closed_caption + audio_event)
+
+Position 체계 (v8 리팩터):
+  speaker_pos / text_pos : "default" | "top"   ← 위치만
+  speaker_deleted        : bool                ← 화자 삭제 표시
+  text_deleted           : bool                ← 대사 삭제 표시
+
+  JSON ↔ DB 변환:
+    Import: JSON의 "deleted" → deleted=True, pos="default"
+            JSON의 "top"     → deleted=False, pos="top"
+    Export: deleted=True → JSON "deleted"
+            pos="top"   → JSON "top"
+            (deleted 우선: deleted=True + pos="top" → JSON "deleted")
 """
 from __future__ import annotations
 from typing import List, Dict, Any
@@ -43,38 +55,55 @@ def detect_json_format(data: dict) -> str:
         return "barrier_free"
     if "audioContent" in data:
         return "video_project"
-    # fallback: shots 키가 있으면 barrier_free
     return "unknown"
+
+
+def _import_pos(val: str | None) -> tuple:
+    """JSON position 값 → (pos, deleted) 변환.
+    "deleted" → ("default", True)
+    "top"     → ("top", False)
+    기타      → ("default", False)
+    """
+    if val == "deleted":
+        return ("default", True)
+    if val == "top":
+        return ("top", False)
+    return ("default", False)
+
+
+def _export_pos(pos: str, deleted: bool) -> str:
+    """DB (pos, deleted) → JSON position 값 변환. 삭제 우선."""
+    if deleted:
+        return "deleted"
+    if pos == "top":
+        return "top"
+    return "default"
 
 
 # ══════════════════════════════════════════════
 # Barrier-Free JSON 파싱
 # ══════════════════════════════════════════════
 
-def _map_action(action: str | None) -> str:
-    """action 문자열 → position 값 매핑"""
+def _map_action(action: str | None) -> tuple:
+    """action 문자열 → (pos, deleted) 매핑.
+    "삭제" → ("default", True)
+    "이동" → ("top", False)
+    기타   → ("default", False)
+    """
     if not action:
-        return "default"
+        return ("default", False)
     a = action.strip()
     if a == "삭제":
-        return "deleted"
+        return ("default", True)
     if a == "이동":
-        return "top"
-    # "유지" 또는 기타
-    return "default"
+        return ("top", False)
+    return ("default", False)
 
 
 def parse_barrier_free_json(data: dict) -> dict:
     """
     barrier_free JSON 파싱.
     shots[] > closed_caption[] + audio_event[] → Subtitle 리스트
-    
-    Returns:
-        {
-            "subtitles": [...],  # bulk_insert_mappings용 dict 리스트
-            "fps": None,
-            "total_duration_ms": int,
-        }
     """
     shots = data.get("shots", [])
     items: List[Dict[str, Any]] = []
@@ -86,10 +115,10 @@ def parse_barrier_free_json(data: dict) -> dict:
             content = cc.get("content", "") or ""
             start_ms = cc.get("start_ms", 0)
             end_ms = cc.get("end_ms", 0)
-            subtitle_action = cc.get("subtitle_action", "유지")
-            speaker_action = cc.get("speaker_action", "유지")
 
-            # type 판별: [...]로 감싸진 텍스트는 effect
+            text_pos, text_deleted = _map_action(cc.get("subtitle_action", "유지"))
+            speaker_pos, speaker_deleted = _map_action(cc.get("speaker_action", "유지"))
+
             sub_type = "dialogue"
             text = content.strip()
             if text.startswith("[") and text.endswith("]"):
@@ -101,8 +130,10 @@ def parse_barrier_free_json(data: dict) -> dict:
                 "type": sub_type,
                 "track_type": "dialogue",
                 "speaker": speaker,
-                "speaker_pos": _map_action(speaker_action),
-                "text_pos": _map_action(subtitle_action),
+                "speaker_pos": speaker_pos,
+                "text_pos": text_pos,
+                "speaker_deleted": speaker_deleted,
+                "text_deleted": text_deleted,
                 "position": "default",
                 "text": text,
                 "source_id": None,
@@ -110,13 +141,12 @@ def parse_barrier_free_json(data: dict) -> dict:
 
         # audio_event → bgm/sfx/ambience
         for ae in shot.get("audio_event", []):
-            ae_type = ae.get("type", "sfx")  # bgm, sfx 등
+            ae_type = ae.get("type", "sfx")
             context = ae.get("context", "") or ""
             start_ms = ae.get("start_ms", 0)
             end_ms = ae.get("end_ms", 0)
-            move_action = ae.get("audio_move_action", "유지")
 
-            # track_type 매핑
+            text_pos, text_deleted = _map_action(ae.get("audio_move_action", "유지"))
             track_type = ae_type if ae_type in ("bgm", "sfx", "ambience") else "sfx"
 
             items.append({
@@ -126,16 +156,16 @@ def parse_barrier_free_json(data: dict) -> dict:
                 "track_type": track_type,
                 "speaker": "",
                 "speaker_pos": "default",
-                "text_pos": _map_action(move_action),
-                "position": _map_action(move_action),
+                "text_pos": text_pos,
+                "speaker_deleted": False,
+                "text_deleted": text_deleted,
+                "position": "default",
                 "text": f"[{context}]" if context else "",
                 "source_id": None,
             })
 
-    # start_ms 기준 정렬
     items.sort(key=lambda x: (x["start_ms"], x["end_ms"]))
 
-    # total_duration 계산
     total_duration_ms = 0
     if items:
         total_duration_ms = max(item["end_ms"] for item in items)
@@ -152,21 +182,18 @@ def parse_barrier_free_json(data: dict) -> dict:
 # ══════════════════════════════════════════════
 
 def _frame_to_ms(frame: int, fps: float) -> int:
-    """프레임 → ms 변환"""
     if fps <= 0:
         return 0
     return round((frame / fps) * 1000)
 
 
 def _ms_to_frame(ms: int, fps: float) -> int:
-    """ms → 프레임 변환"""
     if fps <= 0:
         return 0
     return round((ms / 1000) * fps)
 
 
 def _resolve_person_name(person_id: str, libraries: dict) -> str:
-    """personId → 화자명 resolve"""
     persons = libraries.get("persons", [])
     for p in persons:
         if p.get("personId") == person_id or p.get("id") == person_id:
@@ -175,7 +202,6 @@ def _resolve_person_name(person_id: str, libraries: dict) -> str:
 
 
 def _resolve_id(raw_id: str, id_mappings: dict) -> str:
-    """idMappings에서 temp ID → final ID 변환"""
     if not id_mappings:
         return raw_id
     return id_mappings.get(raw_id, raw_id)
@@ -185,14 +211,6 @@ def parse_video_project_json(data: dict) -> dict:
     """
     video_project.json 파싱.
     audioContent의 dialogues/sfx/bgm/ambience → Subtitle 리스트
-
-    Returns:
-        {
-            "subtitles": [...],
-            "fps": float,
-            "total_duration_ms": int,
-            "libraries": dict,
-        }
     """
     fps = data.get("fps", 24.0) or 24.0
     audio_content = data.get("audioContent", {})
@@ -206,7 +224,6 @@ def parse_video_project_json(data: dict) -> dict:
         start_frame = d.get("startFrame", 0)
         end_frame = d.get("endFrame", 0)
 
-        # frame이 없으면 start_ms/end_ms 직접 사용
         if start_frame == 0 and end_frame == 0 and ("start_ms" in d or "end_ms" in d):
             s_ms = d.get("start_ms", 0)
             e_ms = d.get("end_ms", 0)
@@ -220,13 +237,8 @@ def parse_video_project_json(data: dict) -> dict:
         dialogue_id = d.get("dialogueId", "") or d.get("id", "")
         dialogue_id = _resolve_id(dialogue_id, id_mappings)
 
-        person_pos = d.get("personPosition", "default") or "default"
-        text_pos = d.get("textPosition", "default") or "default"
-
-        # position 값 정규화
-        pos_map = {"default": "default", "top": "top", "deleted": "deleted"}
-        speaker_pos = pos_map.get(person_pos, "default")
-        text_pos = pos_map.get(text_pos, "default")
+        speaker_pos, speaker_deleted = _import_pos(d.get("personPosition"))
+        text_pos, text_deleted = _import_pos(d.get("textPosition"))
 
         sub_type = "dialogue"
         if text.strip().startswith("[") and text.strip().endswith("]"):
@@ -240,6 +252,8 @@ def parse_video_project_json(data: dict) -> dict:
             "speaker": speaker,
             "speaker_pos": speaker_pos,
             "text_pos": text_pos,
+            "speaker_deleted": speaker_deleted,
+            "text_deleted": text_deleted,
             "position": "default",
             "text": text,
             "source_id": dialogue_id,
@@ -257,12 +271,12 @@ def parse_video_project_json(data: dict) -> dict:
             else:
                 s_ms = _frame_to_ms(start_frame, fps)
                 e_ms = _frame_to_ms(end_frame, fps)
+
             text = item.get("text", "") or item.get("content", "") or item.get("description", "")
             item_id = item.get(f"{track_name}Id", "") or item.get("id", "")
             item_id = _resolve_id(item_id, id_mappings)
-            pos = item.get("position", "default") or "default"
-            pos_map = {"default": "default", "top": "top", "deleted": "deleted"}
-            text_pos = pos_map.get(pos, "default")
+
+            text_pos, text_deleted = _import_pos(item.get("position"))
 
             items.append({
                 "start_ms": s_ms,
@@ -272,7 +286,9 @@ def parse_video_project_json(data: dict) -> dict:
                 "speaker": "",
                 "speaker_pos": "default",
                 "text_pos": text_pos,
-                "position": text_pos,
+                "speaker_deleted": False,
+                "text_deleted": text_deleted,
+                "position": "default",
                 "text": text,
                 "source_id": item_id,
             })
@@ -326,7 +342,10 @@ def export_to_video_project_json(subtitles: List[Subtitle], fps: float, project_
         end_frame = _ms_to_frame(sub.end_ms, fps)
 
         if sub.track_type == "dialogue":
-            # 원본 필드 보존
+            # DB → JSON: (pos, deleted) → JSON position 값
+            person_position = _export_pos(sub.speaker_pos or "default", sub.speaker_deleted)
+            text_position = _export_pos(sub.text_pos or "default", sub.text_deleted)
+
             base = {}
             if sub.source_id and sub.source_id in original_map:
                 base = {**original_map[sub.source_id]}
@@ -335,14 +354,16 @@ def export_to_video_project_json(subtitles: List[Subtitle], fps: float, project_
                 "startFrame": start_frame,
                 "endFrame": end_frame,
                 "text": sub.text,
-                "personPosition": sub.speaker_pos,
-                "textPosition": sub.text_pos,
+                "personPosition": person_position,
+                "textPosition": text_position,
             })
             if sub.source_id:
                 base["dialogueId"] = sub.source_id
             dialogues.append(base)
 
         elif sub.track_type in ("sfx", "bgm", "ambience"):
+            position = _export_pos(sub.text_pos or "default", sub.text_deleted)
+
             base = {}
             if sub.source_id and sub.source_id in original_map:
                 base = {**original_map[sub.source_id]}
@@ -351,7 +372,7 @@ def export_to_video_project_json(subtitles: List[Subtitle], fps: float, project_
                 "startFrame": start_frame,
                 "endFrame": end_frame,
                 "text": sub.text,
-                "position": sub.text_pos,
+                "position": position,
             })
             if sub.source_id:
                 base[f"{sub.track_type}Id"] = sub.source_id

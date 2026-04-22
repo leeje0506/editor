@@ -95,6 +95,9 @@ class Subtitle(Base):
     # source_id: 원본 JSON의 ID 보존 (dialogueId, sfxId 등)
     source_id = Column(String(100), nullable=True)
     project = relationship("Project", back_populates="subtitles")
+    # 삭제 분리 
+    speaker_deleted = Column(Boolean, default=False)
+    text_deleted = Column(Boolean, default=False)
 
 
 class EditHistory(Base):

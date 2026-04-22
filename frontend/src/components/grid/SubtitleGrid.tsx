@@ -42,7 +42,17 @@ interface DropCellProps {
   onCellClick: () => void;
 }
 
-function DropCell({ value, label, options, dark, disabled, colorCls, fontSize, onSelect, onCellClick }: DropCellProps) {
+function DropCell({
+  value,
+  label,
+  options,
+  dark,
+  disabled,
+  colorCls,
+  fontSize,
+  onSelect,
+  onCellClick,
+}: DropCellProps) {
   const [open, setOpen] = useState(false);
   const cellRef = useRef<HTMLDivElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
@@ -51,8 +61,10 @@ function DropCell({ value, label, options, dark, disabled, colorCls, fontSize, o
     if (!open) return;
     const handler = (e: MouseEvent) => {
       if (
-        cellRef.current && !cellRef.current.contains(e.target as Node) &&
-        dropRef.current && !dropRef.current.contains(e.target as Node)
+        cellRef.current &&
+        !cellRef.current.contains(e.target as Node) &&
+        dropRef.current &&
+        !dropRef.current.contains(e.target as Node)
       ) {
         setOpen(false);
       }
@@ -92,40 +104,60 @@ function DropCell({ value, label, options, dark, disabled, colorCls, fontSize, o
         <span>{label}</span>
         <span className="text-[8px] opacity-40">▼</span>
       </div>
-      {open && createPortal(
-        <div
-          ref={dropRef}
-          className={`fixed z-[9999] ${bg} border ${border} rounded shadow-xl`}
-          style={{ top: pos.top, left: pos.left, width: Math.max(pos.width, 64), fontSize: `${fontSize}px` }}
-        >
-          {options.map((opt) => (
-            <div
-              key={opt.v}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect(opt.v);
-                setOpen(false);
-              }}
-              className={`px-3 py-1.5 cursor-pointer text-center ${text} ${hoverBg} ${
-                opt.v === value ? activeBg : ""
-              } first:rounded-t last:rounded-b`}
-            >
-              {opt.label}
-            </div>
-          ))}
-        </div>,
-        document.body,
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={dropRef}
+            className={`fixed z-[9999] ${bg} border ${border} rounded shadow-xl`}
+            style={{
+              top: pos.top,
+              left: pos.left,
+              width: Math.max(pos.width, 64),
+              fontSize: `${fontSize}px`,
+            }}
+          >
+            {options.map((opt) => (
+              <div
+                key={opt.v}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect(opt.v);
+                  setOpen(false);
+                }}
+                className={`px-3 py-1.5 cursor-pointer text-center ${text} ${hoverBg} ${
+                  opt.v === value ? activeBg : ""
+                } first:rounded-t last:rounded-b`}
+              >
+                {opt.label}
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
 
 /* ── SubtitleGrid ── */
-export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, onSubtitleUploaded }: Props) {
+export function SubtitleGrid({
+  dark,
+  readOnly,
+  editorMode = "srt",
+  projectId,
+  onSubtitleUploaded,
+}: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [filters, setFilters] = useState<Filters>({ type: "전체", textPos: "전체", error: "전체", search: "" });
+  const subtitleDragDepthRef = useRef(0);
+
+  const [filters, setFilters] = useState<Filters>({
+    type: "전체",
+    textPos: "전체",
+    error: "전체",
+    search: "",
+  });
   const [uploading, setUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const subtitles = useSubtitleStore((s) => s.subtitles);
   const selectedId = useSubtitleStore((s) => s.selectedId);
@@ -153,10 +185,7 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
 
   const speakerOptions = useMemo(() => {
     const names = [...new Set(subtitles.map((s) => s.speaker).filter(Boolean))].sort();
-    return [
-      { v: "", label: "-" },
-      ...names.map((n) => ({ v: n, label: n })),
-    ];
+    return [{ v: "", label: "-" }, ...names.map((n) => ({ v: n, label: n }))];
   }, [subtitles]);
 
   const filtered = useMemo(() => {
@@ -165,7 +194,8 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
       if (filters.textPos !== "전체" && s.text_pos !== filters.textPos) return false;
       if (filters.error === "오류만" && !s.error) return false;
       if (filters.error === "정상만" && s.error) return false;
-      if (filters.search && !s.text.includes(filters.search) && !s.speaker.includes(filters.search)) return false;
+      if (filters.search && !s.text.includes(filters.search) && !s.speaker.includes(filters.search))
+        return false;
       return true;
     });
   }, [subtitles, filters]);
@@ -175,16 +205,22 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
     const overlapSubs = subtitles.filter((s) => s.error && s.error.includes("오버랩"));
     const groups: typeof overlapSubs[] = [];
     let currentGroup: typeof overlapSubs = [];
+
     for (const sub of overlapSubs) {
       if (currentGroup.length === 0) {
         currentGroup.push(sub);
       } else {
         const last = currentGroup[currentGroup.length - 1];
         if (sub.start_ms < last.end_ms) currentGroup.push(sub);
-        else { groups.push(currentGroup); currentGroup = [sub]; }
+        else {
+          groups.push(currentGroup);
+          currentGroup = [sub];
+        }
       }
     }
+
     if (currentGroup.length > 0) groups.push(currentGroup);
+
     for (const group of groups) {
       if (group.length === 2) {
         map.set(group[0].id, { startErr: false, endErr: true });
@@ -197,12 +233,15 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
         }
       }
     }
+
     return map;
   }, [subtitles]);
 
   useEffect(() => {
     const row = document.getElementById(`row-${selectedId}`);
-    if (row && scrollRef.current) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (row && scrollRef.current) {
+      row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
   }, [selectedId]);
 
   const handleClick = (id: number) => {
@@ -214,9 +253,11 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
 
   const handleDblClick = (id: number, e: React.MouseEvent) => {
     if (playing) return;
+
     if (e.shiftKey) selectRange(id);
     else if (e.ctrlKey || e.metaKey) toggleMulti(id);
     else selectSingle(id);
+
     const sub = subtitles.find((s) => s.id === id);
     if (sub) {
       usePlayerStore.getState().seekTo(sub.start_ms);
@@ -226,35 +267,116 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
     }
   };
 
-  const triggerSelect = useCallback((subId: number) => {
-    if (playing) return;
-    if (selectedId !== subId) {
-      selectSingle(subId);
-      const sub = subtitles.find((s) => s.id === subId);
-      if (sub) setVideoPreviewMs(sub.start_ms);
-    }
-  }, [playing, selectedId, selectSingle, subtitles, setVideoPreviewMs]);
+  const triggerSelect = useCallback(
+    (subId: number) => {
+      if (playing) return;
+      if (selectedId !== subId) {
+        selectSingle(subId);
+        const sub = subtitles.find((s) => s.id === subId);
+        if (sub) setVideoPreviewMs(sub.start_ms);
+      }
+    },
+    [playing, selectedId, selectSingle, subtitles, setVideoPreviewMs],
+  );
 
   /* ── 자막 파일 업로드 핸들러 ── */
-  const handleSubtitleFileUpload = useCallback(async (file: File) => {
-    if (!projectId || uploading) return;
-    setUploading(true);
-    try {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "";
-      if (ext === "json") {
-        await projectsApi.uploadJson(projectId, file);
-      } else {
-        await projectsApi.uploadSubtitle(projectId, file);
-      }
-      onSubtitleUploaded?.();
-    } catch {
-      // 실패 시 무시
-    } finally {
-      setUploading(false);
-    }
-  }, [projectId, uploading, onSubtitleUploaded]);
+  const handleSubtitleFileUpload = useCallback(
+    async (file: File) => {
+      if (!projectId || uploading) return;
 
-  const cw = { seq: "3%", start: "10%", end: "10%", dur: "5%", type: "5%", spk: "6%", spkDel: "6%", txtDel: "6%", pos: "5%" };
+      setUploading(true);
+      try {
+        const ext = file.name.split(".").pop()?.toLowerCase() || "";
+        if (ext === "json") {
+          await projectsApi.uploadJson(projectId, file);
+        } else {
+          await projectsApi.uploadSubtitle(projectId, file);
+        }
+        onSubtitleUploaded?.();
+      } catch {
+        // 실패 시 무시
+      } finally {
+        setUploading(false);
+      }
+    },
+    [projectId, uploading, onSubtitleUploaded],
+  );
+
+  const isSubtitleUploadFile = useCallback((file: File) => {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    return ["srt", "vtt", "txt", "json"].includes(ext);
+  }, []);
+
+  const resetSubtitleDragState = useCallback(() => {
+    subtitleDragDepthRef.current = 0;
+    setIsDragOver(false);
+  }, []);
+
+  const handleSubtitleDragEnter = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (readOnly || uploading || !projectId) return;
+
+      subtitleDragDepthRef.current += 1;
+      setIsDragOver(true);
+    },
+    [readOnly, uploading, projectId],
+  );
+
+  const handleSubtitleDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (readOnly || uploading || !projectId) return;
+
+      e.dataTransfer.dropEffect = "copy";
+      if (!isDragOver) setIsDragOver(true);
+    },
+    [readOnly, uploading, projectId, isDragOver],
+  );
+
+  const handleSubtitleDragLeave = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (readOnly || uploading || !projectId) return;
+
+      subtitleDragDepthRef.current -= 1;
+      if (subtitleDragDepthRef.current <= 0) {
+        resetSubtitleDragState();
+      }
+    },
+    [readOnly, uploading, projectId, resetSubtitleDragState],
+  );
+
+  const handleSubtitleDrop = useCallback(
+    async (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      resetSubtitleDragState();
+
+      if (readOnly || uploading || !projectId) return;
+
+      const file = Array.from(e.dataTransfer.files ?? []).find(isSubtitleUploadFile);
+      if (!file) return;
+
+      await handleSubtitleFileUpload(file);
+    },
+    [readOnly, uploading, projectId, isSubtitleUploadFile, handleSubtitleFileUpload, resetSubtitleDragState],
+  );
+
+  const cw = {
+    seq: "3%",
+    start: "10%",
+    end: "10%",
+    dur: "5%",
+    type: "5%",
+    spk: "6%",
+    spkDel: "6%",
+    txtDel: "6%",
+    pos: "5%",
+  };
   const cellCls = "py-2 overflow-hidden text-ellipsis whitespace-nowrap";
   const cellStyle: React.CSSProperties = { textAlign: "center" };
 
@@ -275,16 +397,36 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
 
   const headerRow = (
     <tr>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>#</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>시작</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>종료</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>길이</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>유형</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>화자</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>화자삭제</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>대사</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>대사삭제</th>
-      <th className={`${cellCls} font-medium`} style={cellStyle}>위치</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
+        #
+      </th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
+        시작
+      </th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
+        종료
+      </th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
+        길이
+      </th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
+        유형
+      </th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
+        화자
+      </th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
+        화자삭제
+      </th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
+        대사
+      </th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
+        대사삭제
+      </th>
+      <th className={`${cellCls} font-medium`} style={cellStyle}>
+        위치
+      </th>
     </tr>
   );
 
@@ -294,12 +436,17 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
   return (
     <div className={`h-full flex flex-col overflow-hidden border-b ${bd}`}>
       <div className={`shrink-0 ${card}`}>
-        <GridToolbar dark={dm} filteredCount={filtered.length} totalCount={subtitles.length} readOnly={readOnly} />
+        <GridToolbar
+          dark={dm}
+          filteredCount={filtered.length}
+          totalCount={subtitles.length}
+          readOnly={readOnly}
+        />
         {!isEmpty && <GridFilters dark={dm} filters={filters} onChange={setFilters} />}
       </div>
 
       {isEmpty ? (
-        /* ── 자막 없음: 업로드 버튼 ── */
+        /* ── 자막 없음: 업로드 버튼 + 드래그 업로드 ── */
         <div className={`flex-1 flex items-center justify-center ${card}`}>
           <input
             ref={fileInputRef}
@@ -308,31 +455,75 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) handleSubtitleFileUpload(f);
+              if (f) void handleSubtitleFileUpload(f);
+              e.currentTarget.value = "";
             }}
           />
+
           {uploading ? (
             <div className="flex flex-col items-center gap-3">
               <Loader2 size={28} className="text-blue-500 animate-spin" />
               <span className={`text-xs ${ts}`}>자막 파일 처리 중...</span>
             </div>
           ) : (
-            <button
+            <div
               onClick={() => fileInputRef.current?.click()}
-              className={`flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-dashed ${
-                dm ? "border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5" : "border-gray-300 hover:border-blue-400 hover:bg-blue-50"
-              } transition-colors group`}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+              onDragEnter={handleSubtitleDragEnter}
+              onDragOver={handleSubtitleDragOver}
+              onDragLeave={handleSubtitleDragLeave}
+              onDrop={(e) => void handleSubtitleDrop(e)}
+              role="button"
+              tabIndex={0}
+              className={`flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-dashed cursor-pointer transition-colors group ${
+                isDragOver
+                  ? dm
+                    ? "border-blue-500 bg-blue-500/10"
+                    : "border-blue-500 bg-blue-50"
+                  : dm
+                    ? "border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5"
+                    : "border-gray-300 hover:border-blue-400 hover:bg-blue-50"
+              }`}
             >
-              <FileText size={28} className={`${dm ? "text-gray-600" : "text-gray-400"} group-hover:text-blue-500 transition-colors`} />
-              <span className={`text-sm font-medium ${dm ? "text-gray-500" : "text-gray-400"} group-hover:text-blue-400 transition-colors`}>자막 파일 추가</span>
-              <span className={`text-[10px] ${dm ? "text-gray-700" : "text-gray-300"}`}>SRT, VTT, JSON 파일을 업로드하세요</span>
-            </button>
+              <FileText
+                size={28}
+                className={`transition-colors ${
+                  isDragOver
+                    ? "text-blue-500"
+                    : dm
+                      ? "text-gray-600 group-hover:text-blue-500"
+                      : "text-gray-400 group-hover:text-blue-500"
+                }`}
+              />
+              <span
+                className={`text-sm font-medium transition-colors ${
+                  isDragOver
+                    ? "text-blue-500"
+                    : dm
+                      ? "text-gray-500 group-hover:text-blue-400"
+                      : "text-gray-400 group-hover:text-blue-400"
+                }`}
+              >
+                자막 파일 추가
+              </span>
+              <span className={`text-[10px] ${dm ? "text-gray-700" : "text-gray-300"}`}>
+                클릭하거나 SRT, VTT, TXT, JSON 파일을 드래그해 업로드하세요
+              </span>
+            </div>
           )}
         </div>
       ) : (
         /* ── 자막 테이블 ── */
         <div ref={scrollRef} className={`flex-1 overflow-y-auto overflow-x-hidden ${card} min-h-0`}>
-          <table className={`w-full ${ts}`} style={{ fontSize: `${listFontSize}px`, tableLayout: "fixed" }}>
+          <table
+            className={`w-full ${ts}`}
+            style={{ fontSize: `${listFontSize}px`, tableLayout: "fixed" }}
+          >
             {colGroup}
             <thead className={`border-b ${bd} ${card} sticky top-0 z-10`}>{headerRow}</thead>
             <tbody className={`divide-y ${dm ? "divide-gray-700/40" : "divide-gray-100"}`}>
@@ -347,8 +538,11 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
                 const endCellBg = overlap?.endErr ? errCellBg : "";
                 const durCellBg = errors.has("최소길이") ? errCellBg : "";
                 const textCellBg = errors.has("글자초과") ? errCellBg : "";
-                const spkDeleted = sub.speaker_pos === "deleted";
-                const txtDeleted = sub.text_pos === "deleted";
+
+                // 삭제: bool 필드 (위치와 독립)
+                const spkDeleted = !!sub.speaker_deleted;
+                const txtDeleted = !!sub.text_deleted;
+                // 위치: speaker_pos / text_pos (삭제와 독립)
                 const isTop = sub.speaker_pos === "top" || sub.text_pos === "top";
 
                 return (
@@ -363,9 +557,15 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
                       {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
                       {sub.seq}
                     </td>
-                    <td className={`${cellCls} font-mono ${tp} ${startCellBg}`} style={cellStyle}>{msToTimecode(sub.start_ms)}</td>
-                    <td className={`${cellCls} font-mono ${tp} ${endCellBg}`} style={cellStyle}>{msToTimecode(sub.end_ms)}</td>
-                    <td className={`${cellCls} font-mono ${tp} ${durCellBg}`} style={cellStyle}>{msToDuration(duration)}</td>
+                    <td className={`${cellCls} font-mono ${tp} ${startCellBg}`} style={cellStyle}>
+                      {msToTimecode(sub.start_ms)}
+                    </td>
+                    <td className={`${cellCls} font-mono ${tp} ${endCellBg}`} style={cellStyle}>
+                      {msToTimecode(sub.end_ms)}
+                    </td>
+                    <td className={`${cellCls} font-mono ${tp} ${durCellBg}`} style={cellStyle}>
+                      {msToDuration(duration)}
+                    </td>
                     <td className={`${cellCls}`} style={cellStyle}>
                       <DropCell
                         dark={dm}
@@ -373,7 +573,10 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
                         fontSize={listFontSize}
                         value={sub.type}
                         label={sub.type === "effect" ? "효과" : "대사"}
-                        options={[{ v: "dialogue", label: "대사" }, { v: "effect", label: "효과" }]}
+                        options={[
+                          { v: "dialogue", label: "대사" },
+                          { v: "effect", label: "효과" },
+                        ]}
                         onSelect={(v) => updateLocal(sub.id, { type: v as "dialogue" | "effect" })}
                         onCellClick={() => triggerSelect(sub.id)}
                       />
@@ -384,41 +587,60 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
                         disabled={readOnly}
                         fontSize={listFontSize}
                         value={sub.speaker}
-                        label={sub.speaker || "-"}
+                        label={sub.speaker || "(없음)"}
                         options={speakerOptions}
                         onSelect={(v) => updateLocal(sub.id, { speaker: v })}
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
+                    {/* 화자삭제: speaker_deleted bool */}
                     <td className={`${cellCls}`} style={cellStyle}>
                       <DropCell
                         dark={dm}
                         disabled={readOnly}
                         fontSize={listFontSize}
-                        value={spkDeleted ? "deleted" : "default"}
+                        value={spkDeleted ? "true" : "false"}
                         label={spkDeleted ? "삭제" : "유지"}
                         colorCls={spkDeleted ? "text-red-500" : ""}
-                        options={[{ v: "default", label: "유지" }, { v: "deleted", label: "삭제" }]}
-                        onSelect={(v) => updateLocal(sub.id, { speaker_pos: v as "default" | "top" | "deleted" })}
+                        options={[
+                          { v: "false", label: "유지" },
+                          { v: "true", label: "삭제" },
+                        ]}
+                        onSelect={(v) =>
+                          updateLocal(sub.id, { speaker_deleted: v === "true" })
+                        }
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
-                    <td className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`} style={{ textAlign: "left" }} title={sub.text}>
-                      <div className="leading-snug whitespace-pre-wrap break-all line-clamp-2">{sub.text}</div>
+                    <td
+                      className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`}
+                      style={{ textAlign: "left" }}
+                      title={sub.text}
+                    >
+                      <div className="leading-snug whitespace-pre-wrap break-all line-clamp-2">
+                        {sub.text}
+                      </div>
                     </td>
+                    {/* 대사삭제: text_deleted bool */}
                     <td className={`${cellCls}`} style={cellStyle}>
                       <DropCell
                         dark={dm}
                         disabled={readOnly}
                         fontSize={listFontSize}
-                        value={txtDeleted ? "deleted" : "default"}
+                        value={txtDeleted ? "true" : "false"}
                         label={txtDeleted ? "삭제" : "유지"}
                         colorCls={txtDeleted ? "text-red-500" : ""}
-                        options={[{ v: "default", label: "유지" }, { v: "deleted", label: "삭제" }]}
-                        onSelect={(v) => updateLocal(sub.id, { text_pos: v as "default" | "top" | "deleted" })}
+                        options={[
+                          { v: "false", label: "유지" },
+                          { v: "true", label: "삭제" },
+                        ]}
+                        onSelect={(v) =>
+                          updateLocal(sub.id, { text_deleted: v === "true" })
+                        }
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
+                    {/* 위치: speaker_pos / text_pos (삭제와 완전 독립) */}
                     <td className={`${cellCls}`} style={cellStyle}>
                       <DropCell
                         dark={dm}
@@ -427,17 +649,13 @@ export function SubtitleGrid({ dark, readOnly, editorMode = "srt", projectId, on
                         value={isTop ? "top" : "default"}
                         label={isTop ? "상단" : "하단"}
                         colorCls={isTop ? "text-blue-500" : ""}
-                        options={[{ v: "default", label: "하단" }, { v: "top", label: "상단" }]}
+                        options={[
+                          { v: "default", label: "하단" },
+                          { v: "top", label: "상단" },
+                        ]}
                         onSelect={(v) => {
-                          const updates: Partial<{ speaker_pos: "default" | "top" | "deleted"; text_pos: "default" | "top" | "deleted" }> = {};
-                          if (v === "top") {
-                            if (sub.speaker_pos !== "deleted") updates.speaker_pos = "top";
-                            if (sub.text_pos !== "deleted") updates.text_pos = "top";
-                          } else {
-                            if (sub.speaker_pos === "top") updates.speaker_pos = "default";
-                            if (sub.text_pos === "top") updates.text_pos = "default";
-                          }
-                          updateLocal(sub.id, updates);
+                          const pos = v as "default" | "top";
+                          updateLocal(sub.id, { speaker_pos: pos, text_pos: pos });
                         }}
                         onCellClick={() => triggerSelect(sub.id)}
                       />

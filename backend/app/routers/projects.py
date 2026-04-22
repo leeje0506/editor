@@ -15,7 +15,7 @@ from starlette.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Project, Subtitle, User
+from app.models import Project, Subtitle, User, BroadcasterRule
 from app.schemas import (
     ProjectCreate, ProjectUpdate, ProjectResponse, TimerUpdate, SavePositionBody,
 )
@@ -221,9 +221,33 @@ def submit_project(project_id: int, current_user: User = Depends(get_current_use
     p = db.query(Project).get(project_id)
     if not p:
         raise HTTPException(404)
-    err = db.query(Subtitle).filter(Subtitle.project_id == project_id, Subtitle.error != "").count()
-    if err > 0:
-        raise HTTPException(400, f"검수 오류 {err}건이 있습니다.")
+
+    # 오버랩 허용 여부 확인
+    rule = db.query(BroadcasterRule).filter(
+        BroadcasterRule.name == p.broadcaster,
+        BroadcasterRule.is_active == True,
+    ).first()
+    allow_overlap = rule.allow_overlap if rule else True
+
+    # 오버랩 허용이면 "오버랩"만 있는 에러는 제출 차단 대상에서 제외
+    error_subs = db.query(Subtitle).filter(
+        Subtitle.project_id == project_id, Subtitle.error != ""
+    ).all()
+
+    blocking = 0
+    for sub in error_subs:
+        errors = set(e.strip() for e in sub.error.split(","))
+        if allow_overlap:
+            errors.discard("오버랩")
+        if errors:
+            blocking += 1
+
+    if blocking > 0:
+        raise HTTPException(400, f"검수 오류 {blocking}건이 있습니다.")
+    
+    allow_overlap = rule.allow_overlap if rule else True
+    print(f"[DEBUG] broadcaster={p.broadcaster}, rule={rule}, allow_overlap={allow_overlap}")
+
     p.status = "submitted"
     p.submitted_at = datetime.now(timezone.utc)
     if p.first_submitted_at is None:
