@@ -14,8 +14,10 @@ export function SubtitleOverlay() {
   const { fontSize, defaultY, topY } = useSettingsStore((s) => s.subtitleDisplay);
 
   const renderSub = (s: Subtitle): string => {
-    const isTextDeleted = s.text_pos === "deleted";
-    const isSpeakerDeleted = s.speaker_pos === "deleted";
+    // 삭제 판별: bool 필드 (위치와 독립)
+    const isSpeakerDeleted = !!s.speaker_deleted;
+    const isTextDeleted = !!s.text_deleted;
+
     let html = "";
     if (s.speaker) {
       const spClass = isSpeakerDeleted
@@ -43,15 +45,18 @@ export function SubtitleOverlay() {
       if (idKey === lastActiveIdsRef.current) return;
       lastActiveIdsRef.current = idKey;
 
-      const topHtml = active.filter((s) => s.text_pos === "top").map(renderSub).join("");
-      const delHtml = active.filter((s) => s.text_pos === "deleted").map(renderSub).join("");
-      const btmHtml = active
-        .filter((s) => s.text_pos === "default" || (s.text_pos !== "top" && s.text_pos !== "deleted"))
-        .map(renderSub).join("");
+      // 위치 분류: text_pos 기준 (삭제 여부와 독립)
+      const topSubs = active.filter((s) => s.text_pos === "top");
+      const btmSubs = active.filter((s) => s.text_pos !== "top");
+
+      // 삭제된 자막은 해당 위치에서 빨간+취소선으로 렌더 (renderSub 내부에서 처리)
+      // 별도 delRef 영역은 더 이상 불필요하지만 하위 호환을 위해 빈 상태로 유지
+      const topHtml = topSubs.map(renderSub).join("");
+      const btmHtml = btmSubs.map(renderSub).join("");
 
       if (topRef.current) topRef.current.innerHTML = topHtml;
       if (btmRef.current) btmRef.current.innerHTML = btmHtml;
-      if (delRef.current) delRef.current.innerHTML = delHtml;
+      if (delRef.current) delRef.current.innerHTML = "";
     };
 
     let isPlaying = usePlayerStore.getState().playing;

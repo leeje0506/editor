@@ -538,8 +538,11 @@ export function SubtitleGrid({
                 const endCellBg = overlap?.endErr ? errCellBg : "";
                 const durCellBg = errors.has("최소길이") ? errCellBg : "";
                 const textCellBg = errors.has("글자초과") ? errCellBg : "";
-                const spkDeleted = sub.speaker_pos === "deleted";
-                const txtDeleted = sub.text_pos === "deleted";
+
+                // 삭제: bool 필드 (위치와 독립)
+                const spkDeleted = !!sub.speaker_deleted;
+                const txtDeleted = !!sub.text_deleted;
+                // 위치: speaker_pos / text_pos (삭제와 독립)
                 const isTop = sub.speaker_pos === "top" || sub.text_pos === "top";
 
                 return (
@@ -590,20 +593,21 @@ export function SubtitleGrid({
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
+                    {/* 화자삭제: speaker_deleted bool */}
                     <td className={`${cellCls}`} style={cellStyle}>
                       <DropCell
                         dark={dm}
                         disabled={readOnly}
                         fontSize={listFontSize}
-                        value={spkDeleted ? "deleted" : "default"}
+                        value={spkDeleted ? "true" : "false"}
                         label={spkDeleted ? "삭제" : "유지"}
                         colorCls={spkDeleted ? "text-red-500" : ""}
                         options={[
-                          { v: "default", label: "유지" },
-                          { v: "deleted", label: "삭제" },
+                          { v: "false", label: "유지" },
+                          { v: "true", label: "삭제" },
                         ]}
                         onSelect={(v) =>
-                          updateLocal(sub.id, { speaker_pos: v as "default" | "top" | "deleted" })
+                          updateLocal(sub.id, { speaker_deleted: v === "true" })
                         }
                         onCellClick={() => triggerSelect(sub.id)}
                       />
@@ -617,24 +621,26 @@ export function SubtitleGrid({
                         {sub.text}
                       </div>
                     </td>
+                    {/* 대사삭제: text_deleted bool */}
                     <td className={`${cellCls}`} style={cellStyle}>
                       <DropCell
                         dark={dm}
                         disabled={readOnly}
                         fontSize={listFontSize}
-                        value={txtDeleted ? "deleted" : "default"}
+                        value={txtDeleted ? "true" : "false"}
                         label={txtDeleted ? "삭제" : "유지"}
                         colorCls={txtDeleted ? "text-red-500" : ""}
                         options={[
-                          { v: "default", label: "유지" },
-                          { v: "deleted", label: "삭제" },
+                          { v: "false", label: "유지" },
+                          { v: "true", label: "삭제" },
                         ]}
                         onSelect={(v) =>
-                          updateLocal(sub.id, { text_pos: v as "default" | "top" | "deleted" })
+                          updateLocal(sub.id, { text_deleted: v === "true" })
                         }
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
+                    {/* 위치: speaker_pos / text_pos (삭제와 완전 독립) */}
                     <td className={`${cellCls}`} style={cellStyle}>
                       <DropCell
                         dark={dm}
@@ -648,20 +654,8 @@ export function SubtitleGrid({
                           { v: "top", label: "상단" },
                         ]}
                         onSelect={(v) => {
-                          const updates: Partial<{
-                            speaker_pos: "default" | "top" | "deleted";
-                            text_pos: "default" | "top" | "deleted";
-                          }> = {};
-
-                          if (v === "top") {
-                            if (sub.speaker_pos !== "deleted") updates.speaker_pos = "top";
-                            if (sub.text_pos !== "deleted") updates.text_pos = "top";
-                          } else {
-                            if (sub.speaker_pos === "top") updates.speaker_pos = "default";
-                            if (sub.text_pos === "top") updates.text_pos = "default";
-                          }
-
-                          updateLocal(sub.id, updates);
+                          const pos = v as "default" | "top";
+                          updateLocal(sub.id, { speaker_pos: pos, text_pos: pos });
                         }}
                         onCellClick={() => triggerSelect(sub.id)}
                       />

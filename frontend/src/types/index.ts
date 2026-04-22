@@ -51,9 +51,13 @@ export interface Subtitle {
   type: "dialogue" | "effect";
   track_type: TrackType;
   speaker: string;
-  speaker_pos: "default" | "top" | "deleted";
-  text_pos: "default" | "top" | "deleted";
-  position: Position;
+  // speaker_pos: "default" | "top" | "deleted";
+  // text_pos: "default" | "top" | "deleted";
+  // position: Position;
+  speaker_pos: "default" | "top";       // 위치만 (삭제값 제거)
+  text_pos: "default" | "top";          // 위치만
+  speaker_deleted: boolean;              // 화자 삭제 표시
+  text_deleted: boolean;                 // 대사 삭제 표시
   text: string;
   error: string;
   source_id: string | null;

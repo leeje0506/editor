@@ -53,8 +53,10 @@ def create_subtitle(project_id: int, data: SubtitleCreate, db: Session = Depends
 
     sub = Subtitle(
         project_id=project_id, start_ms=start, end_ms=end,
-        type=data.type, speaker=data.speaker, speaker_pos=data.speaker_pos,
-        text_pos=data.text_pos, text=data.text, seq=0,
+        type=data.type, speaker=data.speaker,
+        speaker_pos=data.speaker_pos, text_pos=data.text_pos,
+        speaker_deleted=False, text_deleted=False,
+        text=data.text, seq=0,
     )
     db.add(sub)
     db.commit()
@@ -115,8 +117,10 @@ def split_subtitle(project_id: int, subtitle_id: int, data: SplitRequest, db: Se
 
     db.add(Subtitle(
         project_id=project_id, start_ms=split_at, end_ms=original_end,
-        type=sub.type, speaker=sub.speaker, speaker_pos=sub.speaker_pos,
-        text_pos=sub.text_pos, text=text_second,
+        type=sub.type, speaker=sub.speaker,
+        speaker_pos=sub.speaker_pos, text_pos=sub.text_pos,
+        speaker_deleted=sub.speaker_deleted, text_deleted=sub.text_deleted,
+        text=text_second,
     ))
     db.commit()
     return resequence_and_validate(db, project_id)

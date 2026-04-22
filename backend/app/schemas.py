@@ -116,6 +116,8 @@ class SubtitleCreate(BaseModel):
     position: Literal["default", "top", "deleted"] = "default"
     text: str = ""
     source_id: Optional[str] = None
+    speaker_deleted: bool = False
+    text_deleted: bool = False
 
 class SubtitleUpdate(BaseModel):
     start_ms: Optional[int] = None
@@ -128,6 +130,8 @@ class SubtitleUpdate(BaseModel):
     position: Optional[Literal["default", "top", "deleted"]] = None
     text: Optional[str] = None
     source_id: Optional[str] = None
+    speaker_deleted: bool = False
+    text_deleted: bool = False
 
 class SubtitleResponse(BaseModel):
     id: int
@@ -145,6 +149,8 @@ class SubtitleResponse(BaseModel):
     source_id: Optional[str] = None
     class Config:
         from_attributes = True
+    speaker_deleted: bool = False
+    text_deleted: bool = False
 
 class SubtitleBatchItem(BaseModel):
     id: int
@@ -158,6 +164,8 @@ class SubtitleBatchItem(BaseModel):
     position: Literal["default", "top", "deleted"] = "default"
     text: str
     source_id: Optional[str] = None
+    speaker_deleted: bool = False
+    text_deleted: bool = False
 
 class BatchDeleteRequest(BaseModel):
     ids: List[int]
