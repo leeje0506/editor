@@ -77,12 +77,12 @@ export function ZoomControls({ dark }: Props) {
           <option key={s} value={s}>{s}%</option>
         ))}
       </select>
-      <button
+      {/* <button
         onClick={zoomFit}
         className={`px-1.5 h-5 flex items-center justify-center border ${bd} rounded text-[9px] ${ts} hover:opacity-80`}
       >
         전체
-      </button>
+      </button> */}
     </div>
   );
 }

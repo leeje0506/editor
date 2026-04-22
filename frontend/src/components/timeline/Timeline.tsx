@@ -1,5 +1,5 @@
 import { useRef, useMemo, useCallback, useEffect } from "react";
-import { Play, Pause, SkipBack, SkipForward, RefreshCw, Minus, Plus } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, RefreshCw } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { subtitlesApi } from "../../api/subtitles";
@@ -254,31 +254,22 @@ export function Timeline({ dark, peaks, onReload }: Props) {
             <SkipForward size={13} className={`${ts} cursor-pointer hover:opacity-80`} />
           </button>
           <ZoomControls dark={dm} />
-          {/* 배속 조절 */}
-          <div className="flex items-center gap-1 ml-1">
-            <button
-              onClick={() => setPlaybackRate(playbackRate - 0.1)}
-              disabled={playbackRate <= 0.5}
-              className={`w-4 h-4 flex items-center justify-center rounded ${ts} hover:text-blue-400 disabled:opacity-30`}
-              title="배속 감소"
+          {/* 배속 조절 — 드롭다운 */}
+          <div className="flex items-center ml-1">
+            <select
+              value={[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0].reduce((a, b) => Math.abs(b - playbackRate) < Math.abs(a - playbackRate) ? b : a).toFixed(1)}
+              onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+              className={`h-5 text-[10px] font-mono border rounded px-1 outline-none cursor-pointer ${
+                dm ? "bg-gray-700 border-gray-600 text-gray-300" : "bg-white border-gray-300 text-gray-700"
+              } ${playbackRate !== 1.0 ? "text-yellow-400 font-bold border-yellow-500/50" : ""}`}
+              title="재생 배속"
             >
-              <Minus size={10} />
-            </button>
-            <span
-              className={`text-[10px] font-mono min-w-[36px] text-center cursor-pointer ${playbackRate !== 1.0 ? "text-yellow-400 font-bold" : ts}`}
-              onClick={() => setPlaybackRate(1.0)}
-              title="클릭하면 1.0x로 초기화"
-            >
-              {playbackRate.toFixed(1)}x
-            </span>
-            <button
-              onClick={() => setPlaybackRate(playbackRate + 0.1)}
-              disabled={playbackRate >= 3.0}
-              className={`w-4 h-4 flex items-center justify-center rounded ${ts} hover:text-blue-400 disabled:opacity-30`}
-              title="배속 증가"
-            >
-              <Plus size={10} />
-            </button>
+              {[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0].map((v) => (
+                <option key={v} value={v.toFixed(1)}>
+                  {v % 0.5 === 0 ? `${v.toFixed(1)}x` : `  ${v.toFixed(2)}x`}
+                </option>
+              ))}
+            </select>
           </div>
           <button
             onClick={() => { if (onReload) onReload(); }}
@@ -399,14 +390,14 @@ export function Timeline({ dark, peaks, onReload }: Props) {
 
                   {/* 좌측 경계 */}
                   <div data-h="s"
-                    className={`absolute left-0 top-0 bottom-0 w-px cursor-ew-resize z-20 hover:bg-green-400/50 ${
+                    className={`absolute left-0 top-0 bottom-0 w-[2.5px] cursor-ew-resize z-20 hover:bg-green-400/50 ${
                       isSel ? "bg-red-400" : "bg-gray-400/50"
                     }`}
                     onMouseDown={(e) => startDrag(e, "start", s.id)}
                   />
                   {/* 우측 경계 */}
                   <div data-h="e"
-                    className={`absolute right-0 top-0 bottom-0 w-px cursor-ew-resize z-20 hover:bg-green-400/50 ${
+                    className={`absolute right-0 top-0 bottom-0 w-[2.5px] cursor-ew-resize z-20 hover:bg-green-400/50 ${
                       isSel ? "bg-red-400" : "bg-gray-400/50"
                     }`}
                     onMouseDown={(e) => startDrag(e, "end", s.id)}
