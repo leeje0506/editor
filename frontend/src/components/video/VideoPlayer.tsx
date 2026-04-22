@@ -53,6 +53,8 @@ export function VideoPlayer({
 
   const playing = usePlayerStore((s) => s.playing);
   const muted = usePlayerStore((s) => s.muted);
+  const volume = usePlayerStore((s) => s.volume);
+  const setVolume = usePlayerStore((s) => s.setVolume);
   const totalMs = usePlayerStore((s) => s.totalMs);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const toggleMute = usePlayerStore((s) => s.toggleMute);
@@ -289,6 +291,11 @@ export function VideoPlayer({
     if (v) v.muted = muted;
   }, [muted]);
 
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v) v.volume = volume;
+  }, [volume]);
+
   const handleFullscreen = () => {
     const v = videoRef.current;
     if (v) {
@@ -517,6 +524,20 @@ export function VideoPlayer({
               <Volume2 size={14} className="text-gray-300" />
             )}
           </button>
+          {/* 음량 슬라이더 */}
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={muted ? 0 : volume}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              setVolume(v);
+            }}
+            className="w-16 h-1 accent-white cursor-pointer"
+            title={`음량 ${Math.round((muted ? 0 : volume) * 100)}%`}
+          />
           <button onClick={handleFullscreen}>
             <Maximize size={14} className="text-gray-300" />
           </button>

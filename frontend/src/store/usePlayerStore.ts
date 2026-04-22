@@ -4,6 +4,7 @@ interface PlayerState {
   currentMs: number;
   playing: boolean;
   muted: boolean;
+  volume: number; 
   totalMs: number;
   videoPreviewMs: number | null;
   playbackRate: number;
@@ -20,6 +21,7 @@ interface PlayerState {
   setTotalMs: (ms: number) => void;
   togglePlay: () => void;
   toggleMute: () => void;
+  setVolume: (v: number) => void;
   seekForward: (ms?: number) => void;
   seekBackward: (ms?: number) => void;
   setVideoPreviewMs: (ms: number | null) => void;
@@ -30,6 +32,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   currentMs: 0,
   playing: false,
   muted: false,
+  volume: 1.0,
   totalMs: 600000,
   videoPreviewMs: null,
   playbackRate: 1.0,
@@ -87,6 +90,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }),
 
   toggleMute: () => set((s) => ({ muted: !s.muted })),
+  setVolume: (v) => set({ volume: v, muted: v === 0 }),
 
   seekForward: (ms = 5000) => {
     const s = get();
