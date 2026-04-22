@@ -97,13 +97,7 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
     if (!pid) return;
     setSaving(true);
     try {
-      const updateData: Record<string, unknown> = { name, broadcaster };
-      if (isAdmin) {
-        updateData.max_lines = maxLines;
-        updateData.max_chars_per_line = maxChars;
-        updateData.min_duration_ms = Math.round(minDuration * 1000);
-      }
-      await projectsApi.update(pid, updateData);
+      await projectsApi.update(pid, { name, broadcaster });
       await initSubs(pid);
       setMsg("저장 완료!");
       setTimeout(() => setMsg(""), 2000);
@@ -235,22 +229,28 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 </select>
               </div>
 
-              {isAdmin && (
-                <div className="flex gap-3">
-                  <div className="flex-1">
-                    <label className={`block ${ts} mb-1`}>최대 줄 수</label>
-                    <input type="number" value={maxLines} onChange={(e) => setMaxLines(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
-                  </div>
-                  <div className="flex-1">
-                    <label className={`block ${ts} mb-1`}>줄당 최대 글자</label>
-                    <input type="number" value={maxChars} onChange={(e) => setMaxChars(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
-                  </div>
-                  <div className="flex-1">
-                    <label className={`block ${ts} mb-1`}>최소 길이(초)</label>
-                    <input type="number" step={0.1} min={0.1} value={minDuration} onChange={(e) => setMinDuration(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
-                  </div>
+              {/* 기존 isAdmin 블록 삭제하고 이걸로 교체 */}
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className={`block ${ts} mb-1`}>최대 줄 수</label>
+                  <input type="number" value={maxLines} readOnly className={`w-full border rounded px-2.5 py-2 ${inp} opacity-60 cursor-not-allowed`} />
                 </div>
-              )}
+                <div className="flex-1">
+                  <label className={`block ${ts} mb-1`}>줄당 최대 글자</label>
+                  <input type="number" value={maxChars} readOnly className={`w-full border rounded px-2.5 py-2 ${inp} opacity-60 cursor-not-allowed`} />
+                </div>
+                <div className="flex-1">
+                  <label className={`block ${ts} mb-1`}>최소 길이(초)</label>
+                  <input type="number" value={minDuration} readOnly className={`w-full border rounded px-2.5 py-2 ${inp} opacity-60 cursor-not-allowed`} />
+                </div>
+              </div>
+
+              <div>
+                <label className={`block ${ts} mb-1`}>오버랩 허용</label>
+                <div className={`w-full border rounded px-2.5 py-2 ${inp} opacity-60 cursor-not-allowed`}>
+                  {bcStore.rules[broadcaster]?.allow_overlap ? "허용" : "미허용"}
+                </div>
+              </div>
 
               <div>
                 <label className={`block ${ts} mb-1 flex items-center gap-1`}><FileText size={12} /> 자막 파일</label>
