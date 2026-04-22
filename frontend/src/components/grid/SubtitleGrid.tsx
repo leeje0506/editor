@@ -584,7 +584,7 @@ export function SubtitleGrid({
                         disabled={readOnly}
                         fontSize={listFontSize}
                         value={sub.speaker}
-                        label={sub.speaker || "-"}
+                        label={sub.speaker || "(없음)"}
                         options={speakerOptions}
                         onSelect={(v) => updateLocal(sub.id, { speaker: v })}
                         onCellClick={() => triggerSelect(sub.id)}
