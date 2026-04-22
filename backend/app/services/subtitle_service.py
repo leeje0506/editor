@@ -89,23 +89,21 @@ def resequence_and_validate(db: Session, project_id: int) -> List[Subtitle]:
         sub.seq = i
         sub.error = validate_subtitle(sub, project, min_duration_ms)
 
-    # 2단계: 오버랩 검수 (방송사 규칙이 미허용인 경우만)
-    allow_overlap = rule.allow_overlap if rule else True
-    if not allow_overlap:
-        overlap_ids: set = set()
-        for i in range(len(subs)):
-            for j in range(i + 1, len(subs)):
-                if subs[j].start_ms >= subs[i].end_ms:
-                    break
-                overlap_ids.add(subs[i].id)
-                overlap_ids.add(subs[j].id)
+    # 2단계: 오버랩 검수 (항상 수행 — 허용 여부와 무관하게 표시)
+    overlap_ids: set = set()
+    for i in range(len(subs)):
+        for j in range(i + 1, len(subs)):
+            if subs[j].start_ms >= subs[i].end_ms:
+                break
+            overlap_ids.add(subs[i].id)
+            overlap_ids.add(subs[j].id)
 
-        for sub in subs:
-            if sub.id in overlap_ids:
-                if sub.error:
-                    sub.error = sub.error + ",오버랩"
-                else:
-                    sub.error = "오버랩"
+    for sub in subs:
+        if sub.id in overlap_ids:
+            if sub.error:
+                sub.error = sub.error + ",오버랩"
+            else:
+                sub.error = "오버랩"
 
     db.commit()
     for sub in subs:

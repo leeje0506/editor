@@ -334,7 +334,12 @@ export function AppLayout() {
   const handleSubmit = async () => {
     if (!pid) return;
 
-    const errorCount = useSubtitleStore.getState().subtitles.filter((s) => s.error).length;
+    const subs = useSubtitleStore.getState().subtitles;
+    const errorCount = subs.filter((s) => {
+      if (!s.error) return false;
+      const errors = s.error.split(",").map((e) => e.trim()).filter((e) => e !== "오버랩");
+      return errors.length > 0;
+    }).length;
     if (errorCount > 0) {
       setSavedMsg(`검수 오류 ${errorCount}건 — 제출 불가`);
       setTimeout(() => setSavedMsg(""), 3000);
