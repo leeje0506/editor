@@ -82,7 +82,7 @@ export function GridFilters({ dark, filters, onChange }: Props) {
             autoFocus
           />
           {filters.search && (
-            <button onClick={() => onChange({ ...filters, search: "" })}>
+            <button onClick={() => onChange({ ...filters, search: "" })} className="p-1.5 -m-1 rounded hover:bg-gray-500/20">
               <X size={11} className={ts} />
             </button>
           )}
