@@ -124,6 +124,7 @@ export function Timeline({ dark, peaks, onReload }: Props) {
     if (peaks && peaks.length > 0 && peaksPerSec > 0) {
       return buildWavePath(peaks, peaksPerSec, tlLeft, visDur, totalMs);
     }
+    // 파형 목업 넣는 부분 삭제함
     // return buildMockWavePath(tlLeft, visDur, totalMs);
     return "";
   }, [peaks, peaksPerSec, tlLeft, visDur, totalMs]);
