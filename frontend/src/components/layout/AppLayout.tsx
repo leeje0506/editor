@@ -334,7 +334,6 @@ export function AppLayout() {
 
   const handleSubmit = async () => {
     if (!pid) return;
-
     const subs = useSubtitleStore.getState().subtitles;
     const errorCount = subs.filter((s) => {
       if (!s.error) return false;
@@ -345,6 +344,25 @@ export function AppLayout() {
       setSavedMsg(`검수 오류 ${errorCount}건 — 제출 불가`);
       setTimeout(() => setSavedMsg(""), 3000);
       return;
+    }
+
+    // 제출 확인 모달
+    const overlapCount = subs.filter((s) => s.error?.includes("오버랩")).length;
+    const confirmMsg = overlapCount > 0
+      ? `오버랩 ${overlapCount}건이 있지만 허용된 방송사입니다.\n제출하시겠습니까?`
+      : "제출하시겠습니까?";
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      await saveAll();
+      await projectsApi.updateTimer(pid, elapsed);
+      await projectsApi.submit(pid);
+      setSavedMsg("제출 완료!");
+      setTimeout(() => navigate("/"), 600);
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || "제출 실패";
+      setSavedMsg(msg);
+      setTimeout(() => setSavedMsg(""), 3000);
     }
 
     try {
