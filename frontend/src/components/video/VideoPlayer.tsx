@@ -17,6 +17,7 @@ interface Props {
   hasVideo?: boolean;
   /** 영상 업로드 완료 후 프로젝트 새로고침 */
   onVideoUploaded?: () => void;
+  videoKey?: number;
 }
 
 const CONTROLS_H = 36;
@@ -31,6 +32,7 @@ export function VideoPlayer({
   onWidthChange,
   hasVideo = true,
   onVideoUploaded,
+  videoKey = 0,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -65,7 +67,7 @@ export function VideoPlayer({
   const setTimelineScrollMs = useTimelineStore((s) => s.setScrollMs);
   const timelineVisibleDuration = useTimelineStore((s) => s.visibleDuration);
 
-  const videoSrc = hasVideo && projectId ? `${API_BASE}/projects/${projectId}/stream/video` : "";
+  const videoSrc = hasVideo && projectId ? `${API_BASE}/projects/${projectId}/stream/video?v=${videoKey}` : "";
 
   const [containerW, setContainerW] = useState(0);
   const [containerH, setContainerH] = useState(0);

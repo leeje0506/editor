@@ -9,6 +9,7 @@ import { GridToolbar } from "./GridToolbar";
 import { GridFilters, type Filters } from "./GridFilters";
 import { FileText, Loader2 } from "lucide-react";
 import { projectsApi } from "../../api/projects";
+import { validateSubtitleLocal } from "../../utils/validation";
 
 interface Props {
   dark: boolean;
@@ -18,6 +19,10 @@ interface Props {
   projectId?: number;
   /** 자막 업로드 완료 후 콜백 */
   onSubtitleUploaded?: () => void;
+  maxChars?: number;
+  maxLines?: number;
+  minDurationMs?: number;
+  speakerMode?: string;
 }
 
 function msToDuration(ms: number): string {
@@ -138,6 +143,90 @@ function DropCell({
   );
 }
 
+/* ── TODO : 테스트용 인라인 텍스트 편집 셀 ── */
+function EditableTextCell({
+  text,
+  dark,
+  disabled,
+  fontSize,
+  className,
+  onChange,
+  onCellClick,
+}: {
+  text: string;
+  dark: boolean;
+  disabled?: boolean;
+  fontSize: number;
+  className?: string;
+  onChange: (text: string) => void;
+  onCellClick: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(text);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { setValue(text); }, [text]);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  if (disabled || !editing) {
+    return (
+      <div
+        className={className}
+        onDoubleClick={(e) => {
+          if (disabled) return;
+          e.stopPropagation();
+          setEditing(true);
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCellClick();
+        }}
+        title={text}
+      >
+        <div className="leading-snug whitespace-pre-wrap break-all line-clamp-2">
+          {text}
+        </div>
+      </div>
+    );
+  }
+
+  const inp = dark ? "bg-gray-700 text-gray-100 border-gray-600" : "bg-white text-gray-800 border-gray-300";
+
+  return (
+    <div className={className} onClick={(e) => e.stopPropagation()}>
+      <textarea
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => {
+          setEditing(false);
+          if (value !== text) onChange(value);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setValue(text);
+            setEditing(false);
+          }
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            setEditing(false);
+            if (value !== text) onChange(value);
+          }
+          e.stopPropagation();
+        }}
+        style={{ fontSize: `${fontSize}px` }}
+        className={`w-full h-full border rounded px-1 py-0.5 outline-none focus:border-blue-500 resize-none leading-snug ${inp}`}
+      />
+    </div>
+  );
+}
+
 /* ── SubtitleGrid ── */
 export function SubtitleGrid({
   dark,
@@ -145,6 +234,10 @@ export function SubtitleGrid({
   editorMode = "srt",
   projectId,
   onSubtitleUploaded,
+  maxChars = 18,
+  maxLines = 2,
+  minDurationMs = 500,
+  speakerMode = "name",
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -178,9 +271,11 @@ export function SubtitleGrid({
   const ts = dm ? "text-gray-400" : "text-gray-500";
   const bd = dm ? "border-gray-700" : "border-gray-200";
   const bdl = dm ? "border-gray-700" : "border-gray-100";
-  const hr = dm ? "hover:bg-gray-700/50" : "hover:bg-gray-50";
-  const sr = dm ? "bg-blue-900/40" : "bg-blue-50/70";
-  const mr = dm ? "bg-blue-900/20" : "bg-blue-50/30";
+  const hr = dm ? "hover:bg-blue-900/25" : "hover:bg-blue-100";
+  //선택 행 색상
+  const sr = dm ? "bg-blue-900/25" : "bg-blue-100";
+  const mr = dm ? "bg-blue-900/10" : "bg-blue-50";
+  //오류 셀 색상
   const errCellBg = dm ? "bg-orange-900/50" : "bg-orange-100";
 
   const speakerOptions = useMemo(() => {
@@ -244,20 +339,18 @@ export function SubtitleGrid({
     }
   }, [selectedId]);
 
-  const handleClick = (id: number) => {
+  const handleClick = (id: number, e: React.MouseEvent) => {
     if (playing) return;
-    selectSingle(id);
+    if (e.shiftKey) selectRange(id);
+    else if (e.ctrlKey || e.metaKey) toggleMulti(id);
+    else selectSingle(id);
     const sub = subtitles.find((s) => s.id === id);
     if (sub) setVideoPreviewMs(sub.start_ms);
   };
 
-  const handleDblClick = (id: number, e: React.MouseEvent) => {
+  const handleDblClick = (id: number) => {
     if (playing) return;
-
-    if (e.shiftKey) selectRange(id);
-    else if (e.ctrlKey || e.metaKey) toggleMulti(id);
-    else selectSingle(id);
-
+    selectSingle(id);
     const sub = subtitles.find((s) => s.id === id);
     if (sub) {
       usePlayerStore.getState().seekTo(sub.start_ms);
@@ -526,18 +619,33 @@ export function SubtitleGrid({
           >
             {colGroup}
             <thead className={`border-b ${bd} ${card} sticky top-0 z-10`}>{headerRow}</thead>
-            <tbody className={`divide-y ${dm ? "divide-gray-700/40" : "divide-gray-100"}`}>
+            <tbody className={`divide-y ${dm ? "divide-gray-600" : "divide-gray-200"}`}>
               {filtered.map((sub) => {
                 const isSel = selectedId === sub.id;
                 const isMulti = multiSelect.has(sub.id) && !isSel;
                 const duration = sub.end_ms - sub.start_ms;
-                const errors = parseErrors(sub.error);
+
+                // 실시간 검수 (서버 error 대신 로컬 계산)
+                const localErrors = new Set(validateSubtitleLocal(
+                  sub.text,
+                  sub.speaker,
+                  !!sub.speaker_deleted,
+                  sub.start_ms,
+                  sub.end_ms,
+                  maxChars,
+                  maxLines,
+                  minDurationMs,
+                  speakerMode,
+                ));
+                // 서버 오버랩은 로컬에서 계산 안 하므로 서버 error에서 가져옴
+                if (sub.error?.includes("오버랩")) localErrors.add("오버랩");
+
                 const overlap = overlapCellMap.get(sub.id);
                 const rowBg = isSel ? sr : isMulti ? mr : "";
                 const startCellBg = overlap?.startErr ? errCellBg : "";
                 const endCellBg = overlap?.endErr ? errCellBg : "";
-                const durCellBg = errors.has("최소길이") ? errCellBg : "";
-                const textCellBg = errors.has("글자초과") ? errCellBg : "";
+                const durCellBg = localErrors.has("최소길이") ? errCellBg : "";
+                const textCellBg = localErrors.has("글자초과") ? errCellBg : "";
 
                 // 삭제: bool 필드 (위치와 독립)
                 const spkDeleted = !!sub.speaker_deleted;
@@ -549,8 +657,8 @@ export function SubtitleGrid({
                   <tr
                     key={sub.id}
                     id={`row-${sub.id}`}
-                    onClick={() => handleClick(sub.id)}
-                    onDoubleClick={(e) => handleDblClick(sub.id, e)}
+                    onClick={(e) => handleClick(sub.id, e)}
+                    onDoubleClick={() => handleDblClick(sub.id)}
                     className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
                   >
                     <td className={`${cellCls} relative`} style={cellStyle}>
@@ -612,7 +720,7 @@ export function SubtitleGrid({
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
-                    <td
+                    {/* <td
                       className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`}
                       style={{ textAlign: "left" }}
                       title={sub.text}
@@ -620,7 +728,23 @@ export function SubtitleGrid({
                       <div className="leading-snug whitespace-pre-wrap break-all line-clamp-2">
                         {sub.text}
                       </div>
+                    </td> */}
+                    {/* TODO : 테스트용 대사: 더블클릭으로 인라인 편집 */}
+                    <td
+                      className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`}
+                      style={{ textAlign: "left" }}
+                    >
+                      <EditableTextCell
+                        text={sub.text}
+                        dark={dm}
+                        disabled={readOnly}
+                        fontSize={listFontSize}
+                        className="leading-snug"
+                        onChange={(v) => updateLocal(sub.id, { text: v })}
+                        onCellClick={() => triggerSelect(sub.id)}
+                      />
                     </td>
+                    
                     {/* 대사삭제: text_deleted bool */}
                     <td className={`${cellCls}`} style={cellStyle}>
                       <DropCell

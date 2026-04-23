@@ -127,6 +127,7 @@ export function AppLayout() {
   const user = useAuthStore((s) => s.user);
   const isWorker = !user?.role || !["master", "manager"].includes(user.role);
   const loadSettings = useSettingsStore((s) => s.load);
+  const [videoKey, setVideoKey] = useState(0);
 
   const handleVideoWidthChange = useCallback((w: number) => {
     const maxW = Math.floor(window.innerWidth * 0.7);
@@ -333,7 +334,6 @@ export function AppLayout() {
 
   const handleSubmit = async () => {
     if (!pid) return;
-
     const subs = useSubtitleStore.getState().subtitles;
     const errorCount = subs.filter((s) => {
       if (!s.error) return false;
@@ -344,6 +344,25 @@ export function AppLayout() {
       setSavedMsg(`검수 오류 ${errorCount}건 — 제출 불가`);
       setTimeout(() => setSavedMsg(""), 3000);
       return;
+    }
+
+    // 제출 확인 모달
+    const overlapCount = subs.filter((s) => s.error?.includes("오버랩")).length;
+    const confirmMsg = overlapCount > 0
+      ? `오버랩 ${overlapCount}건이 있지만 허용된 방송사입니다.\n제출하시겠습니까?`
+      : "제출하시겠습니까?";
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      await saveAll();
+      await projectsApi.updateTimer(pid, elapsed);
+      await projectsApi.submit(pid);
+      setSavedMsg("제출 완료!");
+      setTimeout(() => navigate("/"), 600);
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || "제출 실패";
+      setSavedMsg(msg);
+      setTimeout(() => setSavedMsg(""), 3000);
     }
 
     try {
@@ -413,12 +432,12 @@ export function AppLayout() {
 
   const handleSettingsClosed = async () => {
     if (!pid) return;
-
     try {
       const p = await projectsApi.get(pid);
       setProject(p);
       setTotalMs(p.total_duration_ms);
       setTimelineTotalMs(p.total_duration_ms);
+      setVideoKey((k) => k + 1);  // 추가
       await init(pid);
     } catch {}
   };
@@ -437,13 +456,12 @@ export function AppLayout() {
 
   const handleVideoUploaded = async () => {
     if (!pid) return;
-
     try {
       const p = await projectsApi.get(pid);
       setProject(p);
       setTotalMs(p.total_duration_ms);
       setTimelineTotalMs(p.total_duration_ms);
-
+      setVideoKey((k) => k + 1);  // 추가
       try {
         const w = await projectsApi.getWaveform(pid);
         setPeaks(w.peaks);
@@ -534,7 +552,11 @@ export function AppLayout() {
               readOnly={isReadOnly(project, isWorker)}
               editorMode={editorMode}
               projectId={pid}
+              maxChars={project?.max_chars_per_line ?? 18}
+              maxLines={project?.max_lines ?? 2}
+              minDurationMs={(project as any)?.min_duration_ms ?? 500}
               onSubtitleUploaded={handleSubtitleUploaded}
+              speakerMode={project?.speaker_mode ?? "name"}
             />
           </div>
 
@@ -547,6 +569,7 @@ export function AppLayout() {
               maxLines={project?.max_lines ?? 2}
               readOnly={isReadOnly(project, isWorker)}
               editorMode={editorMode}
+              speakerMode={project?.speaker_mode ?? "name"}
             />
           </div>
         </div>
@@ -561,6 +584,7 @@ export function AppLayout() {
             videoWidth={videoWidth}
             onWidthChange={handleVideoWidthChange}
             hasVideo={!!project?.video_file}
+            videoKey={videoKey}
             onVideoUploaded={handleVideoUploaded}
           />
           {showSubPanel && (

@@ -14,12 +14,12 @@ router = APIRouter()
 
 # 초기 기본값 (DB에 아무것도 없을 때 시딩용)
 DEFAULT_RULES = {
-    "TVING": {"max_lines": 2, "max_chars_per_line": 20, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500},
-    "LGHV": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500},
-    "SKBB": {"max_lines": 1, "max_chars_per_line": 20, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500},
-    "JTBC": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500},
-    "DLIV": {"max_lines": 3, "max_chars_per_line": 17, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500},
-    "자유작업": {"max_lines": 99, "max_chars_per_line": 999, "bracket_chars": 0, "allow_overlap": True, "min_duration_ms": 0},
+    "TVING": {"max_lines": 2, "max_chars_per_line": 20, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500, "speaker_mode": "name"},
+    "LGHV": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500, "speaker_mode": "hyphen_space"},
+    "SKBB": {"max_lines": 1, "max_chars_per_line": 20, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500, "speaker_mode": "hyphen"},
+    "JTBC": {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500, "speaker_mode": "hyphen_space"},
+    "DLIV": {"max_lines": 3, "max_chars_per_line": 17, "bracket_chars": 5, "allow_overlap": False, "min_duration_ms": 500, "speaker_mode": "hyphen_space"},
+    "자유작업": {"max_lines": 99, "max_chars_per_line": 999, "bracket_chars": 0, "allow_overlap": True, "min_duration_ms": 0, "speaker_mode": "name"},
 }
 
 
@@ -31,6 +31,7 @@ def _rule_to_dict(r: BroadcasterRule) -> dict:
         "bracket_chars": r.bracket_chars,
         "allow_overlap": r.allow_overlap,
         "min_duration_ms": r.min_duration_ms,
+        "speaker_mode": r.speaker_mode or "name",
     }
 
 
@@ -45,6 +46,7 @@ def seed_defaults(db: Session) -> None:
                 bracket_chars=r["bracket_chars"],
                 allow_overlap=r["allow_overlap"],
                 min_duration_ms=r["min_duration_ms"],
+                speaker_mode=r["speaker_mode"],
             ))
         db.commit()
 
@@ -79,7 +81,6 @@ def get_broadcaster_rules(db: Session = Depends(get_db)):
 @router.put("/broadcaster-rules")
 def save_broadcaster_rules(rules: Dict[str, dict], db: Session = Depends(get_db)):
     """방송사 규칙 전체 덮어쓰기 (추가/수정/삭제 반영)"""
-    # 기존 규칙 모두 비활성화
     db.query(BroadcasterRule).update({"is_active": False})
 
     for name, r in rules.items():
@@ -90,6 +91,7 @@ def save_broadcaster_rules(rules: Dict[str, dict], db: Session = Depends(get_db)
             existing.bracket_chars = int(r.get("bracket_chars", 5))
             existing.allow_overlap = bool(r.get("allow_overlap", False))
             existing.min_duration_ms = int(r.get("min_duration_ms", 500))
+            existing.speaker_mode = r.get("speaker_mode", "name")
             existing.is_active = True
         else:
             db.add(BroadcasterRule(
@@ -99,12 +101,12 @@ def save_broadcaster_rules(rules: Dict[str, dict], db: Session = Depends(get_db)
                 bracket_chars=int(r.get("bracket_chars", 5)),
                 allow_overlap=bool(r.get("allow_overlap", False)),
                 min_duration_ms=int(r.get("min_duration_ms", 500)),
+                speaker_mode=r.get("speaker_mode", "name"),
                 is_active=True,
             ))
 
     db.commit()
 
-    # 저장 후 최신 데이터 반환
     result = {}
     for row in db.query(BroadcasterRule).filter(BroadcasterRule.is_active == True).all():
         result[row.name] = _rule_to_dict(row)

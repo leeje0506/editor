@@ -9,6 +9,7 @@ interface Rule {
   max_chars_per_line: number;
   allow_overlap: boolean;
   min_duration_ms: number;
+  speaker_mode: string;
 }
 
 export function BroadcasterPresetsTab() {
@@ -18,6 +19,7 @@ export function BroadcasterPresetsTab() {
   const [newChars, setNewChars] = useState(18);
   const [newOverlap, setNewOverlap] = useState(false);
   const [newMinDur, setNewMinDur] = useState(500);
+  const [newSpeakerMode, setNewSpeakerMode] = useState("name");
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [editRule, setEditRule] = useState<Rule | null>(null);
   const [saving, setSaving] = useState(false);
@@ -41,6 +43,7 @@ export function BroadcasterPresetsTab() {
         max_chars_per_line: r.max_chars_per_line,
         allow_overlap: r.allow_overlap ?? false,
         min_duration_ms: r.min_duration_ms ?? 500,
+        speaker_mode: r.speaker_mode ?? "name",
       }));
       setRules(list);
     } catch {}
@@ -56,6 +59,7 @@ export function BroadcasterPresetsTab() {
           max_chars_per_line: r.max_chars_per_line,
           allow_overlap: r.allow_overlap,
           min_duration_ms: r.min_duration_ms,
+          speaker_mode: r.speaker_mode,
         };
       }
       await projectsApi.saveBroadcasterRules(payload);
@@ -82,6 +86,7 @@ export function BroadcasterPresetsTab() {
       max_chars_per_line: newChars,
       allow_overlap: newOverlap,
       min_duration_ms: newMinDur,
+      speaker_mode: newSpeakerMode,
     }];
     setRules(updated);
     await saveToServer(updated);
@@ -114,8 +119,13 @@ export function BroadcasterPresetsTab() {
     setEditRule(null);
   };
 
-  /** ms → 초 표시 */
   const msToSec = (ms: number) => (ms / 1000).toFixed(1);
+
+  const speakerModeLabel = (mode: string) => {
+    if (mode === "hyphen") return "하이픈(-)";
+    if (mode === "hyphen_space") return "하이픈공백(- )";
+    return "이름표기";
+  };
 
   return (
     <div className="max-w-5xl">
@@ -160,6 +170,15 @@ export function BroadcasterPresetsTab() {
               {newOverlap ? "허용" : "미허용"}
             </button>
           </div>
+          <div className="w-28">
+            <label className={`block text-xs ${ts} mb-1`}>화자모드</label>
+            <select value={newSpeakerMode} onChange={e => setNewSpeakerMode(e.target.value)}
+              className={`w-full border rounded-lg px-2 py-2.5 text-sm outline-none ${inp}`}>
+              <option value="name">이름</option>
+              <option value="hyphen">하이픈</option>
+              <option value="hyphen_space">하이픈공백</option>
+            </select>
+          </div>
           <button onClick={handleAdd} disabled={saving} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white p-2.5 rounded-lg">
             <Plus size={20} />
           </button>
@@ -175,6 +194,7 @@ export function BroadcasterPresetsTab() {
           <span className="w-20 text-center">글자 수</span>
           <span className="w-20 text-center">최소길이</span>
           <span className="w-20 text-center">오버랩</span>
+          <span className="w-24 text-center">화자모드</span>
           <span className="w-20 text-center">작업</span>
         </div>
         {rules.map((r, i) => (
@@ -198,6 +218,14 @@ export function BroadcasterPresetsTab() {
                     {editRule.allow_overlap ? "허용" : "미허용"}
                   </button>
                 </div>
+                <div className="w-24 flex items-center justify-center">
+                  <select value={editRule.speaker_mode} onChange={e => setEditRule({ ...editRule, speaker_mode: e.target.value })}
+                    className={`px-1 py-1 rounded text-xs border outline-none ${inp}`}>
+                    <option value="name">이름</option>
+                    <option value="hyphen">하이픈</option>
+                    <option value="hyphen_space">하이픈공백</option>
+                  </select>
+                </div>
                 <div className="w-20 flex items-center justify-center gap-1">
                   <button onClick={confirmEdit} className="text-emerald-400 hover:text-emerald-300"><Check size={16} /></button>
                   <button onClick={cancelEdit} className="text-gray-500 hover:text-gray-300"><X size={16} /></button>
@@ -211,6 +239,9 @@ export function BroadcasterPresetsTab() {
                 <span className={`w-20 text-center text-sm ${ts}`}>{msToSec(r.min_duration_ms)}초</span>
                 <span className={`w-20 text-center text-xs ${r.allow_overlap ? "text-emerald-400" : "text-red-400"}`}>
                   {r.allow_overlap ? "허용" : "미허용"}
+                </span>
+                <span className={`w-24 text-center text-xs ${ts}`}>
+                  {speakerModeLabel(r.speaker_mode)}
                 </span>
                 <div className="w-20 flex items-center justify-center gap-2">
                   <button onClick={() => startEdit(i)} className="text-blue-400 hover:text-blue-300"><Pencil size={14} /></button>

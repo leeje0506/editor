@@ -38,6 +38,7 @@ export interface Project {
   import_type: "srt" | "json";
   last_position_ms?: number;
   last_selected_id?: number | null;
+  speaker_mode?: string;
 }
 
 export type TrackType = "dialogue" | "sfx" | "bgm" | "ambience";
