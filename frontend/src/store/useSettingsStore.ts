@@ -21,6 +21,8 @@ export const FIXED_SHORTCUTS: ShortcutAction[] = [
   { id: "replace", label: "찾아 바꾸기", description: "텍스트 검색 및 치환", category: "fixed" },
   { id: "goto_line", label: "자막 번호로 이동", description: "특정 번호의 자막으로 이동", category: "fixed" },
   { id: "delete", label: "삭제", description: "선택된 자막 삭제", category: "fixed" },
+  { id: "shift_click", label: "범위 선택", description: "Shift+클릭으로 범위 선택", category: "fixed" },
+  { id: "ctrl_click", label: "토글 선택", description: "Ctrl+클릭으로 개별 토글 선택", category: "fixed" },
 ];
 
 /** 커스텀 단축키 (변경 가능) */
@@ -54,6 +56,8 @@ export const DEFAULT_SHORTCUTS: Record<string, string> = {
   replace: "Ctrl+H",
   goto_line: "Ctrl+G",
   delete: "Delete",
+  shift_click: "Shift+Click",
+  ctrl_click: "Ctrl+Click",
   // 커스텀 (변경 가능)
   play_pause: "Space",
   set_start: "F1",

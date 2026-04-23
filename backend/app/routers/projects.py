@@ -15,7 +15,7 @@ from starlette.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Project, Subtitle, User
+from app.models import Project, Subtitle, User, BroadcasterRule
 from app.schemas import (
     ProjectCreate, ProjectUpdate, ProjectResponse, TimerUpdate, SavePositionBody,
 )
@@ -92,6 +92,7 @@ def _to_response(project: Project, db: Session) -> dict:
         "import_type": project.import_type or "srt",
         "last_position_ms": project.last_position_ms or 0,
         "last_selected_id": project.last_selected_id,
+        "speaker_mode": project.speaker_mode or "name",
     }
 
 
@@ -126,6 +127,7 @@ def create_project(data: ProjectCreate, current_user: User = Depends(get_current
     max_chars = data.max_chars_per_line if data.max_chars_per_line is not None else rules["max_chars_per_line"]
     bracket_chars = data.bracket_chars if data.bracket_chars is not None else rules.get("bracket_chars", 5)
     min_duration_ms = rules.get("min_duration_ms", 500)
+    speaker_mode = rules.get("speaker_mode", "name")
     deadline = None
     if data.deadline:
         try:
@@ -186,6 +188,8 @@ def update_project(project_id: int, data: ProjectUpdate, current_user: User = De
             update_data["bracket_chars"] = rules.get("bracket_chars", 5)
         if "min_duration_ms" not in update_data:
             update_data["min_duration_ms"] = rules.get("min_duration_ms", 500)
+        if "speaker_mode" not in update_data:
+            update_data["speaker_mode"] = rules.get("speaker_mode", "name")
     if "deadline" in update_data:
         dl = update_data.pop("deadline")
         p.deadline = datetime.fromisoformat(dl) if dl else None
@@ -221,9 +225,30 @@ def submit_project(project_id: int, current_user: User = Depends(get_current_use
     p = db.query(Project).get(project_id)
     if not p:
         raise HTTPException(404)
-    err = db.query(Subtitle).filter(Subtitle.project_id == project_id, Subtitle.error != "").count()
-    if err > 0:
-        raise HTTPException(400, f"검수 오류 {err}건이 있습니다.")
+
+    # 오버랩 허용 여부 확인
+    rule = db.query(BroadcasterRule).filter(
+        BroadcasterRule.name == p.broadcaster,
+        BroadcasterRule.is_active == True,
+    ).first()
+    allow_overlap = rule.allow_overlap if rule else True
+
+    # 오버랩 허용이면 "오버랩"만 있는 에러는 제출 차단 대상에서 제외
+    error_subs = db.query(Subtitle).filter(
+        Subtitle.project_id == project_id, Subtitle.error != ""
+    ).all()
+
+    blocking = 0
+    for sub in error_subs:
+        errors = set(e.strip() for e in sub.error.split(","))
+        if allow_overlap:
+            errors.discard("오버랩")
+        if errors:
+            blocking += 1
+
+    if blocking > 0:
+        raise HTTPException(400, f"검수 오류 {blocking}건이 있습니다.")
+
     p.status = "submitted"
     p.submitted_at = datetime.now(timezone.utc)
     if p.first_submitted_at is None:

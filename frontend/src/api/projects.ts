@@ -11,6 +11,7 @@ type BroadcasterRule = {
   bracket_chars: number;
   allow_overlap: boolean;
   min_duration_ms: number;
+  speaker_mode: string;
 };
 
 export const projectsApi = {

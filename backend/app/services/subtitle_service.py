@@ -2,9 +2,11 @@
 backend/app/services/subtitle_service.py
 Python 3.9 호환
 
-글자수 카운트:
-- 공백 및 특수기호 포함, 줄바꿈만 제외
-- 글자 수 넘었는지 판단: 대사글자수 + 화자예약글자수 > 기준값(max_chars_per_line * max_lines)
+화자 예약 계산 (speaker_mode):
+  "name"         : 화자명.length + 3  (예: "(홍길동) " = 이름3 + 괄호2 + 공백1)
+  "hyphen"       : 1                  (예: "-대사")
+  "hyphen_space" : 2                  (예: "- 대사")
+  화자가 없거나 삭제 상태면 항상 0
 """
 from __future__ import annotations
 from typing import List, Dict, Tuple
@@ -18,6 +20,18 @@ def count_text_chars(text: str) -> int:
     """텍스트 글자수 카운트. 공백 및 특수기호 포함, 줄바꿈만 제외. NFC 정규화 후 카운트."""
     normalized = unicodedata.normalize("NFC", text)
     return len(normalized.replace("\n", ""))
+
+
+def calc_speaker_reserved(speaker: str, speaker_deleted: bool, speaker_mode: str) -> int:
+    """화자 예약 글자수 계산. 공통 함수."""
+    if not speaker or speaker_deleted:
+        return 0
+    if speaker_mode == "hyphen":
+        return 1
+    if speaker_mode == "hyphen_space":
+        return 2
+    # "name" (기본값)
+    return len(speaker) + 3
 
 
 def _get_broadcaster_rule(db: Session, project: Project) -> BroadcasterRule | None:
@@ -43,7 +57,8 @@ def validate_subtitle(sub: Subtitle, project: Project, min_duration_ms: int = 0)
 
     # 글자수 체크
     total_chars = count_text_chars(sub.text)
-    speaker_reserved = (len(sub.speaker) + 3) if sub.speaker else 0
+    speaker_mode = getattr(project, "speaker_mode", None) or "name"
+    speaker_reserved = calc_speaker_reserved(sub.speaker, sub.speaker_deleted, speaker_mode)
     line_count = max(1, len(sub.text.split("\n")))
     limit = (project.max_chars_per_line or 18) * line_count
 
@@ -82,23 +97,21 @@ def resequence_and_validate(db: Session, project_id: int) -> List[Subtitle]:
         sub.seq = i
         sub.error = validate_subtitle(sub, project, min_duration_ms)
 
-    # 2단계: 오버랩 검수 (방송사 규칙이 미허용인 경우만)
-    allow_overlap = rule.allow_overlap if rule else True
-    if not allow_overlap:
-        overlap_ids: set = set()
-        for i in range(len(subs)):
-            for j in range(i + 1, len(subs)):
-                if subs[j].start_ms >= subs[i].end_ms:
-                    break
-                overlap_ids.add(subs[i].id)
-                overlap_ids.add(subs[j].id)
+    # 2단계: 오버랩 검수 (항상 수행 — 허용 여부와 무관하게 표시)
+    overlap_ids: set = set()
+    for i in range(len(subs)):
+        for j in range(i + 1, len(subs)):
+            if subs[j].start_ms >= subs[i].end_ms:
+                break
+            overlap_ids.add(subs[i].id)
+            overlap_ids.add(subs[j].id)
 
-        for sub in subs:
-            if sub.id in overlap_ids:
-                if sub.error:
-                    sub.error = sub.error + ",오버랩"
-                else:
-                    sub.error = "오버랩"
+    for sub in subs:
+        if sub.id in overlap_ids:
+            if sub.error:
+                sub.error = sub.error + ",오버랩"
+            else:
+                sub.error = "오버랩"
 
     db.commit()
     for sub in subs:
@@ -116,8 +129,10 @@ def save_snapshot(db: Session, project_id: int, action: str) -> None:
     snapshot = [
         {
             "id": s.id, "seq": s.seq, "start_ms": s.start_ms, "end_ms": s.end_ms,
-            "type": s.type, "speaker": s.speaker, "speaker_pos": s.speaker_pos,
-            "text_pos": s.text_pos, "text": s.text,
+            "type": s.type, "speaker": s.speaker,
+            "speaker_pos": s.speaker_pos, "text_pos": s.text_pos,
+            "speaker_deleted": s.speaker_deleted, "text_deleted": s.text_deleted,
+            "text": s.text,
         }
         for s in subs
     ]
@@ -126,7 +141,6 @@ def save_snapshot(db: Session, project_id: int, action: str) -> None:
 
 
 def restore_snapshot(db: Session, project_id: int, snapshot: List[Dict]) -> List[Subtitle]:
-    # 빈 스냅샷이면 복원 거부 (자막 업로드 이전 상태로 되돌리는 것 방지)
     if not snapshot:
         return (
             db.query(Subtitle)
@@ -140,15 +154,18 @@ def restore_snapshot(db: Session, project_id: int, snapshot: List[Dict]) -> List
     for item in snapshot:
         db.add(Subtitle(
             project_id=project_id, start_ms=item["start_ms"], end_ms=item["end_ms"],
-            type=item["type"], speaker=item["speaker"], speaker_pos=item["speaker_pos"],
-            text_pos=item["text_pos"], text=item["text"],
+            type=item["type"], speaker=item["speaker"],
+            speaker_pos=item.get("speaker_pos", "default"),
+            text_pos=item.get("text_pos", "default"),
+            speaker_deleted=item.get("speaker_deleted", False),
+            text_deleted=item.get("text_deleted", False),
+            text=item["text"],
         ))
     db.commit()
     return resequence_and_validate(db, project_id)
 
 
 def smart_split_text(text: str) -> Tuple[str, str]:
-    """텍스트를 절반 지점에서 스마트 분할. 공백 기준."""
     if not text:
         return ("", "")
     mid = len(text) // 2
@@ -191,6 +208,7 @@ def parse_srt(content: str) -> List[Dict]:
             text_pos = "top"
             text = text.replace("{\\an8}", "").strip()
 
+        has_delete_tag = "{\\ㅅ}" in text
         text = re.sub(r"\{\\ㅅ\}", "", text)
         text = re.sub(r"\{\\}", "", text)
         text = re.sub(r"\{/an8\}", "", text)
@@ -208,8 +226,12 @@ def parse_srt(content: str) -> List[Dict]:
 
         results.append({
             "start_ms": start_ms, "end_ms": end_ms, "type": sub_type,
-            "speaker": speaker, "speaker_pos": "default",
-            "text_pos": text_pos, "text": text,
+            "speaker": speaker,
+            "speaker_pos": "default",
+            "text_pos": text_pos,
+            "speaker_deleted": has_delete_tag and bool(speaker),
+            "text_deleted": has_delete_tag,
+            "text": text,
         })
     return results
 
@@ -228,20 +250,18 @@ def export_srt(subtitles: List[Subtitle]) -> str:
         out.append(f"{fmt(sub.start_ms)} --> {fmt(sub.end_ms)}")
 
         parts = []
+
         if sub.text_pos == "top":
             parts.append("{\\an8}")
 
         if sub.speaker:
-            if sub.speaker_pos == "deleted":
+            if sub.speaker_deleted:
                 parts.append(f"({sub.speaker}{{\\ㅅ}})")
             else:
                 parts.append(f"({sub.speaker}{{\\}})")
 
-        if sub.text_pos == "deleted":
-            if sub.type == "effect":
-                parts.append(f"{sub.text}{{\\ㅅ}}")
-            else:
-                parts.append(f"{sub.text}{{\\ㅅ}}")
+        if sub.text_deleted:
+            parts.append(f"{sub.text}{{\\ㅅ}}")
         else:
             parts.append(f"{sub.text}{{\\}}")
 

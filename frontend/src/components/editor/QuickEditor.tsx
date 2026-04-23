@@ -5,6 +5,7 @@ import { usePlayerStore } from "../../store/usePlayerStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { countTextChars } from "../../utils/validation";
 import { msToTimecode, timecodeToMs } from "../../utils/time";
+import { calcSpeakerReserved } from "../../utils/validation";
 
 interface Props {
   dark: boolean;
@@ -12,9 +13,10 @@ interface Props {
   maxLines?: number;
   readOnly?: boolean;
   editorMode?: "srt" | "json";
+  speakerMode?: string;
 }
 
-export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, editorMode = "srt" }: Props) {
+export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, editorMode = "srt", speakerMode = "name" }: Props) {
   const { subtitles, selectedId, updateLocal, navigateNext, navigatePrev } = useSubtitleStore();
   const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
   const editorFontSize = useSettingsStore((s) => s.subtitleDisplay.editorFontSize);
@@ -65,14 +67,15 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
     }
   };
 
-  /* ── 삭제/위치 상태 계산 ── */
-  const spkDeleted = sel.speaker_pos === "deleted";
-  const txtDeleted = sel.text_pos === "deleted";
+  /* ── 삭제 상태 (bool, 위치와 독립) ── */
+  const spkDeleted = !!sel.speaker_deleted;
+  const txtDeleted = !!sel.text_deleted;
+
+  /* ── 위치 상태 (삭제와 독립) ── */
   const isTop = sel.speaker_pos === "top" || sel.text_pos === "top";
 
   /* ── 글자수 계산 ── */
-  // 화자 예약: 화자가 있고 삭제 상태가 아닐 때만 (화자명) + 공백 = 화자명.length + 3
-  const speakerReserved = (sel.speaker && !spkDeleted) ? sel.speaker.length + 3 : 0;
+  const speakerReserved = calcSpeakerReserved(sel.speaker, spkDeleted, speakerMode);
   const lines = sel.text.split("\n");
   const lineCount = Math.max(1, lines.length);
   const lineChars = lines.map((line) => countTextChars(line));
@@ -81,34 +84,23 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
   const limit = maxChars * lineCount;
   const isOver = totalWithSpeaker > limit;
 
-  /** 화자삭제 토글 */
+  /** 화자삭제 토글 — 위치(speaker_pos)는 건드리지 않음 */
   const toggleSpkDelete = () => {
     if (readOnly) return;
-    upd({ speaker_pos: spkDeleted ? "default" : "deleted" });
+    upd({ speaker_deleted: !spkDeleted });
   };
 
-  /** 대사삭제 토글 */
+  /** 대사삭제 토글 — 위치(text_pos)는 건드리지 않음 */
   const toggleTxtDelete = () => {
     if (readOnly) return;
-    upd({ text_pos: txtDeleted ? "default" : "deleted" });
+    upd({ text_deleted: !txtDeleted });
   };
 
-  /** 위치 토글: 기본 ↔ 상단. 상단 시 speaker_pos + text_pos 모두 top으로 */
+  /** 위치 토글 — 삭제 상태는 건드리지 않음 */
   const togglePosition = () => {
     if (readOnly) return;
-    if (isTop) {
-      // 상단 → 기본: 삭제 상태가 아닌 것만 default로
-      const updates: Record<string, string> = {};
-      if (sel.speaker_pos === "top") updates.speaker_pos = "default";
-      if (sel.text_pos === "top") updates.text_pos = "default";
-      upd(updates);
-    } else {
-      // 기본 → 상단: 삭제 상태가 아닌 것만 top으로
-      const updates: Record<string, string> = {};
-      if (sel.speaker_pos !== "deleted") updates.speaker_pos = "top";
-      if (sel.text_pos !== "deleted") updates.text_pos = "top";
-      upd(updates);
-    }
+    const newPos = isTop ? "default" : "top";
+    upd({ speaker_pos: newPos, text_pos: newPos });
   };
 
   return (

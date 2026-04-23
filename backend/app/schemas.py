@@ -6,14 +6,14 @@ from typing import Optional, List
 from typing_extensions import Literal
 from pydantic import BaseModel
 
-# ── 방송사별 자막 기준 ──
+# ── TODO : 방송사별 자막 기준, 최소 길이, 화자 구분 추가 필요 ──
 BROADCASTER_RULES = {
-    "TVING":  {"max_lines": 2, "max_chars_per_line": 20, "bracket_chars": 5},
-    "LGHV":   {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5},
-    "SKBB":   {"max_lines": 1, "max_chars_per_line": 20, "bracket_chars": 5},
-    "JTBC":   {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5},
-    "KBS":    {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5},
-    "자유작업": {"max_lines": 99, "max_chars_per_line": 999, "bracket_chars": 0},
+    "TVING":  {"max_lines": 2, "max_chars_per_line": 20},
+    "LGHV":   {"max_lines": 2, "max_chars_per_line": 18},
+    "SKBB":   {"max_lines": 1, "max_chars_per_line": 20},
+    "JTBC":   {"max_lines": 2, "max_chars_per_line": 18},
+    "KBS":    {"max_lines": 2, "max_chars_per_line": 18},
+    "자유작업": {"max_lines": 99, "max_chars_per_line": 999},
 }
 
 # ── Auth ──
@@ -100,6 +100,7 @@ class ProjectResponse(BaseModel):
     import_type: str = "srt"
     last_position_ms: int = 0
     last_selected_id: Optional[int] = None
+    speaker_mode: str = "name"
     class Config:
         from_attributes = True
 
@@ -116,6 +117,8 @@ class SubtitleCreate(BaseModel):
     position: Literal["default", "top", "deleted"] = "default"
     text: str = ""
     source_id: Optional[str] = None
+    speaker_deleted: bool = False
+    text_deleted: bool = False
 
 class SubtitleUpdate(BaseModel):
     start_ms: Optional[int] = None
@@ -128,6 +131,8 @@ class SubtitleUpdate(BaseModel):
     position: Optional[Literal["default", "top", "deleted"]] = None
     text: Optional[str] = None
     source_id: Optional[str] = None
+    speaker_deleted: bool = False
+    text_deleted: bool = False
 
 class SubtitleResponse(BaseModel):
     id: int
@@ -145,6 +150,8 @@ class SubtitleResponse(BaseModel):
     source_id: Optional[str] = None
     class Config:
         from_attributes = True
+    speaker_deleted: bool = False
+    text_deleted: bool = False
 
 class SubtitleBatchItem(BaseModel):
     id: int
@@ -158,6 +165,8 @@ class SubtitleBatchItem(BaseModel):
     position: Literal["default", "top", "deleted"] = "default"
     text: str
     source_id: Optional[str] = None
+    speaker_deleted: bool = False
+    text_deleted: bool = False
 
 class BatchDeleteRequest(BaseModel):
     ids: List[int]

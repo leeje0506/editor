@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FileText, Film, Upload, Settings, Type, Keyboard, RotateCcw } from "lucide-react";
+import { FileText, Film, Upload, Settings, Type, Keyboard, RotateCcw, X } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { projectsApi } from "../../api/projects";
 import { useBroadcasterStore } from "../../store/useBroadcasterStore";
@@ -97,18 +97,11 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
     if (!pid) return;
     setSaving(true);
     try {
-      const updateData: Record<string, unknown> = { name, broadcaster };
-      if (isAdmin) {
-        updateData.max_lines = maxLines;
-        updateData.max_chars_per_line = maxChars;
-        updateData.min_duration_ms = Math.round(minDuration * 1000);
-      }
-      await projectsApi.update(pid, updateData);
+      await projectsApi.update(pid, { name, broadcaster });
       await initSubs(pid);
-      setMsg("저장 완료!");
-      setTimeout(() => setMsg(""), 2000);
+      onClose();  // 변경 성공 시 바로 닫기
     } catch {
-      setMsg("저장 실패");
+      setMsg("변경 실패");
       setTimeout(() => setMsg(""), 2000);
     }
     setSaving(false);
@@ -193,9 +186,9 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
       <div className={`${card} rounded-lg shadow-xl w-[560px] max-h-[80vh] flex flex-col ${tp}`} onClick={(e) => e.stopPropagation()}>
 
         {/* 탭 헤더 */}
-        <div className={`flex border-b ${bd} px-5 shrink-0`}>
+        <div className={`flex items-center border-b ${bd} px-5 shrink-0`}>
           {([
-            { key: "project" as Tab, label: "프로젝트 설정", icon: Settings },
+            { key: "project" as Tab, label: "작업 설정", icon: Settings },
             { key: "subtitle" as Tab, label: "자막 설정", icon: Type },
             { key: "shortcuts" as Tab, label: "단축키 설정", icon: Keyboard },
           ]).map(t => (
@@ -204,9 +197,13 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-1.5 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${tab === t.key ? tabActive : tabInactive}`}
             >
-              <t.icon size={13} /> {t.label}
+              <t.icon size={15} /> {t.label}
             </button>
           ))}
+          <div className="flex-1" />
+          <button onClick={onClose} className={`${ts} hover:opacity-60 p-1`} title="닫기">
+            <X size={22} />
+          </button>
         </div>
 
         {/* 탭 내용 */}
@@ -221,7 +218,7 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
           {tab === "project" && (
             <div className="space-y-3 text-xs">
               <div>
-                <label className={`block ${ts} mb-1`}>프로젝트 이름</label>
+                <label className={`block ${ts} mb-1`}>작업 이름</label>
                 <input value={name} onChange={(e) => setName(e.target.value)} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
               </div>
 
@@ -230,34 +227,45 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 <select value={broadcaster} onChange={(e) => handleBroadcasterChange(e.target.value)} className={`w-full border rounded px-2.5 py-2 ${inp}`}>
                   {bcStore.names.map((bc) => {
                     const r = bcStore.rules[bc];
-                    return <option key={bc} value={bc}>{bc} — {r?.max_lines}줄 / {r?.max_chars_per_line}자</option>;
+                    return <option key={bc} value={bc}>{bc} 
+                    {/* — {r?.max_lines}줄 / {r?.max_chars_per_line}자 */}
+                    </option>;
                   })}
                 </select>
               </div>
 
-              {isAdmin && (
-                <div className="flex gap-3">
-                  <div className="flex-1">
-                    <label className={`block ${ts} mb-1`}>최대 줄 수</label>
-                    <input type="number" value={maxLines} onChange={(e) => setMaxLines(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
-                  </div>
-                  <div className="flex-1">
-                    <label className={`block ${ts} mb-1`}>줄당 최대 글자</label>
-                    <input type="number" value={maxChars} onChange={(e) => setMaxChars(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
-                  </div>
-                  <div className="flex-1">
-                    <label className={`block ${ts} mb-1`}>최소 길이(초)</label>
-                    <input type="number" step={0.1} min={0.1} value={minDuration} onChange={(e) => setMinDuration(Number(e.target.value))} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
-                  </div>
-                </div>
-              )}
+              <div className={`flex gap-4 ${ts}`}>
+                <span>줄 수: {maxLines}</span>
+                <span>글자 수: {maxChars}</span>
+                <span>최소 길이: {minDuration}초</span>
+                <span>오버랩: {bcStore.rules[broadcaster]?.allow_overlap ? "허용" : "미허용"}</span>
+                <span>화자: {
+                  bcStore.rules[broadcaster]?.speaker_mode === "hyphen" ? "하이픈(-)" :
+                  bcStore.rules[broadcaster]?.speaker_mode === "hyphen_space" ? "하이픈공백(- )" :
+                  "이름표기"
+                }</span>
+              </div>
 
+              <div>
+                <label className={`block ${ts} mb-1 flex items-center gap-1`}><Film size={12} /> 영상 파일</label>
+                <div className={`flex items-center border rounded ${inp}`}>
+                  <span className={`flex-1 px-2.5 py-2 ${ts} truncate`}>{project?.video_file?.split("/").pop() || "없음"}</span>
+                  <label className={`px-3 py-2 border-l ${bd} ${ts} hover:opacity-80 flex items-center gap-1 cursor-pointer`}>
+                    <Upload size={12} /> 업로드
+                    <input type="file" accept="video/*" className="hidden" onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleVideoUpload(f);
+                    }} />
+                  </label>
+                </div>
+              </div>
+              
               <div>
                 <label className={`block ${ts} mb-1 flex items-center gap-1`}><FileText size={12} /> 자막 파일</label>
                 <div className={`flex items-center border rounded ${inp}`}>
                   <span className={`flex-1 px-2.5 py-2 ${ts} truncate`}>{project?.subtitle_file || "없음"}</span>
                   <label className={`px-3 py-2 border-l ${bd} ${ts} hover:opacity-80 flex items-center gap-1 cursor-pointer`}>
-                    <Upload size={12} /> 변경
+                    <Upload size={12} /> 업로드
                     <input type="file" accept=".srt,.vtt,.txt,.json" className="hidden" onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) handleSubtitleUpload(f);
@@ -266,24 +274,12 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 </div>
               </div>
 
-              <div>
-                <label className={`block ${ts} mb-1 flex items-center gap-1`}><Film size={12} /> 영상 파일</label>
-                <div className={`flex items-center border rounded ${inp}`}>
-                  <span className={`flex-1 px-2.5 py-2 ${ts} truncate`}>{project?.video_file?.split("/").pop() || "없음"}</span>
-                  <label className={`px-3 py-2 border-l ${bd} ${ts} hover:opacity-80 flex items-center gap-1 cursor-pointer`}>
-                    <Upload size={12} /> 변경
-                    <input type="file" accept="video/*" className="hidden" onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleVideoUpload(f);
-                    }} />
-                  </label>
-                </div>
-              </div>
+              
 
               <div className="flex gap-2 pt-2">
                 <button onClick={onClose} className={`flex-1 border ${bd} py-2 rounded text-xs hover:opacity-80`}>취소</button>
                 <button onClick={handleProjectSave} disabled={saving} className="flex-1 bg-blue-600 text-white py-2 rounded text-xs hover:bg-blue-700 disabled:opacity-50">
-                  {saving ? "저장 중..." : "저장"}
+                  {saving ? "저장 중..." : "변경"}
                 </button>
               </div>
             </div>

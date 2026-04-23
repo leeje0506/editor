@@ -1,5 +1,5 @@
 import { useRef, useMemo, useCallback, useEffect } from "react";
-import { Play, Pause, SkipBack, SkipForward, RefreshCw, Minus, Plus } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, RefreshCw } from "lucide-react";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { subtitlesApi } from "../../api/subtitles";
@@ -80,7 +80,6 @@ export function Timeline({ dark, peaks, onReload }: Props) {
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const seekForward = usePlayerStore((s) => s.seekForward);
   const seekBackward = usePlayerStore((s) => s.seekBackward);
-  const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
   const totalMs = usePlayerStore((s) => s.totalMs);
   const playbackRate = usePlayerStore((s) => s.playbackRate);
   const setPlaybackRate = usePlayerStore((s) => s.setPlaybackRate);
@@ -125,7 +124,9 @@ export function Timeline({ dark, peaks, onReload }: Props) {
     if (peaks && peaks.length > 0 && peaksPerSec > 0) {
       return buildWavePath(peaks, peaksPerSec, tlLeft, visDur, totalMs);
     }
-    return buildMockWavePath(tlLeft, visDur, totalMs);
+    // 파형 목업 넣는 부분 삭제함
+    // return buildMockWavePath(tlLeft, visDur, totalMs);
+    return "";
   }, [peaks, peaksPerSec, tlLeft, visDur, totalMs]);
 
   /* ── 오버랩 구간 계산 (뷰 기준 퍼센트) ── */
@@ -167,6 +168,64 @@ export function Timeline({ dark, peaks, onReload }: Props) {
   }, [vtl, tlLeft, visDur, selectedId]);
 
   const updateOne = useSubtitleStore((s) => s.updateOne);
+
+  /* ── 자막 블록 전체 드래그 이동 ── */
+  const startMoveDrag = useCallback(
+    (e: React.MouseEvent, subId: number) => {
+      // 경계선 핸들이면 무시 (startDrag가 처리)
+      if ((e.target as HTMLElement).closest("[data-h]")) return;
+      e.stopPropagation();
+      e.preventDefault();
+
+      const sub = subtitles.find((s) => s.id === subId);
+      if (!sub || !tlRef.current) return;
+
+      const rect = tlRef.current.getBoundingClientRect();
+      const startPct = (e.clientX - rect.left) / rect.width;
+      const startClickMs = Math.round(tlLeft + startPct * visDur);
+      const duration = sub.end_ms - sub.start_ms;
+      const offsetFromStart = startClickMs - sub.start_ms;
+
+      // 선택
+      selectSingle(subId);
+
+      const onMove = (ev: MouseEvent) => {
+        if (!tlRef.current) return;
+        const r = tlRef.current.getBoundingClientRect();
+        const pct = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+        const moveMs = Math.round(tlLeft + pct * visDur);
+        const newStart = Math.max(0, moveMs - offsetFromStart);
+        const newEnd = newStart + duration;
+        updateLocal(subId, { start_ms: newStart, end_ms: newEnd });
+      };
+
+      const onUp = () => {
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+
+        // 서버에 반영 + 순서 재정렬
+        const current = useSubtitleStore.getState().subtitles.find((s) => s.id === subId);
+        if (current) {
+          updateOne(subId, { start_ms: current.start_ms, end_ms: current.end_ms }).then(() => {
+            const { projectId } = useSubtitleStore.getState();
+            if (projectId) {
+              subtitlesApi.list(projectId).then((subs) => {
+                useSubtitleStore.setState({ subtitles: subs });
+              });
+            }
+          });
+        }
+      };
+
+      document.body.style.cursor = "grabbing";
+      document.body.style.userSelect = "none";
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [tlLeft, visDur, subtitles, selectSingle, updateLocal, updateOne],
+  );
 
   /* ── 자막 시간 드래그 ── */
   const startDrag = useCallback(
@@ -219,7 +278,7 @@ export function Timeline({ dark, peaks, onReload }: Props) {
     return () => el.removeEventListener("wheel", handler);
   }, [handleWheel]);
 
-  /* ── 파형 클릭 ── */
+  /* ── 파형 클릭 → seekTo 사용 ── */
   const onTrackClick = useCallback(
     (e: React.MouseEvent) => {
       if ((e.target as HTMLElement).closest("[data-h]")) return;
@@ -232,13 +291,12 @@ export function Timeline({ dark, peaks, onReload }: Props) {
         usePlayerStore.getState().togglePlay();
       }
 
-      setCurrentMs(clickMs);
-      usePlayerStore.getState().setVideoPreviewMs(null);
+      usePlayerStore.getState().seekTo(clickMs);
 
       const hit = subtitles.find((s) => clickMs >= s.start_ms && clickMs < s.end_ms);
       if (hit) selectSingle(hit.id);
     },
-    [tlLeft, visDur, setCurrentMs, subtitles, selectSingle],
+    [tlLeft, visDur, subtitles, selectSingle],
   );
 
   return (
@@ -256,31 +314,22 @@ export function Timeline({ dark, peaks, onReload }: Props) {
             <SkipForward size={13} className={`${ts} cursor-pointer hover:opacity-80`} />
           </button>
           <ZoomControls dark={dm} />
-          {/* 배속 조절 */}
-          <div className="flex items-center gap-1 ml-1">
-            <button
-              onClick={() => setPlaybackRate(playbackRate - 0.1)}
-              disabled={playbackRate <= 0.5}
-              className={`w-4 h-4 flex items-center justify-center rounded ${ts} hover:text-blue-400 disabled:opacity-30`}
-              title="배속 감소"
+          {/* 배속 조절 — 드롭다운 */}
+          <div className="flex items-center ml-1">
+            <select
+              value={[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0].reduce((a, b) => Math.abs(b - playbackRate) < Math.abs(a - playbackRate) ? b : a).toFixed(1)}
+              onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+              className={`h-5 text-[10px] font-mono border rounded px-1 outline-none cursor-pointer ${
+                dm ? "bg-gray-700 border-gray-600 text-gray-300" : "bg-white border-gray-300 text-gray-700"
+              } ${playbackRate !== 1.0 ? "text-yellow-400 font-bold border-yellow-500/50" : ""}`}
+              title="재생 배속"
             >
-              <Minus size={10} />
-            </button>
-            <span
-              className={`text-[10px] font-mono min-w-[36px] text-center cursor-pointer ${playbackRate !== 1.0 ? "text-yellow-400 font-bold" : ts}`}
-              onClick={() => setPlaybackRate(1.0)}
-              title="클릭하면 1.0x로 초기화"
-            >
-              {playbackRate.toFixed(1)}x
-            </span>
-            <button
-              onClick={() => setPlaybackRate(playbackRate + 0.1)}
-              disabled={playbackRate >= 3.0}
-              className={`w-4 h-4 flex items-center justify-center rounded ${ts} hover:text-blue-400 disabled:opacity-30`}
-              title="배속 증가"
-            >
-              <Plus size={10} />
-            </button>
+              {[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0].map((v) => (
+                <option key={v} value={v.toFixed(1)}>
+                  {v % 0.5 === 0 ? `${v.toFixed(1)}x` : `  ${v.toFixed(2)}x`}
+                </option>
+              ))}
+            </select>
           </div>
           <button
             onClick={() => { if (onReload) onReload(); }}
@@ -396,19 +445,20 @@ export function Timeline({ dark, peaks, onReload }: Props) {
               const zIdx = isSel ? 30 : 10;
 
               return (
-                <div key={s.id} data-sub-block className="absolute top-0 bottom-0"
-                  style={{ left: `${clampedL}%`, width: `${clampedW}%`, zIndex: zIdx }}>
+                <div key={s.id} data-sub-block className="absolute top-0 bottom-0 cursor-grab active:cursor-grabbing"
+                  style={{ left: `${clampedL}%`, width: `${clampedW}%`, zIndex: zIdx }}
+                  onMouseDown={(e) => startMoveDrag(e, s.id)}>
 
                   {/* 좌측 경계 */}
                   <div data-h="s"
-                    className={`absolute left-0 top-0 bottom-0 w-px cursor-ew-resize z-20 hover:bg-green-400/50 ${
+                    className={`absolute left-0 top-0 bottom-0 w-[2.5px] cursor-ew-resize z-20 hover:bg-green-400/50 ${
                       isSel ? "bg-red-400" : "bg-gray-400/50"
                     }`}
                     onMouseDown={(e) => startDrag(e, "start", s.id)}
                   />
                   {/* 우측 경계 */}
                   <div data-h="e"
-                    className={`absolute right-0 top-0 bottom-0 w-px cursor-ew-resize z-20 hover:bg-green-400/50 ${
+                    className={`absolute right-0 top-0 bottom-0 w-[2.5px] cursor-ew-resize z-20 hover:bg-green-400/50 ${
                       isSel ? "bg-red-400" : "bg-gray-400/50"
                     }`}
                     onMouseDown={(e) => startDrag(e, "end", s.id)}
