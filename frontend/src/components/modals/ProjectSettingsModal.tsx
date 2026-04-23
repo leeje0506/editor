@@ -229,27 +229,11 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 </select>
               </div>
 
-              {/* 기존 isAdmin 블록 삭제하고 이걸로 교체 */}
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className={`block ${ts} mb-1`}>최대 줄 수</label>
-                  <input type="number" value={maxLines} readOnly className={`w-full border rounded px-2.5 py-2 ${inp} opacity-60 cursor-not-allowed`} />
-                </div>
-                <div className="flex-1">
-                  <label className={`block ${ts} mb-1`}>줄당 최대 글자</label>
-                  <input type="number" value={maxChars} readOnly className={`w-full border rounded px-2.5 py-2 ${inp} opacity-60 cursor-not-allowed`} />
-                </div>
-                <div className="flex-1">
-                  <label className={`block ${ts} mb-1`}>최소 길이(초)</label>
-                  <input type="number" value={minDuration} readOnly className={`w-full border rounded px-2.5 py-2 ${inp} opacity-60 cursor-not-allowed`} />
-                </div>
-              </div>
-
-              <div>
-                <label className={`block ${ts} mb-1`}>오버랩 허용</label>
-                <div className={`w-full border rounded px-2.5 py-2 ${inp} opacity-60 cursor-not-allowed`}>
-                  {bcStore.rules[broadcaster]?.allow_overlap ? "허용" : "미허용"}
-                </div>
+              <div className={`flex gap-4 ${ts}`}>
+                <span>줄 수: {maxLines}</span>
+                <span>글자 수: {maxChars}</span>
+                <span>최소 길이: {minDuration}초</span>
+                <span>오버랩: {bcStore.rules[broadcaster]?.allow_overlap ? "허용" : "미허용"}</span>
               </div>
 
               <div>
