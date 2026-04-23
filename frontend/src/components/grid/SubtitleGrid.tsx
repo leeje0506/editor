@@ -22,6 +22,7 @@ interface Props {
   maxChars?: number;
   maxLines?: number;
   minDurationMs?: number;
+  speakerMode?: string;
 }
 
 function msToDuration(ms: number): string {
@@ -152,6 +153,7 @@ export function SubtitleGrid({
   maxChars = 18,
   maxLines = 2,
   minDurationMs = 500,
+  speakerMode = "name",
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -547,6 +549,7 @@ export function SubtitleGrid({
                   maxChars,
                   maxLines,
                   minDurationMs,
+                  speakerMode,
                 ));
                 // 서버 오버랩은 로컬에서 계산 안 하므로 서버 error에서 가져옴
                 if (sub.error?.includes("오버랩")) localErrors.add("오버랩");

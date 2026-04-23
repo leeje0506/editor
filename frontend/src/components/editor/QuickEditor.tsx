@@ -5,6 +5,7 @@ import { usePlayerStore } from "../../store/usePlayerStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { countTextChars } from "../../utils/validation";
 import { msToTimecode, timecodeToMs } from "../../utils/time";
+import { calcSpeakerReserved } from "../../utils/validation";
 
 interface Props {
   dark: boolean;
@@ -12,9 +13,10 @@ interface Props {
   maxLines?: number;
   readOnly?: boolean;
   editorMode?: "srt" | "json";
+  speakerMode?: string;
 }
 
-export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, editorMode = "srt" }: Props) {
+export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, editorMode = "srt", speakerMode = "name" }: Props) {
   const { subtitles, selectedId, updateLocal, navigateNext, navigatePrev } = useSubtitleStore();
   const setCurrentMs = usePlayerStore((s) => s.setCurrentMs);
   const editorFontSize = useSettingsStore((s) => s.subtitleDisplay.editorFontSize);
@@ -73,7 +75,7 @@ export function QuickEditor({ dark, maxChars = 18, maxLines = 2, readOnly, edito
   const isTop = sel.speaker_pos === "top" || sel.text_pos === "top";
 
   /* ── 글자수 계산 ── */
-  const speakerReserved = (sel.speaker && !spkDeleted) ? sel.speaker.length + 3 : 0;
+  const speakerReserved = calcSpeakerReserved(sel.speaker, spkDeleted, speakerMode);
   const lines = sel.text.split("\n");
   const lineCount = Math.max(1, lines.length);
   const lineChars = lines.map((line) => countTextChars(line));

@@ -2,16 +2,11 @@
 backend/app/services/subtitle_service.py
 Python 3.9 호환
 
-글자수 카운트:
-- 공백 및 특수기호 포함, 줄바꿈만 제외
-- 글자 수 넘었는지 판단: 대사글자수 + 화자예약글자수 > 기준값(max_chars_per_line * max_lines)
-
-Position 체계 (v8 리팩터):
-  speaker_pos / text_pos : "default" | "top"   ← 위치만
-  speaker_deleted        : bool                ← 화자 삭제 표시
-  text_deleted           : bool                ← 대사 삭제 표시
-  삭제와 위치는 완전히 독립. 삭제 상태에서도 위치 변경 가능.
-  SRT export: speaker_deleted → 화자에 {\\ㅅ}, text_deleted → 대사에 {\\ㅅ}, text_pos=="top" → {\\an8}
+화자 예약 계산 (speaker_mode):
+  "name"         : 화자명.length + 3  (예: "(홍길동) " = 이름3 + 괄호2 + 공백1)
+  "hyphen"       : 1                  (예: "-대사")
+  "hyphen_space" : 2                  (예: "- 대사")
+  화자가 없거나 삭제 상태면 항상 0
 """
 from __future__ import annotations
 from typing import List, Dict, Tuple
@@ -25,6 +20,18 @@ def count_text_chars(text: str) -> int:
     """텍스트 글자수 카운트. 공백 및 특수기호 포함, 줄바꿈만 제외. NFC 정규화 후 카운트."""
     normalized = unicodedata.normalize("NFC", text)
     return len(normalized.replace("\n", ""))
+
+
+def calc_speaker_reserved(speaker: str, speaker_deleted: bool, speaker_mode: str) -> int:
+    """화자 예약 글자수 계산. 공통 함수."""
+    if not speaker or speaker_deleted:
+        return 0
+    if speaker_mode == "hyphen":
+        return 1
+    if speaker_mode == "hyphen_space":
+        return 2
+    # "name" (기본값)
+    return len(speaker) + 3
 
 
 def _get_broadcaster_rule(db: Session, project: Project) -> BroadcasterRule | None:
@@ -48,9 +55,10 @@ def validate_subtitle(sub: Subtitle, project: Project, min_duration_ms: int = 0)
     """
     errors: List[str] = []
 
-    # 글자수 체크 — 화자 예약: 화자가 있고 삭제 상태가 아닐 때만
+    # 글자수 체크
     total_chars = count_text_chars(sub.text)
-    speaker_reserved = (len(sub.speaker) + 3) if (sub.speaker and not sub.speaker_deleted) else 0
+    speaker_mode = getattr(project, "speaker_mode", None) or "name"
+    speaker_reserved = calc_speaker_reserved(sub.speaker, sub.speaker_deleted, speaker_mode)
     line_count = max(1, len(sub.text.split("\n")))
     limit = (project.max_chars_per_line or 18) * line_count
 
@@ -133,7 +141,6 @@ def save_snapshot(db: Session, project_id: int, action: str) -> None:
 
 
 def restore_snapshot(db: Session, project_id: int, snapshot: List[Dict]) -> List[Subtitle]:
-    # 빈 스냅샷이면 복원 거부 (자막 업로드 이전 상태로 되돌리는 것 방지)
     if not snapshot:
         return (
             db.query(Subtitle)
@@ -159,7 +166,6 @@ def restore_snapshot(db: Session, project_id: int, snapshot: List[Dict]) -> List
 
 
 def smart_split_text(text: str) -> Tuple[str, str]:
-    """텍스트를 절반 지점에서 스마트 분할. 공백 기준."""
     if not text:
         return ("", "")
     mid = len(text) // 2
@@ -197,32 +203,27 @@ def parse_srt(content: str) -> List[Dict]:
         end_ms = int(g[4]) * 3600000 + int(g[5]) * 60000 + int(g[6]) * 1000 + int(g[7])
         text = "\n".join(lines[2:])
 
-        # {\an8} → 상단 위치
         text_pos = "default"
         if "{\\an8}" in text:
             text_pos = "top"
             text = text.replace("{\\an8}", "").strip()
 
-        # {\ㅅ} → 삭제 표시 감지
         has_delete_tag = "{\\ㅅ}" in text
         text = re.sub(r"\{\\ㅅ\}", "", text)
         text = re.sub(r"\{\\}", "", text)
         text = re.sub(r"\{/an8\}", "", text)
         text = text.strip()
 
-        # 화자 추출
         speaker = ""
         speaker_match = re.match(r"^\(([^)]+)\)\s*", text)
         if speaker_match:
             speaker = speaker_match.group(1)
             text = text[speaker_match.end():]
 
-        # 효과음 판별
         sub_type = "dialogue"
         if re.match(r"^\[.*\]$", text.strip()):
             sub_type = "effect"
 
-        # 삭제 태그가 있으면 화자/대사 모두 삭제 표시
         results.append({
             "start_ms": start_ms, "end_ms": end_ms, "type": sub_type,
             "speaker": speaker,
@@ -250,18 +251,15 @@ def export_srt(subtitles: List[Subtitle]) -> str:
 
         parts = []
 
-        # 상단 위치 태그 — 삭제 여부와 무관, 위치만 판별
         if sub.text_pos == "top":
             parts.append("{\\an8}")
 
-        # 화자
         if sub.speaker:
             if sub.speaker_deleted:
                 parts.append(f"({sub.speaker}{{\\ㅅ}})")
             else:
                 parts.append(f"({sub.speaker}{{\\}})")
 
-        # 대사
         if sub.text_deleted:
             parts.append(f"{sub.text}{{\\ㅅ}}")
         else:

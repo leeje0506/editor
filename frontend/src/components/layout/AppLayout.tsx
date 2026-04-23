@@ -538,6 +538,7 @@ export function AppLayout() {
               maxLines={project?.max_lines ?? 2}
               minDurationMs={(project as any)?.min_duration_ms ?? 500}
               onSubtitleUploaded={handleSubtitleUploaded}
+              speakerMode={project?.speaker_mode ?? "name"}
             />
           </div>
 
@@ -550,6 +551,7 @@ export function AppLayout() {
               maxLines={project?.max_lines ?? 2}
               readOnly={isReadOnly(project, isWorker)}
               editorMode={editorMode}
+              speakerMode={project?.speaker_mode ?? "name"}
             />
           </div>
         </div>

@@ -100,6 +100,7 @@ class ProjectResponse(BaseModel):
     import_type: str = "srt"
     last_position_ms: int = 0
     last_selected_id: Optional[int] = None
+    speaker_mode: str = "name"
     class Config:
         from_attributes = True
 

@@ -239,6 +239,11 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 <span>글자 수: {maxChars}</span>
                 <span>최소 길이: {minDuration}초</span>
                 <span>오버랩: {bcStore.rules[broadcaster]?.allow_overlap ? "허용" : "미허용"}</span>
+                <span>화자: {
+                  bcStore.rules[broadcaster]?.speaker_mode === "hyphen" ? "하이픈(-)" :
+                  bcStore.rules[broadcaster]?.speaker_mode === "hyphen_space" ? "하이픈공백(- )" :
+                  "이름표기"
+                }</span>
               </div>
 
               <div>

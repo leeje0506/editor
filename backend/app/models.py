@@ -58,15 +58,17 @@ class Project(Base):
     subtitles = relationship("Subtitle", back_populates="project", cascade="all, delete-orphan", order_by="Subtitle.seq")
     history = relationship("EditHistory", back_populates="project", cascade="all, delete-orphan", order_by="EditHistory.created_at")
     # 재작업 관련
-    reject_count = Column(Integer, default=0)              # 반려(재작업) 횟수
-    first_submitted_at = Column(DateTime, nullable=True)   # 최초 제출 일시 (재작업해도 변경 안 함)
-    # 영상 업로드
-    # video_status = Column(String(20), default="none")  # none / uploading / ready / error
-    fps = Column(Float, nullable=True)  # JSON import 시 frame↔ms 변환용
-    import_type = Column(String(20), default="srt")  # srt / json
+    reject_count = Column(Integer, default=0)
+    first_submitted_at = Column(DateTime, nullable=True)
+    # 영상/import
+    fps = Column(Float, nullable=True)
+    import_type = Column(String(20), default="srt")
     last_position_ms = Column(Integer, default=0)
     last_selected_id = Column(Integer, nullable=True)
     min_duration_ms = Column(Integer, default=500)
+    # 화자 계산 모드 (프로젝트별 — 방송사에서 복사)
+    speaker_mode = Column(String(20), default="name")  # name / hyphen / hyphen_space
+
 
 class Subtitle(Base):
     __tablename__ = "subtitles"
@@ -85,17 +87,10 @@ class Subtitle(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
-
-    # track_type: 어떤 오디오 트랙인지 (기존 SRT는 전부 "dialogue" 또는 "effect" → dialogue로)
-    track_type = Column(String(20), default="dialogue")  # dialogue / sfx / bgm / ambience
-
-    # position: JSON 모드에서 사용. default / top / deleted
+    track_type = Column(String(20), default="dialogue")
     position = Column(String(20), default="default")
-
-    # source_id: 원본 JSON의 ID 보존 (dialogueId, sfxId 등)
     source_id = Column(String(100), nullable=True)
     project = relationship("Project", back_populates="subtitles")
-    # 삭제 분리 
     speaker_deleted = Column(Boolean, default=False)
     text_deleted = Column(Boolean, default=False)
 
@@ -129,8 +124,9 @@ class BroadcasterRule(Base):
     max_lines = Column(Integer, default=2)
     max_chars_per_line = Column(Integer, default=18)
     bracket_chars = Column(Integer, default=5)
-    allow_overlap = Column(Boolean, default=False)  # 오버랩 허용 여부
-    min_duration_ms = Column(Integer, default=500)  # 최소 길이 (ms). 기본 0.5초
+    allow_overlap = Column(Boolean, default=False)
+    min_duration_ms = Column(Integer, default=500)
+    speaker_mode = Column(String(20), default="name")  # name / hyphen / hyphen_space
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
