@@ -78,7 +78,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   togglePlay: () =>
     set((s) => {
       if (!s.playing) {
-        // play 시작: currentMs를 덮지 않음 (seekTo에서 이미 맞춰져 있음)
+        // play 시작: 프리뷰 상태였으면 video를 playhead 위치로 복원
+        if (s.videoPreviewMs !== null && s.videoElement) {
+          s.videoElement.currentTime = s.currentMs / 1000;
+        }
         return { playing: true, videoPreviewMs: null };
       }
       // pause: video.currentTime을 스냅샷
