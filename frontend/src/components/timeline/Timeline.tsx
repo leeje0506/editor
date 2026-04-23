@@ -169,6 +169,64 @@ export function Timeline({ dark, peaks, onReload }: Props) {
 
   const updateOne = useSubtitleStore((s) => s.updateOne);
 
+  /* ── 자막 블록 전체 드래그 이동 ── */
+  const startMoveDrag = useCallback(
+    (e: React.MouseEvent, subId: number) => {
+      // 경계선 핸들이면 무시 (startDrag가 처리)
+      if ((e.target as HTMLElement).closest("[data-h]")) return;
+      e.stopPropagation();
+      e.preventDefault();
+
+      const sub = subtitles.find((s) => s.id === subId);
+      if (!sub || !tlRef.current) return;
+
+      const rect = tlRef.current.getBoundingClientRect();
+      const startPct = (e.clientX - rect.left) / rect.width;
+      const startClickMs = Math.round(tlLeft + startPct * visDur);
+      const duration = sub.end_ms - sub.start_ms;
+      const offsetFromStart = startClickMs - sub.start_ms;
+
+      // 선택
+      selectSingle(subId);
+
+      const onMove = (ev: MouseEvent) => {
+        if (!tlRef.current) return;
+        const r = tlRef.current.getBoundingClientRect();
+        const pct = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+        const moveMs = Math.round(tlLeft + pct * visDur);
+        const newStart = Math.max(0, moveMs - offsetFromStart);
+        const newEnd = newStart + duration;
+        updateLocal(subId, { start_ms: newStart, end_ms: newEnd });
+      };
+
+      const onUp = () => {
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+
+        // 서버에 반영 + 순서 재정렬
+        const current = useSubtitleStore.getState().subtitles.find((s) => s.id === subId);
+        if (current) {
+          updateOne(subId, { start_ms: current.start_ms, end_ms: current.end_ms }).then(() => {
+            const { projectId } = useSubtitleStore.getState();
+            if (projectId) {
+              subtitlesApi.list(projectId).then((subs) => {
+                useSubtitleStore.setState({ subtitles: subs });
+              });
+            }
+          });
+        }
+      };
+
+      document.body.style.cursor = "grabbing";
+      document.body.style.userSelect = "none";
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [tlLeft, visDur, subtitles, selectSingle, updateLocal, updateOne],
+  );
+
   /* ── 자막 시간 드래그 ── */
   const startDrag = useCallback(
     (e: React.MouseEvent, handle: "start" | "end", subId: number) => {
@@ -387,8 +445,9 @@ export function Timeline({ dark, peaks, onReload }: Props) {
               const zIdx = isSel ? 30 : 10;
 
               return (
-                <div key={s.id} data-sub-block className="absolute top-0 bottom-0"
-                  style={{ left: `${clampedL}%`, width: `${clampedW}%`, zIndex: zIdx }}>
+                <div key={s.id} data-sub-block className="absolute top-0 bottom-0 cursor-grab active:cursor-grabbing"
+                  style={{ left: `${clampedL}%`, width: `${clampedW}%`, zIndex: zIdx }}
+                  onMouseDown={(e) => startMoveDrag(e, s.id)}>
 
                   {/* 좌측 경계 */}
                   <div data-h="s"
