@@ -127,6 +127,7 @@ export function AppLayout() {
   const user = useAuthStore((s) => s.user);
   const isWorker = !user?.role || !["master", "manager"].includes(user.role);
   const loadSettings = useSettingsStore((s) => s.load);
+  const [videoKey, setVideoKey] = useState(0);
 
   const handleVideoWidthChange = useCallback((w: number) => {
     const maxW = Math.floor(window.innerWidth * 0.7);
@@ -413,12 +414,12 @@ export function AppLayout() {
 
   const handleSettingsClosed = async () => {
     if (!pid) return;
-
     try {
       const p = await projectsApi.get(pid);
       setProject(p);
       setTotalMs(p.total_duration_ms);
       setTimelineTotalMs(p.total_duration_ms);
+      setVideoKey((k) => k + 1);  // 추가
       await init(pid);
     } catch {}
   };
@@ -437,13 +438,12 @@ export function AppLayout() {
 
   const handleVideoUploaded = async () => {
     if (!pid) return;
-
     try {
       const p = await projectsApi.get(pid);
       setProject(p);
       setTotalMs(p.total_duration_ms);
       setTimelineTotalMs(p.total_duration_ms);
-
+      setVideoKey((k) => k + 1);  // 추가
       try {
         const w = await projectsApi.getWaveform(pid);
         setPeaks(w.peaks);
@@ -561,6 +561,7 @@ export function AppLayout() {
             videoWidth={videoWidth}
             onWidthChange={handleVideoWidthChange}
             hasVideo={!!project?.video_file}
+            videoKey={videoKey}
             onVideoUploaded={handleVideoUploaded}
           />
           {showSubPanel && (

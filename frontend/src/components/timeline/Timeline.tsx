@@ -124,7 +124,8 @@ export function Timeline({ dark, peaks, onReload }: Props) {
     if (peaks && peaks.length > 0 && peaksPerSec > 0) {
       return buildWavePath(peaks, peaksPerSec, tlLeft, visDur, totalMs);
     }
-    return buildMockWavePath(tlLeft, visDur, totalMs);
+    // return buildMockWavePath(tlLeft, visDur, totalMs);
+    return "";
   }, [peaks, peaksPerSec, tlLeft, visDur, totalMs]);
 
   /* ── 오버랩 구간 계산 (뷰 기준 퍼센트) ── */
