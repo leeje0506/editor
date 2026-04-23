@@ -187,9 +187,11 @@ export function SubtitleGrid({
   const ts = dm ? "text-gray-400" : "text-gray-500";
   const bd = dm ? "border-gray-700" : "border-gray-200";
   const bdl = dm ? "border-gray-700" : "border-gray-100";
-  const hr = dm ? "hover:bg-gray-700/50" : "hover:bg-gray-50";
-  const sr = dm ? "bg-blue-900/40" : "bg-blue-50/70";
-  const mr = dm ? "bg-blue-900/20" : "bg-blue-50/30";
+  const hr = dm ? "hover:bg-blue-900/25" : "hover:bg-blue-100";
+  //선택 행 색상
+  const sr = dm ? "bg-blue-900/25" : "bg-blue-100";
+  const mr = dm ? "bg-blue-900/10" : "bg-blue-50";
+  //오류 셀 색상
   const errCellBg = dm ? "bg-orange-900/50" : "bg-orange-100";
 
   const speakerOptions = useMemo(() => {
@@ -533,7 +535,7 @@ export function SubtitleGrid({
           >
             {colGroup}
             <thead className={`border-b ${bd} ${card} sticky top-0 z-10`}>{headerRow}</thead>
-            <tbody className={`divide-y ${dm ? "divide-gray-700/40" : "divide-gray-100"}`}>
+            <tbody className={`divide-y ${dm ? "divide-gray-600" : "divide-gray-200"}`}>
               {filtered.map((sub) => {
                 const isSel = selectedId === sub.id;
                 const isMulti = multiSelect.has(sub.id) && !isSel;
