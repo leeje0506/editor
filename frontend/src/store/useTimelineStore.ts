@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { ZOOM_LEVELS, DEFAULT_ZOOM_IDX } from "../types";
+import { usePlayerStore } from "./usePlayerStore";
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -54,7 +55,20 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   panBy: (deltaMs) => {
     const { scrollMs, totalMs, zoomIdx } = get();
     const dur = ZOOM_LEVELS[zoomIdx];
-    set({ scrollMs: clamp(scrollMs + deltaMs, 0, Math.max(0, totalMs - dur)) });
+    const newScrollMs = clamp(scrollMs + deltaMs, 0, Math.max(0, totalMs - dur));
+    set({ scrollMs: newScrollMs });
+
+    // 정지 중일 때 playhead가 뷰 밖이면 뷰 끝으로 clamp + 영상도 갱신
+    const playerState = usePlayerStore.getState();
+    if (!playerState.playing) {
+      const viewEnd = newScrollMs + dur;
+      const currentMs = playerState.currentMs;
+      if (currentMs > viewEnd) {
+        playerState.seekTo(viewEnd);
+      } else if (currentMs < newScrollMs) {
+        playerState.seekTo(newScrollMs);
+      }
+    }
   },
 
   setScrollMs: (ms) => {
