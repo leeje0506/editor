@@ -92,9 +92,10 @@ export function SubtitleOverlay() {
       }
     });
 
+    lastActiveIdsRef.current = ""; 
     update();
     return () => { stopRaf(); unsubPlayer(); unsubSubs(); };
-  }, [fontSize]);
+  }, [fontSize, defaultY, topY]);
 
   return (
     <>
