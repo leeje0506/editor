@@ -143,6 +143,90 @@ function DropCell({
   );
 }
 
+/* ── TODO : 테스트용 인라인 텍스트 편집 셀 ── */
+function EditableTextCell({
+  text,
+  dark,
+  disabled,
+  fontSize,
+  className,
+  onChange,
+  onCellClick,
+}: {
+  text: string;
+  dark: boolean;
+  disabled?: boolean;
+  fontSize: number;
+  className?: string;
+  onChange: (text: string) => void;
+  onCellClick: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(text);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { setValue(text); }, [text]);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  if (disabled || !editing) {
+    return (
+      <div
+        className={className}
+        onDoubleClick={(e) => {
+          if (disabled) return;
+          e.stopPropagation();
+          setEditing(true);
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCellClick();
+        }}
+        title={text}
+      >
+        <div className="leading-snug whitespace-pre-wrap break-all line-clamp-2">
+          {text}
+        </div>
+      </div>
+    );
+  }
+
+  const inp = dark ? "bg-gray-700 text-gray-100 border-gray-600" : "bg-white text-gray-800 border-gray-300";
+
+  return (
+    <div className={className} onClick={(e) => e.stopPropagation()}>
+      <textarea
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => {
+          setEditing(false);
+          if (value !== text) onChange(value);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setValue(text);
+            setEditing(false);
+          }
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            setEditing(false);
+            if (value !== text) onChange(value);
+          }
+          e.stopPropagation();
+        }}
+        style={{ fontSize: `${fontSize}px` }}
+        className={`w-full h-full border rounded px-1 py-0.5 outline-none focus:border-blue-500 resize-none leading-snug ${inp}`}
+      />
+    </div>
+  );
+}
+
 /* ── SubtitleGrid ── */
 export function SubtitleGrid({
   dark,
@@ -636,7 +720,7 @@ export function SubtitleGrid({
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
-                    <td
+                    {/* <td
                       className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`}
                       style={{ textAlign: "left" }}
                       title={sub.text}
@@ -644,7 +728,23 @@ export function SubtitleGrid({
                       <div className="leading-snug whitespace-pre-wrap break-all line-clamp-2">
                         {sub.text}
                       </div>
+                    </td> */}
+                    {/* TODO : 테스트용 대사: 더블클릭으로 인라인 편집 */}
+                    <td
+                      className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`}
+                      style={{ textAlign: "left" }}
+                    >
+                      <EditableTextCell
+                        text={sub.text}
+                        dark={dm}
+                        disabled={readOnly}
+                        fontSize={listFontSize}
+                        className="leading-snug"
+                        onChange={(v) => updateLocal(sub.id, { text: v })}
+                        onCellClick={() => triggerSelect(sub.id)}
+                      />
                     </td>
+                    
                     {/* 대사삭제: text_deleted bool */}
                     <td className={`${cellCls}`} style={cellStyle}>
                       <DropCell
