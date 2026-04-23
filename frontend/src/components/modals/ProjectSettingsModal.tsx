@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FileText, Film, Upload, Settings, Type, Keyboard, RotateCcw } from "lucide-react";
+import { FileText, Film, Upload, Settings, Type, Keyboard, RotateCcw, X } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { projectsApi } from "../../api/projects";
 import { useBroadcasterStore } from "../../store/useBroadcasterStore";
@@ -186,9 +186,9 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
       <div className={`${card} rounded-lg shadow-xl w-[560px] max-h-[80vh] flex flex-col ${tp}`} onClick={(e) => e.stopPropagation()}>
 
         {/* 탭 헤더 */}
-        <div className={`flex border-b ${bd} px-5 shrink-0`}>
+        <div className={`flex items-center border-b ${bd} px-5 shrink-0`}>
           {([
-            { key: "project" as Tab, label: "프로젝트 설정", icon: Settings },
+            { key: "project" as Tab, label: "작업 설정", icon: Settings },
             { key: "subtitle" as Tab, label: "자막 설정", icon: Type },
             { key: "shortcuts" as Tab, label: "단축키 설정", icon: Keyboard },
           ]).map(t => (
@@ -197,9 +197,13 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-1.5 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${tab === t.key ? tabActive : tabInactive}`}
             >
-              <t.icon size={13} /> {t.label}
+              <t.icon size={15} /> {t.label}
             </button>
           ))}
+          <div className="flex-1" />
+          <button onClick={onClose} className={`${ts} hover:opacity-60 p-1`} title="닫기">
+            <X size={22} />
+          </button>
         </div>
 
         {/* 탭 내용 */}
@@ -214,7 +218,7 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
           {tab === "project" && (
             <div className="space-y-3 text-xs">
               <div>
-                <label className={`block ${ts} mb-1`}>프로젝트 이름</label>
+                <label className={`block ${ts} mb-1`}>작업 이름</label>
                 <input value={name} onChange={(e) => setName(e.target.value)} className={`w-full border rounded px-2.5 py-2 ${inp}`} />
               </div>
 
@@ -223,7 +227,9 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 <select value={broadcaster} onChange={(e) => handleBroadcasterChange(e.target.value)} className={`w-full border rounded px-2.5 py-2 ${inp}`}>
                   {bcStore.names.map((bc) => {
                     const r = bcStore.rules[bc];
-                    return <option key={bc} value={bc}>{bc} — {r?.max_lines}줄 / {r?.max_chars_per_line}자</option>;
+                    return <option key={bc} value={bc}>{bc} 
+                    {/* — {r?.max_lines}줄 / {r?.max_chars_per_line}자 */}
+                    </option>;
                   })}
                 </select>
               </div>

@@ -9,6 +9,7 @@ import { GridToolbar } from "./GridToolbar";
 import { GridFilters, type Filters } from "./GridFilters";
 import { FileText, Loader2 } from "lucide-react";
 import { projectsApi } from "../../api/projects";
+import { validateSubtitleLocal } from "../../utils/validation";
 
 interface Props {
   dark: boolean;
@@ -18,6 +19,9 @@ interface Props {
   projectId?: number;
   /** 자막 업로드 완료 후 콜백 */
   onSubtitleUploaded?: () => void;
+  maxChars?: number;
+  maxLines?: number;
+  minDurationMs?: number;
 }
 
 function msToDuration(ms: number): string {
@@ -145,6 +149,9 @@ export function SubtitleGrid({
   editorMode = "srt",
   projectId,
   onSubtitleUploaded,
+  maxChars = 18,
+  maxLines = 2,
+  minDurationMs = 500,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -244,20 +251,18 @@ export function SubtitleGrid({
     }
   }, [selectedId]);
 
-  const handleClick = (id: number) => {
+  const handleClick = (id: number, e: React.MouseEvent) => {
     if (playing) return;
-    selectSingle(id);
+    if (e.shiftKey) selectRange(id);
+    else if (e.ctrlKey || e.metaKey) toggleMulti(id);
+    else selectSingle(id);
     const sub = subtitles.find((s) => s.id === id);
     if (sub) setVideoPreviewMs(sub.start_ms);
   };
 
-  const handleDblClick = (id: number, e: React.MouseEvent) => {
+  const handleDblClick = (id: number) => {
     if (playing) return;
-
-    if (e.shiftKey) selectRange(id);
-    else if (e.ctrlKey || e.metaKey) toggleMulti(id);
-    else selectSingle(id);
-
+    selectSingle(id);
     const sub = subtitles.find((s) => s.id === id);
     if (sub) {
       usePlayerStore.getState().seekTo(sub.start_ms);
@@ -531,13 +536,27 @@ export function SubtitleGrid({
                 const isSel = selectedId === sub.id;
                 const isMulti = multiSelect.has(sub.id) && !isSel;
                 const duration = sub.end_ms - sub.start_ms;
-                const errors = parseErrors(sub.error);
+
+                // 실시간 검수 (서버 error 대신 로컬 계산)
+                const localErrors = new Set(validateSubtitleLocal(
+                  sub.text,
+                  sub.speaker,
+                  !!sub.speaker_deleted,
+                  sub.start_ms,
+                  sub.end_ms,
+                  maxChars,
+                  maxLines,
+                  minDurationMs,
+                ));
+                // 서버 오버랩은 로컬에서 계산 안 하므로 서버 error에서 가져옴
+                if (sub.error?.includes("오버랩")) localErrors.add("오버랩");
+
                 const overlap = overlapCellMap.get(sub.id);
                 const rowBg = isSel ? sr : isMulti ? mr : "";
                 const startCellBg = overlap?.startErr ? errCellBg : "";
                 const endCellBg = overlap?.endErr ? errCellBg : "";
-                const durCellBg = errors.has("최소길이") ? errCellBg : "";
-                const textCellBg = errors.has("글자초과") ? errCellBg : "";
+                const durCellBg = localErrors.has("최소길이") ? errCellBg : "";
+                const textCellBg = localErrors.has("글자초과") ? errCellBg : "";
 
                 // 삭제: bool 필드 (위치와 독립)
                 const spkDeleted = !!sub.speaker_deleted;
@@ -549,8 +568,8 @@ export function SubtitleGrid({
                   <tr
                     key={sub.id}
                     id={`row-${sub.id}`}
-                    onClick={() => handleClick(sub.id)}
-                    onDoubleClick={(e) => handleDblClick(sub.id, e)}
+                    onClick={(e) => handleClick(sub.id, e)}
+                    onDoubleClick={() => handleDblClick(sub.id)}
                     className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
                   >
                     <td className={`${cellCls} relative`} style={cellStyle}>

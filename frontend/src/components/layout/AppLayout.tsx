@@ -534,6 +534,9 @@ export function AppLayout() {
               readOnly={isReadOnly(project, isWorker)}
               editorMode={editorMode}
               projectId={pid}
+              maxChars={project?.max_chars_per_line ?? 18}
+              maxLines={project?.max_lines ?? 2}
+              minDurationMs={(project as any)?.min_duration_ms ?? 500}
               onSubtitleUploaded={handleSubtitleUploaded}
             />
           </div>
