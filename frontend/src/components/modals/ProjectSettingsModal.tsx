@@ -99,10 +99,9 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
     try {
       await projectsApi.update(pid, { name, broadcaster });
       await initSubs(pid);
-      setMsg("저장 완료!");
-      setTimeout(() => setMsg(""), 2000);
+      onClose();  // 변경 성공 시 바로 닫기
     } catch {
-      setMsg("저장 실패");
+      setMsg("변경 실패");
       setTimeout(() => setMsg(""), 2000);
     }
     setSaving(false);
@@ -237,11 +236,25 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
               </div>
 
               <div>
+                <label className={`block ${ts} mb-1 flex items-center gap-1`}><Film size={12} /> 영상 파일</label>
+                <div className={`flex items-center border rounded ${inp}`}>
+                  <span className={`flex-1 px-2.5 py-2 ${ts} truncate`}>{project?.video_file?.split("/").pop() || "없음"}</span>
+                  <label className={`px-3 py-2 border-l ${bd} ${ts} hover:opacity-80 flex items-center gap-1 cursor-pointer`}>
+                    <Upload size={12} /> 업로드
+                    <input type="file" accept="video/*" className="hidden" onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleVideoUpload(f);
+                    }} />
+                  </label>
+                </div>
+              </div>
+              
+              <div>
                 <label className={`block ${ts} mb-1 flex items-center gap-1`}><FileText size={12} /> 자막 파일</label>
                 <div className={`flex items-center border rounded ${inp}`}>
                   <span className={`flex-1 px-2.5 py-2 ${ts} truncate`}>{project?.subtitle_file || "없음"}</span>
                   <label className={`px-3 py-2 border-l ${bd} ${ts} hover:opacity-80 flex items-center gap-1 cursor-pointer`}>
-                    <Upload size={12} /> 변경
+                    <Upload size={12} /> 업로드
                     <input type="file" accept=".srt,.vtt,.txt,.json" className="hidden" onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) handleSubtitleUpload(f);
@@ -250,24 +263,12 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 </div>
               </div>
 
-              <div>
-                <label className={`block ${ts} mb-1 flex items-center gap-1`}><Film size={12} /> 영상 파일</label>
-                <div className={`flex items-center border rounded ${inp}`}>
-                  <span className={`flex-1 px-2.5 py-2 ${ts} truncate`}>{project?.video_file?.split("/").pop() || "없음"}</span>
-                  <label className={`px-3 py-2 border-l ${bd} ${ts} hover:opacity-80 flex items-center gap-1 cursor-pointer`}>
-                    <Upload size={12} /> 변경
-                    <input type="file" accept="video/*" className="hidden" onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleVideoUpload(f);
-                    }} />
-                  </label>
-                </div>
-              </div>
+              
 
               <div className="flex gap-2 pt-2">
                 <button onClick={onClose} className={`flex-1 border ${bd} py-2 rounded text-xs hover:opacity-80`}>취소</button>
                 <button onClick={handleProjectSave} disabled={saving} className="flex-1 bg-blue-600 text-white py-2 rounded text-xs hover:bg-blue-700 disabled:opacity-50">
-                  {saving ? "저장 중..." : "저장"}
+                  {saving ? "저장 중..." : "변경"}
                 </button>
               </div>
             </div>
