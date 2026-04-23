@@ -34,8 +34,10 @@ export const subtitlesApi = {
     items.map((s) => ({
       id: s.id, start_ms: s.start_ms, end_ms: s.end_ms, type: s.type,
       track_type: s.track_type, speaker: s.speaker, speaker_pos: s.speaker_pos,
-      text_pos: s.text_pos, position: s.position, text: s.text,
+      text_pos: s.text_pos, text: s.text,
       source_id: s.source_id,
+      speaker_deleted: s.speaker_deleted,
+      text_deleted: s.text_deleted,
     }))
   ).then((r) => r.data),
 
