@@ -81,7 +81,7 @@ export function TopNav({
               <span className={`flex items-center gap-0.5 ${dm ? "text-yellow-400" : "text-yellow-600"}`}>
                 <Clock size={10} /> 소요 시간: {formatElapsed(elapsed)}
               </span>
-              {project?.fps && <span className={ts}>FPS: {project.fps}</span>}
+              {/* {project?.fps && <span className={ts}>FPS: {project.fps}</span>} */}
             </div>
           </div>
         </div>
@@ -171,7 +171,7 @@ export function TopNav({
                 className={`flex items-center gap-1 border ${bd} ${card} ${tp} px-2.5 py-1 rounded text-xs font-medium hover:opacity-80`}
                 title="Ctrl+S"
               >
-                <Save size={13} /> 임시저장
+                <Save size={13} /> 저장
               </button>
 
               <button
