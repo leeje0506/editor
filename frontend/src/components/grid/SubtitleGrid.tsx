@@ -90,6 +90,10 @@ function DropCell({
     e.stopPropagation();
     onCellClick();
     if (disabled) return;
+    if (e.detail >= 2) {
+      setOpen(false);
+      return;
+    }
     setOpen((prev) => !prev);
   };
 
