@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Home, Moon, Sun, Save, Send, Settings, Clock, Download, Lock, LogOut, Type, FileJson, FileText } from "lucide-react";
+import { Home, Moon, Sun, Save, Send, Settings, Clock, Download, Lock, LogOut, Type, FileJson, FileText, Users } from "lucide-react";
 import { ProjectSettingsModal } from "../modals/ProjectSettingsModal";
+import { BulkSpeakerModal } from "../modals/BulkSpeakerModal";
 import type { Project } from "../../types";
-
 type EditorMode = "srt" | "json";
 
 interface Props {
@@ -39,6 +39,7 @@ export function TopNav({
 }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const [showDlMenu, setShowDlMenu] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
 
   const dm = dark;
   const card = dm ? "bg-gray-800" : "bg-white";
@@ -134,6 +135,9 @@ export function TopNav({
               >
                 <Type size={12} /> 자막설정
               </button> */}
+              <button onClick={() => setShowBulk(true)} className="flex items-center gap-0.5 text-purple-600 border border-purple-200 bg-purple-50 px-2 py-1 rounded text-[10px] font-medium hover:bg-purple-100">
+                <Users size={12} /> 화자 일괄변경
+              </button>
 
               <button onClick={() => setDark(!dm)} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`}>
                 {dm ? <Sun size={14} /> : <Moon size={14} />}
@@ -191,6 +195,7 @@ export function TopNav({
       </div>
 
       {showSettings && !readOnly && <ProjectSettingsModal dark={dm} onClose={() => { setShowSettings(false); onSettingsClosed?.(); }} isAdmin={isAdmin} />}
+      {showBulk && !readOnly && <BulkSpeakerModal dark={dm} onClose={() => setShowBulk(false)} />}
     </>
   );
 }

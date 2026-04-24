@@ -820,6 +820,54 @@ export function SubtitleGrid({
           }`}
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
+          {/* 싱크 추가 */}
+          <button
+            disabled={readOnly}
+            onClick={() => {
+              setContextMenu(null);
+              useSubtitleStore.getState().addAfter();
+            }}
+            className={`w-full text-left px-3 py-1.5 text-xs ${
+              !readOnly
+                ? `${dm ? "text-gray-200 hover:bg-gray-600" : "text-gray-700 hover:bg-blue-50"}`
+                : `${dm ? "text-gray-500" : "text-gray-400"} cursor-not-allowed`
+            }`}
+          >
+            싱크 추가
+          </button>
+          {/* 싱크 분할 */}
+          <button
+            disabled={readOnly || !selectedId}
+            onClick={() => {
+              setContextMenu(null);
+              useSubtitleStore.getState().splitSelected();
+            }}
+            className={`w-full text-left px-3 py-1.5 text-xs ${
+              !readOnly && selectedId
+                ? `${dm ? "text-gray-200 hover:bg-gray-600" : "text-gray-700 hover:bg-blue-50"}`
+                : `${dm ? "text-gray-500" : "text-gray-400"} cursor-not-allowed`
+            }`}
+          >
+            싱크 분할
+          </button>
+          {/* 싱크 삭제 */}
+          <button
+            disabled={readOnly || multiSelect.size === 0}
+            onClick={() => {
+              setContextMenu(null);
+              useSubtitleStore.getState().deleteSelected();
+            }}
+            className={`w-full text-left px-3 py-1.5 text-xs ${
+              !readOnly && multiSelect.size > 0
+                ? `${dm ? "text-gray-200 hover:bg-gray-600" : "text-gray-700 hover:bg-blue-50"}`
+                : `${dm ? "text-gray-500" : "text-gray-400"} cursor-not-allowed`
+            }`}
+          >
+            싱크 삭제 ({multiSelect.size}개)
+          </button>
+          {/* 구분선 */}
+          <div className={`my-1 border-t ${dm ? "border-gray-600" : "border-gray-200"}`} />
+          {/* 선택 병합 */}
           <button
             disabled={!canMergeSelection || readOnly}
             onClick={() => {
@@ -834,10 +882,10 @@ export function SubtitleGrid({
                 : `${dm ? "text-gray-500" : "text-gray-400"} cursor-not-allowed`
             }`}
           >
-            선택된 자막 병합 ({multiSelect.size}개)
+            선택 병합 ({multiSelect.size}개)
             {multiSelect.size < 2 && " — 2개 이상 선택 필요"}
             {multiSelect.size > 3 && " — 최대 3개"}
-            {multiSelect.size >= 2 && multiSelect.size <= 3 && !canMergeSelection && " — 연속된 자막만 가능"}
+            {multiSelect.size >= 2 && multiSelect.size <= 3 && !canMergeSelection && " — 연속된 자막만"}
           </button>
         </div>,
         document.body,
