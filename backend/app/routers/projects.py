@@ -28,7 +28,7 @@ from app.services.json_import_service import (
     save_original_json,
 )
 from app.services.auth import get_current_user, require_role
-from app.services.waveform_service import extract_waveform_peaks, load_peaks
+from app.services.waveform_service import extract_waveform_peaks, load_peaks, get_video_duration_ms
 
 
 router = APIRouter()
@@ -43,17 +43,17 @@ def _dt_str(dt):
     return dt.isoformat() if dt else None
 
 
-def get_video_duration_ms(filepath: str) -> int | None:
-    try:
-        result = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filepath],
-            capture_output=True, text=True, timeout=30,
-        )
-        info = json.loads(result.stdout)
-        duration_sec = float(info["format"]["duration"])
-        return int(duration_sec * 1000)
-    except Exception:
-        return None
+# def get_video_duration_ms(filepath: str) -> int | None:
+#     try:
+#         result = subprocess.run(
+#             ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filepath],
+#             capture_output=True, text=True, timeout=30,
+#         )
+#         info = json.loads(result.stdout)
+#         duration_sec = float(info["format"]["duration"])
+#         return int(duration_sec * 1000)
+#     except Exception:
+#         return None
 
 
 def _to_response(project: Project, db: Session) -> dict:
