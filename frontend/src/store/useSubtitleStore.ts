@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Subtitle, SubtitleUpdate } from "../types";
 import { subtitlesApi } from "../api/subtitles";
+import { usePlayerStore } from "./usePlayerStore";
 
 interface AddAfterOptions {
   afterId?: number | null;
@@ -268,8 +269,15 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const { projectId, selectedId, subtitles } = get();
     if (!projectId || !selectedId) return;
 
+    // playhead 위치로 싱크 분할
+    const splitAtMs = usePlayerStore.getState().currentMs;
+
+    // 퀵에디터 커서 위치로 텍스트 분할
+    const textarea = document.querySelector<HTMLTextAreaElement>("[data-quick-editor-textarea]");
+    const textSplitPos = textarea?.selectionStart ?? undefined;
+
     const currentIndex = subtitles.findIndex((sub) => sub.id === selectedId);
-    const subs = await subtitlesApi.split(projectId, selectedId);
+    const subs = await subtitlesApi.split(projectId, selectedId, splitAtMs, textSplitPos);
 
     const nextSelectedId =
       findSelectedIdByIndex(subs, currentIndex >= 0 ? currentIndex : 0) ??
@@ -281,6 +289,9 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
       multiSelect: buildSingleSelection(nextSelectedId),
       redoStack: [],
     });
+
+    // 분할 후 textarea 포커스 해제 → Ctrl+Z가 앱 undo로 동작
+    textarea?.blur();
   },
 
   mergeSelected: async () => {
@@ -338,10 +349,21 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const { projectId, subtitles, selectedId } = get();
     if (!projectId) return;
 
+    const currentIndex = selectedId
+      ? subtitles.findIndex((sub) => sub.id === selectedId)
+      : 0;
+
     try {
       const currentSnapshot = cloneSubtitles(subtitles);
       const subs = await subtitlesApi.undo(projectId);
-      const nextSelectedId = findSafeSelectedId(subs, selectedId);
+
+      // 같은 ID가 있으면 유지, 없으면 같은 위치(index)의 자막 선택
+      let nextSelectedId: number | null = null;
+      if (selectedId && subs.some((s) => s.id === selectedId)) {
+        nextSelectedId = selectedId;
+      } else {
+        nextSelectedId = findSelectedIdByIndex(subs, currentIndex >= 0 ? currentIndex : 0);
+      }
 
       set((state) => ({
         subtitles: subs,
