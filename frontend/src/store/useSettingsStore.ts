@@ -15,7 +15,7 @@ export interface ShortcutAction {
 /** 기본 단축키 (변경 불가) */
 export const FIXED_SHORTCUTS: ShortcutAction[] = [
   { id: "undo", label: "실행 취소", description: "서버 스냅샷 복원", category: "fixed" },
-  { id: "redo", label: "다시 실행", description: "Redo", category: "fixed" },
+  // { id: "redo", label: "다시 실행", description: "Redo", category: "fixed" },
   { id: "save", label: "임시저장", description: "서버에 저장 (화면 유지)", category: "fixed" },
   { id: "search", label: "검색", description: "텍스트 검색", category: "fixed" },
   { id: "replace", label: "찾아 바꾸기", description: "텍스트 검색 및 치환", category: "fixed" },
@@ -50,7 +50,7 @@ export const ALL_SHORTCUTS: ShortcutAction[] = [...FIXED_SHORTCUTS, ...CUSTOM_SH
 export const DEFAULT_SHORTCUTS: Record<string, string> = {
   // 기본 (변경 불가)
   undo: "Ctrl+Z",
-  redo: "Ctrl+Shift+Z",
+  // redo: "Ctrl+Shift+Z",
   save: "Ctrl+S",
   search: "Ctrl+F",
   replace: "Ctrl+H",
@@ -67,10 +67,10 @@ export const DEFAULT_SHORTCUTS: Record<string, string> = {
   remove_wrap: "Ctrl+Shift+R",
   merge_prev: "F5",
   merge_next: "F6",
-  split_at_cursor: "F7",
+  split_at_cursor: "",
   insert_after: "F8",
-  insert_at_playhead: "Insert",
-  next_error: "F4",
+  insert_at_playhead: "",
+  next_error: "",
   prev: "ArrowUp",
   next: "ArrowDown",
   focus_text: "Enter",
@@ -78,6 +78,22 @@ export const DEFAULT_SHORTCUTS: Record<string, string> = {
 
 const FIXED_SHORTCUT_ID_SET = new Set(FIXED_SHORTCUTS.map((a) => a.id));
 const CUSTOM_SHORTCUT_ID_SET = new Set(CUSTOM_SHORTCUTS.map((a) => a.id));
+
+/** 등록 금지 키 목록 — 브라우저/OS 예약 키 */
+const BLOCKED_KEYS = new Set([
+  "F5",           // 브라우저 새로고침
+  "F11",          // 전체화면
+  "F12",          // 개발자도구
+  "Ctrl+W",       // 탭 닫기
+  "Ctrl+T",       // 새 탭
+  "Ctrl+N",       // 새 창
+  "Ctrl+Shift+I", // 개발자도구
+  "Ctrl+Shift+J", // 콘솔
+  "Ctrl+L",       // 주소창
+  "Ctrl+P",       // 인쇄
+  "Alt+F4",       // 창 닫기
+  "Ctrl+Q",       // 종료 (Mac)
+]);
 
 function normalizeShortcutKey(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -194,6 +210,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
     const normalizedKey = normalizeShortcutKey(key);
     if (!normalizedKey) return null;
+
+    // 금지 키 차단
+    if (BLOCKED_KEYS.has(normalizedKey)) return "__blocked__";
 
     const { shortcuts } = get();
     const conflict = Object.entries(shortcuts).find(

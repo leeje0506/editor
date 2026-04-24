@@ -167,7 +167,10 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
         return;
       }
       const conflict = updateShortcut(editingAction, keyStr);
-      if (conflict) {
+      if (conflict === "__blocked__") {
+        setConflictMsg("이 키는 사용할 수 없습니다");
+        setTimeout(() => setConflictMsg(""), 2000);
+      } else if (conflict) {
         const allActions = [...FIXED_SHORTCUTS, ...CUSTOM_SHORTCUTS];
         const conflictLabel = allActions.find(a => a.id === conflict)?.label || conflict;
         setConflictMsg(`"${conflictLabel}"에서 이미 사용 중입니다`);
@@ -176,6 +179,7 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
         setEditingAction(null);
         setConflictMsg("");
       }
+      
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
