@@ -251,6 +251,7 @@ export function SubtitleGrid({
   });
   const [uploading, setUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const subtitles = useSubtitleStore((s) => s.subtitles);
   const selectedId = useSubtitleStore((s) => s.selectedId);
@@ -332,6 +333,18 @@ export function SubtitleGrid({
     return map;
   }, [subtitles]);
 
+  /* ── 선택 병합 가능 여부 판별 ── */
+  const canMergeSelection = useMemo(() => {
+    if (multiSelect.size < 2 || multiSelect.size > 3) return false;
+    const selected = subtitles.filter((s) => multiSelect.has(s.id));
+    if (selected.length !== multiSelect.size) return false;
+    const seqs = selected.map((s) => s.seq).sort((a, b) => a - b);
+    for (let i = 1; i < seqs.length; i++) {
+      if (seqs[i] !== seqs[i - 1] + 1) return false;
+    }
+    return true;
+  }, [multiSelect, subtitles]);
+
   useEffect(() => {
     const row = document.getElementById(`row-${selectedId}`);
     if (row && scrollRef.current) {
@@ -359,6 +372,22 @@ export function SubtitleGrid({
       if (!isPlaying) togglePlay();
     }
   };
+
+  /* ── 우클릭 컨텍스트 메뉴 ── */
+  const handleContextMenu = (e: React.MouseEvent, id: number) => {
+    e.preventDefault();
+    if (!multiSelect.has(id)) {
+      selectSingle(id);
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [contextMenu]);
 
   const triggerSelect = useCallback(
     (subId: number) => {
@@ -659,6 +688,7 @@ export function SubtitleGrid({
                     id={`row-${sub.id}`}
                     onClick={(e) => handleClick(sub.id, e)}
                     onDoubleClick={() => handleDblClick(sub.id)}
+                    onContextMenu={(e) => handleContextMenu(e, sub.id)}
                     className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
                   >
                     <td className={`${cellCls} relative`} style={cellStyle}>
@@ -720,15 +750,6 @@ export function SubtitleGrid({
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
-                    {/* <td
-                      className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`}
-                      style={{ textAlign: "left" }}
-                      title={sub.text}
-                    >
-                      <div className="leading-snug whitespace-pre-wrap break-all line-clamp-2">
-                        {sub.text}
-                      </div>
-                    </td> */}
                     {/* TODO : 테스트용 대사: 더블클릭으로 인라인 편집 */}
                     <td
                       className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`}
@@ -744,7 +765,6 @@ export function SubtitleGrid({
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
-                    
                     {/* 대사삭제: text_deleted bool */}
                     <td className={`${cellCls}`} style={cellStyle}>
                       <DropCell
@@ -790,6 +810,37 @@ export function SubtitleGrid({
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* ── 우클릭 컨텍스트 메뉴 ── */}
+      {contextMenu && createPortal(
+        <div
+          className={`fixed z-[9999] rounded shadow-xl border py-1 min-w-[160px] ${
+            dm ? "bg-gray-700 border-gray-600" : "bg-white border-gray-300"
+          }`}
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
+          <button
+            disabled={!canMergeSelection || readOnly}
+            onClick={() => {
+              setContextMenu(null);
+              if (canMergeSelection) {
+                useSubtitleStore.getState().mergeSelected();
+              }
+            }}
+            className={`w-full text-left px-3 py-1.5 text-xs ${
+              canMergeSelection && !readOnly
+                ? `${dm ? "text-gray-200 hover:bg-gray-600" : "text-gray-700 hover:bg-blue-50"}`
+                : `${dm ? "text-gray-500" : "text-gray-400"} cursor-not-allowed`
+            }`}
+          >
+            선택된 자막 병합 ({multiSelect.size}개)
+            {multiSelect.size < 2 && " — 2개 이상 선택 필요"}
+            {multiSelect.size > 3 && " — 최대 3개"}
+            {multiSelect.size >= 2 && multiSelect.size <= 3 && !canMergeSelection && " — 연속된 자막만 가능"}
+          </button>
+        </div>,
+        document.body,
       )}
     </div>
   );

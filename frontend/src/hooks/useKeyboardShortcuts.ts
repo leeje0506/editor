@@ -16,7 +16,7 @@ const BLOCK_IN_INPUT: Set<string> = new Set([
   "insert_at_playhead",
   "merge_prev",
   "merge_next",
-  "split_at_cursor",
+  // "split_at_cursor", // 분할 때문에 주석 처리
   "next_error",
   "undo",   // textarea에서는 브라우저 기본 Undo
   "redo",   // textarea에서는 브라우저 기본 Redo
