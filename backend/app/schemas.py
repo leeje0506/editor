@@ -176,6 +176,7 @@ class MergeRequest(BaseModel):
 
 class SplitRequest(BaseModel):
     split_at_ms: Optional[int] = None
+    text_split_pos: Optional[int] = None  # 텍스트 커서 위치 (0-based index)
 
 class BulkSpeakerRequest(BaseModel):
     from_speaker: str

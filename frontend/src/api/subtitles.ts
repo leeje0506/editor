@@ -19,8 +19,11 @@ export const subtitlesApi = {
   batchDelete: (pid: number, ids: number[]) =>
     api.post<Subtitle[]>(`${base(pid)}/batch-delete`, { ids }).then((r) => r.data),
 
-  split: (pid: number, id: number, splitAtMs?: number) =>
-    api.post<Subtitle[]>(`${base(pid)}/${id}/split`, { split_at_ms: splitAtMs ?? null }).then((r) => r.data),
+  split: (pid: number, id: number, splitAtMs?: number, textSplitPos?: number) =>
+    api.post<Subtitle[]>(`${base(pid)}/${id}/split`, {
+      split_at_ms: splitAtMs ?? null,
+      text_split_pos: textSplitPos ?? null,
+    }).then((r) => r.data),
 
   merge: (pid: number, ids: number[]) =>
     api.post<Subtitle[]>(`${base(pid)}/merge`, { ids }).then((r) => r.data),

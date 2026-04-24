@@ -100,17 +100,23 @@ def batch_delete(project_id: int, data: BatchDeleteRequest, db: Session = Depend
 
 @router.post("/{subtitle_id}/split", response_model=List[SubtitleResponse])
 def split_subtitle(project_id: int, subtitle_id: int, data: SplitRequest, db: Session = Depends(get_db)):
-    """분할: 시간을 절반으로, 대사도 스마트 분할(공백 기준)"""
+    """분할: playhead 위치에서 싱크 분할, 커서 위치에서 텍스트 분할"""
     _get_project(project_id, db)
     sub = db.query(Subtitle).filter(Subtitle.id == subtitle_id, Subtitle.project_id == project_id).first()
     if not sub:
         raise HTTPException(404)
     save_snapshot(db, project_id, "split")
 
+    # 시간 분할: split_at_ms가 있으면 해당 위치, 없으면 절반
     split_at = data.split_at_ms if data.split_at_ms else (sub.start_ms + sub.end_ms) // 2
     original_end = sub.end_ms
 
-    text_first, text_second = smart_split_text(sub.text)
+    # 텍스트 분할: text_split_pos가 있으면 커서 위치 기준, 없으면 스마트 분할
+    if data.text_split_pos is not None and 0 <= data.text_split_pos <= len(sub.text):
+        text_first = sub.text[:data.text_split_pos]
+        text_second = sub.text[data.text_split_pos:]
+    else:
+        text_first, text_second = smart_split_text(sub.text)
 
     sub.end_ms = split_at
     sub.text = text_first
