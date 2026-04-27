@@ -8,6 +8,7 @@ from urllib.parse import quote
 import subprocess
 import json
 import os
+# import threading
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse, PlainTextResponse
@@ -472,13 +473,21 @@ async def upload_video(project_id: int, file: UploadFile = File(...), current_us
             p.total_duration_ms = duration_ms
             p.video_duration_ms = duration_ms
 
+        db.commit()
+
+        # # 파형 추출은 백그라운드에서 실행
+        # threading.Thread(
+        #     target=extract_waveform_peaks,
+        #     args=(filepath, project_id, duration_ms),
+        #     daemon=True,
+        # ).start()
         extract_waveform_peaks(filepath, project_id, duration_ms)
 
-        db.commit()
         return {
             "message": "영상 업로드 완료",
             "size_mb": p.file_size_mb,
             "duration_ms": duration_ms,
+            "waveform": "processing",
         }
     except Exception as e:
         db.rollback()
