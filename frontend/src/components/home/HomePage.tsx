@@ -82,6 +82,7 @@ export function HomePage() {
 
   const [expandedWorkers, setExpandedWorkers] = useState<Set<string>>(new Set());
   const [workerSearch, setWorkerSearch] = useState("");
+  const [dashboardFilter, setDashboardFilter] = useState<"all" | "draft" | "submitted" | "rejected">("all");
 
   // 프로젝트 다중 선택
   const [selectedProjects, setSelectedProjects] = useState<Set<number>>(new Set());
@@ -294,6 +295,17 @@ export function HomePage() {
       workerEntries = workerEntries.filter(w => w.name.toLowerCase().includes(q));
     }
 
+    // 상태 필터 적용
+    if (dashboardFilter !== "all") {
+      // 해당 상태의 프로젝트가 있는 작업자만 표시
+      workerEntries = workerEntries.filter(w =>
+        w.projects.some(p => {
+          if (dashboardFilter === "draft") return p.status === "draft" || p.status === "rejected";
+          return p.status === dashboardFilter;
+        })
+      );
+    }
+
     const workerNames = workerEntries.map(w => w.name);
     const allExpanded = expandedWorkers.size === workerNames.length && workerNames.length > 0;
 
@@ -310,6 +322,26 @@ export function HomePage() {
         <div className="flex-1 overflow-y-auto p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
+              <div className={`flex rounded-lg border ${cb} overflow-hidden`}>
+                {([
+                  { key: "all" as const, label: "전체" },
+                  { key: "draft" as const, label: "진행 중" },
+                  { key: "submitted" as const, label: "제출됨" },
+                  { key: "rejected" as const, label: "반려됨" },
+                ] as const).map(f => (
+                  <button
+                    key={f.key}
+                    onClick={() => setDashboardFilter(f.key)}
+                    className={`px-2.5 py-1 text-[10px] font-medium transition-colors ${
+                      dashboardFilter === f.key
+                        ? "bg-blue-500/20 text-blue-400"
+                        : `${ts} hover:${dm ? "text-white" : "text-black"} hover:${dm ? "bg-gray-800" : "bg-gray-100"}`
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
               <span className={`text-base font-bold ${tp}`}>작업자 현황</span>
               <span className={`text-xs ${ts}`}>{workerEntries.length}명</span>
             </div>
@@ -330,7 +362,11 @@ export function HomePage() {
               const initial = w.name.charAt(0);
               const urgentBadge = getWorkerUrgentBadge(w.projects.filter(p => p.status === "draft" || p.status === "rejected"));
               const hasReworkFlag = hasRework(w.projects);
-              const activeProjects = w.projects.filter(p => p.status === "draft" || p.status === "rejected" || p.status === "submitted");
+              const activeProjects = w.projects.filter(p => {
+                if (dashboardFilter === "all") return p.status === "draft" || p.status === "rejected" || p.status === "submitted";
+                if (dashboardFilter === "draft") return p.status === "draft" || p.status === "rejected";
+                return p.status === dashboardFilter;
+              });
               return (
                 <div key={w.name} className={`${card} border ${cb} rounded-lg overflow-hidden`}>
                   <div className={`flex items-center gap-2.5 px-3.5 py-2.5 cursor-pointer hover:${dm ? "bg-gray-800/50" : "bg-gray-50"} transition-colors`} onClick={() => toggleWorker(w.name)}>
