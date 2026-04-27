@@ -79,6 +79,7 @@ export function AppLayout() {
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [showFindReplace, setShowFindReplace] = useState(false);
+  const [downloadPending, setDownloadPending] = useState<"srt" | "json" | null>(null);
 
   const [editorMode, setEditorMode] = useState<EditorMode>("srt");
 
@@ -368,20 +369,35 @@ export function AppLayout() {
     }
   };
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (!pid || !project) return;
-    const suffix = prompt("파일 접미사를 입력하세요", "final");
-    if (suffix === null) return; // 취소
+    setDownloadPending("srt");
+  };
+
+  const handleDownloadJson = () => {
+    if (!pid || !project) return;
+    setDownloadPending("json");
+  };
+
+  const executeDownload = async (suffix: string) => {
+    const type = downloadPending;
+    setDownloadPending(null);
+    if (!pid || !project || !type) return;
+
+    const endpoint = type === "json"
+      ? `/projects/${pid}/download/json`
+      : `/projects/${pid}/download/subtitle`;
 
     try {
-      const response = await api.get(`/projects/${pid}/download/subtitle`, {
-        params: { suffix: suffix || "final" },
+      const response = await api.get(endpoint, {
+        params: { suffix },
         responseType: "blob",
       });
 
       const header = response.headers["content-disposition"] || "";
       const match = header.match(/filename\*=UTF-8''(.+)/);
-      const filename = match ? decodeURIComponent(match[1]) : `${project.name}_${suffix}.srt`;
+      const ext = type === "json" ? "json" : "srt";
+      const filename = match ? decodeURIComponent(match[1]) : `${project.name}_${suffix}.${ext}`;
 
       const url = URL.createObjectURL(response.data);
       const a = document.createElement("a");
@@ -393,35 +409,6 @@ export function AppLayout() {
       URL.revokeObjectURL(url);
     } catch {
       setSavedMsg("다운로드 실패");
-      setTimeout(() => setSavedMsg(""), 2000);
-    }
-  };
-
-  const handleDownloadJson = async () => {
-    if (!pid || !project) return;
-    const suffix = prompt("파일 접미사를 입력하세요", "export");
-    if (suffix === null) return;
-
-    try {
-      const response = await api.get(`/projects/${pid}/download/json`, {
-        params: { suffix: suffix || "export" },
-        responseType: "blob",
-      });
-
-      const header = response.headers["content-disposition"] || "";
-      const match = header.match(/filename\*=UTF-8''(.+)/);
-      const filename = match ? decodeURIComponent(match[1]) : `${project.name}_${suffix}.json`;
-
-      const url = URL.createObjectURL(response.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      setSavedMsg("JSON 다운로드 실패");
       setTimeout(() => setSavedMsg(""), 2000);
     }
   };
@@ -608,6 +595,31 @@ export function AppLayout() {
 
       {showFindReplace && (
         <FindReplaceModal dark={dm} onClose={() => setShowFindReplace(false)} />
+      )}
+
+      {downloadPending && (
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center" onClick={() => setDownloadPending(null)}>
+          <div className={`${dm ? "bg-gray-900 text-gray-100" : "bg-white text-gray-900"} rounded-xl shadow-2xl w-72 overflow-hidden`} onClick={e => e.stopPropagation()}>
+            <div className={`px-5 py-3 border-b ${bd} flex items-center justify-between`}>
+              <span className="text-sm font-bold">다운로드 — 접미사 선택</span>
+              <span className={`text-[10px] ${dm ? "text-gray-500" : "text-gray-400"}`}>{downloadPending === "json" ? "JSON" : "SRT"}</span>
+            </div>
+            <div className="py-2">
+              {["싱크완료", "1차완료", "2차완료", "1차수정완료", "2차수정완료"].map(suffix => (
+                <button
+                  key={suffix}
+                  onClick={() => executeDownload(suffix)}
+                  className={`w-full text-left px-5 py-2.5 text-sm ${dm ? "hover:bg-gray-800" : "hover:bg-gray-100"} transition-colors`}
+                >
+                  {suffix}
+                </button>
+              ))}
+            </div>
+            <div className={`px-5 py-2.5 border-t ${bd}`}>
+              <button onClick={() => setDownloadPending(null)} className={`text-xs ${dm ? "text-gray-500" : "text-gray-400"}`}>취소</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
