@@ -15,6 +15,7 @@ interface Props {
   dark: boolean;
   peaks?: number[] | null;
   onReload?: () => void;
+  readOnly?: boolean;
 }
 
 /* ── 파형 path 생성 (viewBox 0 0 W H 기준) ── */
@@ -73,7 +74,7 @@ function buildMockWavePath(tlLeft: number, visDur: number, totalMs: number): str
   return upper + lower + "Z";
 }
 
-export function Timeline({ dark, peaks, onReload }: Props) {
+export function Timeline({ dark, peaks, onReload, readOnly }: Props) {
   const tlRef = useRef<HTMLDivElement>(null);
 
   const playing = usePlayerStore((s) => s.playing);
@@ -172,6 +173,7 @@ export function Timeline({ dark, peaks, onReload }: Props) {
   /* ── 자막 블록 전체 드래그 이동 ── */
   const startMoveDrag = useCallback(
     (e: React.MouseEvent, subId: number) => {
+      if (readOnly) return;
       // 경계선 핸들이면 무시 (startDrag가 처리)
       if ((e.target as HTMLElement).closest("[data-h]")) return;
       e.stopPropagation();
@@ -232,6 +234,7 @@ export function Timeline({ dark, peaks, onReload }: Props) {
     (e: React.MouseEvent, handle: "start" | "end", subId: number) => {
       e.stopPropagation();
       e.preventDefault();
+      if (readOnly) return;
       const field = handle === "start" ? "start_ms" : "end_ms";
       let lastMs = 0;
       const onMove = (ev: MouseEvent) => {
