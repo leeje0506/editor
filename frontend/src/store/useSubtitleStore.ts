@@ -15,8 +15,8 @@ interface SubtitleState {
   selectedId: number | null;
   multiSelect: Set<number>;
   loading: boolean;
-  /** redo용: undo 직전 상태 저장 */
   redoStack: Subtitle[][];
+  dirtyMap: Map<number, Partial<Subtitle>>;
 
   init: (projectId: number) => Promise<void>;
   selectSingle: (id: number) => void;
@@ -59,6 +59,24 @@ function findSelectedIdByIndex(subtitles: Subtitle[], index: number): number | n
   return subtitles[safeIndex]?.id ?? null;
 }
 
+/**
+ * dirtyMap에 변경사항이 있으면 서버에 먼저 반영 (flush).
+ * 이후 서버의 save_snapshot이 항상 최신 상태를 기록하게 됨.
+ */
+async function flushDirty(
+  get: () => SubtitleState,
+  set: (partial: Partial<SubtitleState>) => void,
+) {
+  const { projectId, subtitles, dirtyMap } = get();
+  if (!projectId || dirtyMap.size === 0) return;
+
+  const subs = await subtitlesApi.batchUpdate(projectId, subtitles);
+  set({
+    subtitles: subs,
+    dirtyMap: new Map(),
+  });
+}
+
 export const useSubtitleStore = create<SubtitleState>((set, get) => ({
   projectId: null,
   subtitles: [],
@@ -66,6 +84,7 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
   multiSelect: new Set(),
   loading: false,
   redoStack: [],
+  dirtyMap: new Map(),
 
   init: async (pid) => {
     set({ projectId: pid, loading: true });
@@ -80,6 +99,7 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
         selectedId,
         multiSelect: buildSingleSelection(selectedId),
         redoStack: [],
+        dirtyMap: new Map(),
       });
     } catch {
       set({ loading: false });
@@ -188,12 +208,19 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
   },
 
   updateLocal: (id, data) => {
-    set((state) => ({
-      subtitles: state.subtitles.map((sub) =>
-        sub.id === id ? { ...sub, ...data } : sub
-      ),
-      redoStack: [],
-    }));
+    set((state) => {
+      const newDirtyMap = new Map(state.dirtyMap);
+      const existing = newDirtyMap.get(id) || {};
+      newDirtyMap.set(id, { ...existing, ...data });
+
+      return {
+        subtitles: state.subtitles.map((sub) =>
+          sub.id === id ? { ...sub, ...data } : sub
+        ),
+        dirtyMap: newDirtyMap,
+        redoStack: [],
+      };
+    });
   },
 
   updateOne: async (id, data) => {
@@ -202,13 +229,24 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
 
     const updated = await subtitlesApi.update(projectId, id, data);
 
-    set((state) => ({
-      subtitles: state.subtitles.map((sub) => (sub.id === id ? updated : sub)),
-      redoStack: [],
-    }));
+    set((state) => {
+      const newDirtyMap = new Map(state.dirtyMap);
+      newDirtyMap.delete(id);
+
+      return {
+        subtitles: state.subtitles.map((sub) => (sub.id === id ? updated : sub)),
+        dirtyMap: newDirtyMap,
+        redoStack: [],
+      };
+    });
   },
 
   addAfter: async (options) => {
+    const state = get();
+    if (!state.projectId) return;
+
+    await flushDirty(get, set);
+
     const { projectId, subtitles, selectedId } = get();
     if (!projectId) return;
 
@@ -223,7 +261,6 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const endMs = Math.max(startMs + 1, requestedEndMs);
 
     const previousIds = new Set(subtitles.map((sub) => sub.id));
-
     const subs = await subtitlesApi.create(projectId, {
       after_seq: afterSeq,
       start_ms: startMs,
@@ -246,8 +283,13 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
   },
 
   deleteSelected: async () => {
+    const state = get();
+    if (!state.projectId || state.multiSelect.size === 0) return;
+
+    await flushDirty(get, set);
+
     const { projectId, multiSelect, subtitles } = get();
-    if (!projectId || multiSelect.size === 0) return;
+    if (!projectId) return;
 
     const firstDeletedIndex = subtitles.findIndex((sub) => multiSelect.has(sub.id));
     const subs = await subtitlesApi.batchDelete(projectId, [...multiSelect]);
@@ -266,13 +308,15 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
   },
 
   splitSelected: async () => {
+    const state = get();
+    if (!state.projectId || !state.selectedId) return;
+
+    await flushDirty(get, set);
+
     const { projectId, selectedId, subtitles } = get();
     if (!projectId || !selectedId) return;
 
-    // playhead 위치로 싱크 분할
     const splitAtMs = usePlayerStore.getState().currentMs;
-
-    // 퀵에디터 커서 위치로 텍스트 분할
     const textarea = document.querySelector<HTMLTextAreaElement>("[data-quick-editor-textarea]");
     const textSplitPos = textarea?.selectionStart ?? undefined;
 
@@ -290,13 +334,17 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
       redoStack: [],
     });
 
-    // 분할 후 textarea 포커스 해제 → Ctrl+Z가 앱 undo로 동작
     textarea?.blur();
   },
 
   mergeSelected: async () => {
+    const state = get();
+    if (!state.projectId || state.multiSelect.size < 2) return;
+
+    await flushDirty(get, set);
+
     const { projectId, multiSelect, subtitles } = get();
-    if (!projectId || multiSelect.size < 2) return;
+    if (!projectId) return;
 
     const selectedIndexes = subtitles
       .map((sub, index) => (multiSelect.has(sub.id) ? index : -1))
@@ -317,6 +365,11 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
   },
 
   bulkSpeaker: async (from, to) => {
+    const state = get();
+    if (!state.projectId) return;
+
+    await flushDirty(get, set);
+
     const { projectId, selectedId } = get();
     if (!projectId) return;
 
@@ -342,6 +395,7 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
       subtitles: subs,
       selectedId: nextSelectedId,
       multiSelect: buildSingleSelection(nextSelectedId),
+      dirtyMap: new Map(),
     });
   },
 
@@ -349,15 +403,17 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const { projectId, subtitles, selectedId } = get();
     if (!projectId) return;
 
+    // undo 전에 dirty flush — 서버 스냅샷에 최신 상태 반영
+    await flushDirty(get, set);
+
     const currentIndex = selectedId
-      ? subtitles.findIndex((sub) => sub.id === selectedId)
+      ? get().subtitles.findIndex((sub) => sub.id === selectedId)
       : 0;
 
     try {
-      const currentSnapshot = cloneSubtitles(subtitles);
+      const currentSnapshot = cloneSubtitles(get().subtitles);
       const subs = await subtitlesApi.undo(projectId);
 
-      // 같은 ID가 있으면 유지, 없으면 같은 위치(index)의 자막 선택
       let nextSelectedId: number | null = null;
       if (selectedId && subs.some((s) => s.id === selectedId)) {
         nextSelectedId = selectedId;
@@ -384,7 +440,7 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const newStack = redoStack.slice(0, -1);
 
     try {
-      const subs = await subtitlesApi.batchUpdate(projectId, lastState);
+      const subs = await subtitlesApi.restore(projectId, lastState);
       const nextSelectedId = findSafeSelectedId(subs, selectedId);
 
       set({
