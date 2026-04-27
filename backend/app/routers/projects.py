@@ -405,6 +405,7 @@ def upload_json_subtitle(
 @router.get("/{project_id}/download/json")
 def download_json_subtitle(
     project_id: int,
+    suffix: str = Query(default="export", description="파일명 접미사"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -417,7 +418,9 @@ def download_json_subtitle(
 
     result = export_to_video_project_json(subs, fps, project_id)
 
-    filename = (p.subtitle_file or p.name).rsplit(".", 1)[0] + "_export.json"
+    base_name = (p.subtitle_file or p.name).rsplit(".", 1)[0]
+    user_name = current_user.display_name or current_user.username
+    filename = f"{base_name}_{user_name}_{suffix}.json"
     encoded = quote(filename)
     content = json.dumps(result, ensure_ascii=False, indent=2)
 
@@ -431,13 +434,20 @@ def download_json_subtitle(
 # ── 파일: SRT 다운로드 (기존) ──
 
 @router.get("/{project_id}/download/subtitle")
-def download_subtitle(project_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def download_subtitle(
+    project_id: int,
+    suffix: str = Query(default="final", description="파일명 접미사"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     p = db.query(Project).get(project_id)
     if not p:
         raise HTTPException(404)
     subs = db.query(Subtitle).filter(Subtitle.project_id == project_id).order_by(Subtitle.seq).all()
 
-    filename = p.subtitle_file or (p.name + ".srt")
+    base_name = (p.subtitle_file or p.name).rsplit(".", 1)[0]
+    user_name = current_user.display_name or current_user.username
+    filename = f"{base_name}_{user_name}_{suffix}.srt"
     encoded = quote(filename)
     return PlainTextResponse(
         content=export_srt(subs), media_type="text/plain",

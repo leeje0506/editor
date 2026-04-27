@@ -370,15 +370,18 @@ export function AppLayout() {
 
   const handleDownload = async () => {
     if (!pid || !project) return;
+    const suffix = prompt("파일 접미사를 입력하세요", "final");
+    if (suffix === null) return; // 취소
 
     try {
       const response = await api.get(`/projects/${pid}/download/subtitle`, {
+        params: { suffix: suffix || "final" },
         responseType: "blob",
       });
 
-      const baseName = project.subtitle_file?.replace(/\.[^.]+$/, "") || project.name;
-      const worker = project.assigned_to_name || "worker";
-      const filename = `${baseName}_${worker}_final.srt`;
+      const header = response.headers["content-disposition"] || "";
+      const match = header.match(/filename\*=UTF-8''(.+)/);
+      const filename = match ? decodeURIComponent(match[1]) : `${project.name}_${suffix}.srt`;
 
       const url = URL.createObjectURL(response.data);
       const a = document.createElement("a");
@@ -396,15 +399,18 @@ export function AppLayout() {
 
   const handleDownloadJson = async () => {
     if (!pid || !project) return;
+    const suffix = prompt("파일 접미사를 입력하세요", "export");
+    if (suffix === null) return;
 
     try {
       const response = await api.get(`/projects/${pid}/download/json`, {
+        params: { suffix: suffix || "export" },
         responseType: "blob",
       });
 
-      const baseName = project.subtitle_file?.replace(/\.[^.]+$/, "") || project.name;
-      const worker = project.assigned_to_name || "worker";
-      const filename = `${baseName}_${worker}_export.json`;
+      const header = response.headers["content-disposition"] || "";
+      const match = header.match(/filename\*=UTF-8''(.+)/);
+      const filename = match ? decodeURIComponent(match[1]) : `${project.name}_${suffix}.json`;
 
       const url = URL.createObjectURL(response.data);
       const a = document.createElement("a");
@@ -419,7 +425,7 @@ export function AppLayout() {
       setTimeout(() => setSavedMsg(""), 2000);
     }
   };
-
+  
   const handleSettingsClosed = async () => {
     if (!pid) return;
     try {
