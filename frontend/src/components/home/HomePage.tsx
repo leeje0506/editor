@@ -366,10 +366,11 @@ export function HomePage() {
                     <div className={`border-t ${cb} px-3.5 py-2 flex flex-col gap-1.5`} style={{ paddingLeft: 48 }}>
                       {activeProjects.map(p => {
                         const dd = dDay(p.deadline);
+                        const isChangingWorker = workerChangeId === p.id;
                         return (
                           <div
                             key={p.id}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-md text-[11px] group ${
+                            className={`flex items-center gap-2 px-3 py-2 rounded-md text-[11px] ${
                               p.status === "submitted"
                                 ? dm ? "bg-yellow-500/5 border border-yellow-500/10" : "bg-yellow-50 border border-yellow-100"
                                 : dm ? "bg-gray-800/60" : "bg-gray-50"
@@ -395,20 +396,47 @@ export function HomePage() {
                                 재작업{(p.reject_count || 0) > 1 ? ` ${p.reject_count}회` : ""}
                               </span>
                             )}
+                            {/* 담당자 변경 */}
+                            {isChangingWorker ? (
+                              <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                                <select
+                                  value={workerChangeVal}
+                                  onChange={e => setWorkerChangeVal(e.target.value)}
+                                  autoFocus
+                                  className={`text-[10px] px-1.5 py-0.5 rounded border outline-none ${dm ? "bg-gray-700 border-gray-600 text-white" : "bg-white border-gray-300 text-black"}`}
+                                >
+                                  <option value="">선택...</option>
+                                  {allUsers.filter(u => u.is_active !== false).map(u => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.display_name || u.username}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  onClick={() => handleWorkerChange(p.id)}
+                                  className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 hover:bg-blue-500/25"
+                                >확인</button>
+                                <button
+                                  onClick={() => { setWorkerChangeId(null); setWorkerChangeVal(""); }}
+                                  className={`text-[9px] px-1.5 py-0.5 rounded ${ts}`}
+                                >취소</button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setWorkerChangeId(p.id); setWorkerChangeVal(""); }}
+                                className={`text-[9px] px-1.5 py-0.5 rounded shrink-0 ${dm ? "bg-gray-700 text-gray-300 hover:bg-gray-600" : "bg-gray-200 text-gray-600 hover:bg-gray-300"}`}
+                                title="담당자 변경"
+                              >
+                                <UserCog size={10} className="inline -mt-px" /> 변경
+                              </button>
+                            )}
+                            {/* 검수 버튼 — 항상 표시 */}
                             {p.status === "submitted" && isAdmin() && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); navigate(`/editor/${p.id}`); }}
                                 className="text-[9px] px-2 py-0.5 rounded font-medium bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 shrink-0"
                               >
                                 검수
-                              </button>
-                            )}
-                            {p.status !== "submitted" && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); navigate(`/editor/${p.id}`); }}
-                                className={`text-[9px] px-2 py-0.5 rounded font-medium shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ${dm ? "bg-gray-700 text-gray-300" : "bg-gray-200 text-gray-600"}`}
-                              >
-                                열기
                               </button>
                             )}
                           </div>
