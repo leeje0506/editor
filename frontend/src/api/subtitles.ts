@@ -46,4 +46,25 @@ export const subtitlesApi = {
 
   undo: (pid: number) =>
     api.post<Subtitle[]>(`${base(pid)}/undo`).then((r) => r.data),
+
+  restore: async (projectId: number, items: Subtitle[]): Promise<Subtitle[]> => {
+    const { data } = await api.post(
+      `/projects/${projectId}/subtitles/restore`,
+      items.map((s) => ({
+        id: s.id,
+        seq: s.seq,
+        start_ms: s.start_ms,
+        end_ms: s.end_ms,
+        type: s.type,
+        track_type: s.track_type,
+        speaker: s.speaker,
+        speaker_pos: s.speaker_pos,
+        text_pos: s.text_pos,
+        speaker_deleted: s.speaker_deleted,
+        text_deleted: s.text_deleted,
+        text: s.text,
+      }))
+    );
+    return data;
+  },
 };

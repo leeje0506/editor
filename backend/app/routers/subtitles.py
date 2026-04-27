@@ -182,3 +182,22 @@ def undo(project_id: int, db: Session = Depends(get_db)):
     db.delete(hist)
     db.commit()
     return restore_snapshot(db, project_id, snapshot)
+
+@router.post("/restore", response_model=List[SubtitleResponse])
+def restore_from_snapshot(project_id: int, items: List[SubtitleBatchItem], db: Session = Depends(get_db)):
+    """Redo용: 스냅샷으로 전체 교체 (삭제 포함)"""
+    _get_project(project_id, db)
+    save_snapshot(db, project_id, "restore")
+
+    # 기존 자막 전체 삭제
+    db.query(Subtitle).filter(Subtitle.project_id == project_id).delete(synchronize_session=False)
+    db.flush()
+
+    # 스냅샷 자막 전체 INSERT
+    for item in items:
+        data = item.model_dump(exclude={"id"})
+        sub = Subtitle(project_id=project_id, **data)
+        db.add(sub)
+
+    db.commit()
+    return resequence_and_validate(db, project_id)

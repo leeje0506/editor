@@ -129,6 +129,8 @@ export function AppLayout() {
   const loadSettings = useSettingsStore((s) => s.load);
   const [videoKey, setVideoKey] = useState(0);
 
+  const readOnly = isReadOnly(project, isWorker);
+
   const handleVideoWidthChange = useCallback((w: number) => {
     const maxW = Math.floor(window.innerWidth * 0.7);
     setVideoWidth(Math.min(w, maxW));
@@ -364,18 +366,6 @@ export function AppLayout() {
       setSavedMsg(msg);
       setTimeout(() => setSavedMsg(""), 3000);
     }
-
-    try {
-      await saveAll();
-      await projectsApi.updateTimer(pid, elapsed);
-      await projectsApi.submit(pid);
-      setSavedMsg("제출 완료!");
-      setTimeout(() => navigate("/"), 600);
-    } catch (e: any) {
-      const msg = e?.response?.data?.detail || "제출 실패";
-      setSavedMsg(msg);
-      setTimeout(() => setSavedMsg(""), 3000);
-    }
   };
 
   const handleDownload = async () => {
@@ -437,7 +427,7 @@ export function AppLayout() {
       setProject(p);
       setTotalMs(p.total_duration_ms);
       setTimelineTotalMs(p.total_duration_ms);
-      setVideoKey((k) => k + 1);  // 추가
+      setVideoKey((k) => k + 1);
       await init(pid);
     } catch {}
   };
@@ -461,7 +451,7 @@ export function AppLayout() {
       setProject(p);
       setTotalMs(p.total_duration_ms);
       setTimelineTotalMs(p.total_duration_ms);
-      setVideoKey((k) => k + 1);  // 추가
+      setVideoKey((k) => k + 1);
       try {
         const w = await projectsApi.getWaveform(pid);
         setPeaks(w.peaks);
@@ -469,6 +459,17 @@ export function AppLayout() {
         setPeaks(null);
       }
     } catch {}
+  };
+
+  const handleReload = async () => {
+    if (!pid) return;
+    try {
+      const w = await projectsApi.getWaveform(pid);
+      setPeaks(w.peaks);
+    } catch {
+      setPeaks(null);
+    }
+    setVideoKey((k) => k + 1);
   };
 
   const handleGoHome = async () => {
@@ -538,7 +539,7 @@ export function AppLayout() {
         onToggleSubtitlePanel={() => setShowSubPanel(!showSubPanel)}
         project={project}
         elapsed={elapsed}
-        readOnly={isReadOnly(project, isWorker)}
+        readOnly={readOnly}
         isAdmin={!isWorker}
         editorMode={editorMode}
         onModeChange={setEditorMode}
@@ -549,7 +550,7 @@ export function AppLayout() {
           <div className="flex-1 min-h-0 overflow-hidden">
             <SubtitleGrid
               dark={dm}
-              readOnly={isReadOnly(project, isWorker)}
+              readOnly={readOnly}
               editorMode={editorMode}
               projectId={pid}
               maxChars={project?.max_chars_per_line ?? 18}
@@ -567,7 +568,7 @@ export function AppLayout() {
               dark={dm}
               maxChars={project?.max_chars_per_line ?? 18}
               maxLines={project?.max_lines ?? 2}
-              readOnly={isReadOnly(project, isWorker)}
+              readOnly={readOnly}
               editorMode={editorMode}
               speakerMode={project?.speaker_mode ?? "name"}
             />
@@ -596,7 +597,7 @@ export function AppLayout() {
       <HResizeHandle dark={dm} onMouseDown={handleTimelineTopDrag} />
 
       <div className="shrink-0 overflow-hidden" style={{ height: timelineHeight }}>
-        <Timeline dark={dm} peaks={peaks} />
+        <Timeline dark={dark} peaks={peaks} onReload={handleReload} readOnly={readOnly} />
       </div>
 
       {showFindReplace && (
