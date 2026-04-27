@@ -33,6 +33,13 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(400, "비활성화된 계정입니다")
     token = create_token(user.id, user.role)
+
+    # 방송사 권한 조회
+    from app.models import UserBroadcasterPermission
+    perms = db.query(UserBroadcasterPermission).filter(
+        UserBroadcasterPermission.user_id == user.id
+    ).all()
+
     return {
         "token": token,
         "user": {
@@ -40,6 +47,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             "username": user.username,
             "display_name": user.display_name,
             "role": user.role,
+            "broadcaster_permissions": [p.broadcaster for p in perms],
         },
     }
 
@@ -47,7 +55,12 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 # ── 내 정보 ──
 
 @router.get("/me", response_model=UserResponse)
-def get_me(current_user: User = Depends(get_current_user)):
+def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.models import UserBroadcasterPermission
+    perms = db.query(UserBroadcasterPermission).filter(
+        UserBroadcasterPermission.user_id == current_user.id
+    ).all()
+
     return {
         "id": current_user.id,
         "username": current_user.username,
@@ -55,6 +68,7 @@ def get_me(current_user: User = Depends(get_current_user)):
         "role": current_user.role,
         "is_active": current_user.is_active,
         "created_at": _dt_str(current_user.created_at),
+        "broadcaster_permissions": [p.broadcaster for p in perms],
     }
 
 

@@ -2,7 +2,7 @@
 backend/app/models.py
 """
 from __future__ import annotations
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 
@@ -24,7 +24,55 @@ class User(Base):
 
     created_projects = relationship("Project", foreign_keys="Project.created_by", back_populates="creator")
     assigned_projects = relationship("Project", foreign_keys="Project.assigned_to", back_populates="assignee")
-    settings = Column(Text, nullable=True, default=None)  # JSON 문자열: {"shortcuts": {...}, ...}
+    settings = Column(Text, nullable=True, default=None)
+
+    # 방송사 권한
+    # 방송사 권한
+    broadcaster_permissions = relationship(
+        "UserBroadcasterPermission",
+        foreign_keys="UserBroadcasterPermission.user_id",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    permission_requests = relationship(
+        "PermissionRequest",
+        foreign_keys="PermissionRequest.user_id",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+class UserBroadcasterPermission(Base):
+    """사용자별 방송사 작업 권한"""
+    __tablename__ = "user_broadcaster_permissions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "broadcaster", name="uq_user_broadcaster"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    broadcaster = Column(String(100), nullable=False)  # BroadcasterRule.name과 매칭
+    granted_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # 권한 부여자
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", foreign_keys=[user_id], back_populates="broadcaster_permissions")
+    granter = relationship("User", foreign_keys=[granted_by])
+
+
+class PermissionRequest(Base):
+    """방송사 권한 요청"""
+    __tablename__ = "permission_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    broadcaster = Column(String(100), nullable=False)
+    status = Column(String(20), default="pending")  # pending / approved / rejected
+    reason = Column(String(500), nullable=True)  # 요청 사유
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # 처리자
+    reviewed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", foreign_keys=[user_id], back_populates="permission_requests")
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
 
 
 class Project(Base):
@@ -42,7 +90,7 @@ class Project(Base):
     total_duration_ms = Column(Integer, default=600000)
     video_duration_ms = Column(Integer, nullable=True)
     file_size_mb = Column(Float, nullable=True)
-    status = Column(String(20), default="draft")  # draft / submitted / approved
+    status = Column(String(20), default="draft")
     elapsed_seconds = Column(Integer, default=0)
     last_saved_at = Column(DateTime, nullable=True)
     submitted_at = Column(DateTime, nullable=True)
@@ -57,17 +105,14 @@ class Project(Base):
     assignee = relationship("User", foreign_keys=[assigned_to], back_populates="assigned_projects")
     subtitles = relationship("Subtitle", back_populates="project", cascade="all, delete-orphan", order_by="Subtitle.seq")
     history = relationship("EditHistory", back_populates="project", cascade="all, delete-orphan", order_by="EditHistory.created_at")
-    # 재작업 관련
     reject_count = Column(Integer, default=0)
     first_submitted_at = Column(DateTime, nullable=True)
-    # 영상/import
     fps = Column(Float, nullable=True)
     import_type = Column(String(20), default="srt")
     last_position_ms = Column(Integer, default=0)
     last_selected_id = Column(Integer, nullable=True)
     min_duration_ms = Column(Integer, default=500)
-    # 화자 계산 모드 (프로젝트별 — 방송사에서 복사)
-    speaker_mode = Column(String(20), default="name")  # name / hyphen / hyphen_space
+    speaker_mode = Column(String(20), default="name")
 
 
 class Subtitle(Base):
@@ -126,7 +171,7 @@ class BroadcasterRule(Base):
     bracket_chars = Column(Integer, default=5)
     allow_overlap = Column(Boolean, default=False)
     min_duration_ms = Column(Integer, default=500)
-    speaker_mode = Column(String(20), default="name")  # name / hyphen / hyphen_space
+    speaker_mode = Column(String(20), default="name")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),

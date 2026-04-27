@@ -9,6 +9,7 @@ from app.database import engine, Base, SessionLocal
 from app.models import User
 from app.services.auth import hash_password
 from app.routers import projects, subtitles, auth, settings
+from app.routers.permissions import router as permissions_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -26,6 +27,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(subtitles.router, prefix="/api/projects/{project_id}/subtitles", tags=["subtitles"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+app.include_router(permissions_router, prefix="/api/permissions", tags=["permissions"])
 
 
 @app.on_event("startup")

@@ -5,6 +5,7 @@ export interface User {
   role: "master" | "manager" | "worker";
   is_active: boolean;
   created_at: string | null;
+  broadcaster_permissions?: string[];
 }
 
 export interface Project {

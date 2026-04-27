@@ -30,6 +30,7 @@ from app.services.json_import_service import (
 )
 from app.services.auth import get_current_user, require_role
 from app.services.waveform_service import extract_waveform_peaks, load_peaks, get_video_duration_ms
+from app.models import Project, Subtitle, User, BroadcasterRule, UserBroadcasterPermission
 
 
 router = APIRouter()
@@ -121,8 +122,19 @@ def list_projects(
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
+@router.post("", response_model=ProjectResponse, status_code=201)
 def create_project(data: ProjectCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     bc = data.broadcaster or ""
+
+    # 방송사 권한 체크 (master/manager는 면제)
+    if bc and current_user.role == "worker":
+        has_perm = db.query(UserBroadcasterPermission).filter(
+            UserBroadcasterPermission.user_id == current_user.id,
+            UserBroadcasterPermission.broadcaster == bc,
+        ).first()
+        if not has_perm:
+            raise HTTPException(403, f"'{bc}' 방송사 작업 권한이 없습니다. 권한을 요청해주세요.")
+
     rules = load_rules().get(bc, {"max_lines": 2, "max_chars_per_line": 18, "bracket_chars": 5, "min_duration_ms": 500})
     max_lines = data.max_lines if data.max_lines is not None else rules["max_lines"]
     max_chars = data.max_chars_per_line if data.max_chars_per_line is not None else rules["max_chars_per_line"]

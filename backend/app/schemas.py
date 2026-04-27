@@ -39,6 +39,8 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     created_at: Optional[str] = None
+    broadcaster_permissions: Optional[List[str]] = None
+
     class Config:
         from_attributes = True
 
