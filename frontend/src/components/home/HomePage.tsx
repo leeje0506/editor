@@ -194,32 +194,60 @@ export function HomePage() {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className={`${card} border ${cb} rounded-xl p-5`}>
-          <div className={`text-sm font-medium ${tp} mb-4`}>작업자별 진행 건수</div>
-          <div className="h-32 flex items-end gap-6 justify-center">
-            {Array.from(new Set(projects.filter(p=>p.status==="draft").map(p=>p.assigned_to_name||p.created_by_name||"미배정"))).map(name => {
-              const cnt = projects.filter(p=>p.status==="draft"&&(p.assigned_to_name===name||p.created_by_name===name)).length;
-              return (
-                <div key={name} className="flex flex-col items-center gap-1">
-                  <div className="bg-blue-500 rounded-t" style={{ width: 32, height: Math.max(8, cnt * 16) }}/>
-                  <span className={`text-[10px] ${ts}`}>{name}</span>
-                </div>
-              );
-            })}
-          </div>
+          <div className={`text-sm font-medium ${tp} mb-4`}>작업자별 작업 현황</div>
+          {(() => {
+            const entries = Array.from(new Set(projects.filter(p=>p.status==="draft").map(p=>p.assigned_to_name||p.created_by_name||"미배정"))).map(name => {
+              const matched = projects.filter(p=>p.status==="draft"&&(p.assigned_to_name===name||p.created_by_name===name));
+              return {
+                name,
+                cnt: matched.length,
+                totalSec: matched.reduce((sum, p) => sum + (p.elapsed_seconds || 0), 0),
+              };
+            });
+            const maxSec = Math.max(1, ...entries.map(e => e.totalSec));
+            return (
+              <div className="flex flex-col gap-2.5">
+                {entries.map(({ name, cnt, totalSec }) => (
+                  <div key={name} className="flex items-center gap-2.5">
+                    <span className={`text-xs ${ts} w-12 text-right shrink-0 truncate`}>{name}</span>
+                    <div className={`flex-1 ${dm ? "bg-gray-800" : "bg-gray-100"} rounded h-5.5 overflow-hidden`} style={{ height: 22 }}>
+                      <div className="bg-blue-500 h-full rounded" style={{ width: `${Math.max(3, (totalSec / maxSec) * 100)}%` }} />
+                    </div>
+                    <span className={`text-[11px] ${ts} w-24 shrink-0 text-right`}>{cnt}건 · {fmtElapsed(totalSec)}</span>
+                  </div>
+                ))}
+                {entries.length === 0 && <div className={`text-xs ${ts} text-center py-4`}>진행 중인 작업이 없습니다</div>}
+              </div>
+            );
+          })()}
         </div>
         <div className={`${card} border ${cb} rounded-xl p-5`}>
-          <div className={`text-sm font-medium ${tp} mb-4`}>방송사별 진행 현황</div>
-          <div className="h-32 flex items-end gap-6 justify-center">
-            {Array.from(new Set(projects.map(p=>p.broadcaster).filter(Boolean))).map(bc => {
-              const cnt = projects.filter(p=>p.broadcaster===bc).length;
-              return (
-                <div key={bc} className="flex flex-col items-center gap-1">
-                  <div className="bg-purple-500 rounded-t" style={{ width: 32, height: Math.max(8, cnt * 12) }}/>
-                  <span className={`text-[10px] ${ts}`}>{bc}</span>
-                </div>
-              );
-            })}
-          </div>
+          <div className={`text-sm font-medium ${tp} mb-4`}>방송사별 작업 현황</div>
+          {(() => {
+            const entries = Array.from(new Set(projects.map(p=>p.broadcaster).filter(Boolean))).map(bc => {
+              const matched = projects.filter(p=>p.broadcaster===bc);
+              return {
+                bc: bc!,
+                cnt: matched.length,
+                totalSec: matched.reduce((sum, p) => sum + (p.elapsed_seconds || 0), 0),
+              };
+            });
+            const maxSec = Math.max(1, ...entries.map(e => e.totalSec));
+            return (
+              <div className="flex flex-col gap-2.5">
+                {entries.map(({ bc, cnt, totalSec }) => (
+                  <div key={bc} className="flex items-center gap-2.5">
+                    <span className={`text-xs ${ts} w-12 text-right shrink-0 truncate`}>{bc}</span>
+                    <div className={`flex-1 ${dm ? "bg-gray-800" : "bg-gray-100"} rounded overflow-hidden`} style={{ height: 22 }}>
+                      <div className="bg-purple-500 h-full rounded" style={{ width: `${Math.max(3, (totalSec / maxSec) * 100)}%` }} />
+                    </div>
+                    <span className={`text-[11px] ${ts} w-24 shrink-0 text-right`}>{cnt}건 · {fmtElapsed(totalSec)}</span>
+                  </div>
+                ))}
+                {entries.length === 0 && <div className={`text-xs ${ts} text-center py-4`}>프로젝트가 없습니다</div>}
+              </div>
+            );
+          })()}
         </div>
       </div>
       {counts.submitted > 0 && (
