@@ -195,31 +195,45 @@ export function HomePage() {
       <div className="grid grid-cols-2 gap-4">
         <div className={`${card} border ${cb} rounded-xl p-5`}>
           <div className={`text-sm font-medium ${tp} mb-4`}>작업자별 진행 건수</div>
-          <div className="h-32 flex items-end gap-6 justify-center">
-            {Array.from(new Set(projects.filter(p=>p.status==="draft").map(p=>p.assigned_to_name||p.created_by_name||"미배정"))).map(name => {
-              const cnt = projects.filter(p=>p.status==="draft"&&(p.assigned_to_name===name||p.created_by_name===name)).length;
-              return (
-                <div key={name} className="flex flex-col items-center gap-1">
-                  <div className="bg-blue-500 rounded-t" style={{ width: 32, height: Math.max(8, cnt * 16) }}/>
-                  <span className={`text-[10px] ${ts}`}>{name}</span>
-                </div>
-              );
-            })}
-          </div>
+          {(() => {
+            const entries = Array.from(new Set(projects.filter(p=>p.status==="draft").map(p=>p.assigned_to_name||p.created_by_name||"미배정"))).map(name => ({
+              name,
+              cnt: projects.filter(p=>p.status==="draft"&&(p.assigned_to_name===name||p.created_by_name===name)).length,
+            }));
+            const maxCnt = Math.max(1, ...entries.map(e => e.cnt));
+            return (
+              <div className="h-32 flex items-end gap-6 justify-center">
+                {entries.map(({ name, cnt }) => (
+                  <div key={name} className="flex flex-col items-center gap-1">
+                    <span className={`text-[10px] font-medium ${tp}`}>{cnt}</span>
+                    <div className="bg-blue-500 rounded-t" style={{ width: 32, height: Math.max(8, (cnt / maxCnt) * 100) }}/>
+                    <span className={`text-[10px] ${ts}`}>{name}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
         <div className={`${card} border ${cb} rounded-xl p-5`}>
           <div className={`text-sm font-medium ${tp} mb-4`}>방송사별 진행 현황</div>
-          <div className="h-32 flex items-end gap-6 justify-center">
-            {Array.from(new Set(projects.map(p=>p.broadcaster).filter(Boolean))).map(bc => {
-              const cnt = projects.filter(p=>p.broadcaster===bc).length;
-              return (
-                <div key={bc} className="flex flex-col items-center gap-1">
-                  <div className="bg-purple-500 rounded-t" style={{ width: 32, height: Math.max(8, cnt * 12) }}/>
-                  <span className={`text-[10px] ${ts}`}>{bc}</span>
-                </div>
-              );
-            })}
-          </div>
+          {(() => {
+            const entries = Array.from(new Set(projects.map(p=>p.broadcaster).filter(Boolean))).map(bc => ({
+              bc: bc!,
+              cnt: projects.filter(p=>p.broadcaster===bc).length,
+            }));
+            const maxCnt = Math.max(1, ...entries.map(e => e.cnt));
+            return (
+              <div className="h-32 flex items-end gap-6 justify-center">
+                {entries.map(({ bc, cnt }) => (
+                  <div key={bc} className="flex flex-col items-center gap-1">
+                    <span className={`text-[10px] font-medium ${tp}`}>{cnt}</span>
+                    <div className="bg-purple-500 rounded-t" style={{ width: 32, height: Math.max(8, (cnt / maxCnt) * 100) }}/>
+                    <span className={`text-[10px] ${ts}`}>{bc}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </div>
       {counts.submitted > 0 && (
