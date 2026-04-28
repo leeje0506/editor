@@ -5,7 +5,7 @@ import {
   Monitor, Plus, Moon, Sun, Trash2, Download, Clock, Save, LogOut,
   Settings, LayoutDashboard, Columns3, Table2, BookOpen,
   Film, MoreVertical, Pencil, UserCog, Search, ChevronDown, ChevronRight,
-  FolderOpen
+  FolderOpen, X
 } from "lucide-react";
 import { projectsApi } from "../../api/projects";
 import { authApi } from "../../api/auth";
@@ -14,6 +14,8 @@ import { useBroadcasterStore } from "../../store/useBroadcasterStore";
 import type { Project, User } from "../../types";
 import { NewProjectModal } from "./NewProjectModal";
 import api from "../../api/client";
+import { permissionsApi } from "../../api/permissions";
+import type { UserPermissionSummary } from "../../api/permissions";
 
 function fmtElapsed(s: number) {
   return `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
@@ -79,12 +81,14 @@ export function HomePage() {
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
   const bcStore = useBroadcasterStore();
+  const [allPerms, setAllPerms] = useState<UserPermissionSummary[]>([]);
+  const [bcTagFilter, setBcTagFilter] = useState<string | null>(null);
+  const [myPerms, setMyPerms] = useState<string[]>([]);
 
   const [expandedWorkers, setExpandedWorkers] = useState<Set<string>>(new Set());
   const [workerSearch, setWorkerSearch] = useState("");
   const [dashboardFilter, setDashboardFilter] = useState<"all" | "draft" | "submitted" | "rejected">("all");
 
-  // 프로젝트 다중 선택
   const [selectedProjects, setSelectedProjects] = useState<Set<number>>(new Set());
 
   const isDashboard = location.pathname === "/dashboard";
@@ -95,11 +99,21 @@ export function HomePage() {
   const fetchUsers = async () => {
     try { setAllUsers(await authApi.listUsers()); } catch {}
   };
+  const fetchPerms = async () => {
+    try { setAllPerms(await permissionsApi.getAllPermissions()); } catch {}
+  };
+  const fetchMyPerms = async () => {
+    try { setMyPerms(await permissionsApi.getMyPermissions()); } catch {}
+  };
+
   useEffect(() => {
     fetchProjects();
     fetchUsers();
     bcStore.fetch();
+    fetchMyPerms();
+    if (user?.role === "master" || user?.role === "manager") fetchPerms();
   }, []);
+
   useEffect(() => {
     const h = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(null);
@@ -157,7 +171,6 @@ export function HomePage() {
     }
   };
 
-  // ── 프로젝트 다중 선택/삭제 ──
   const toggleProjectCheck = (id: number) => {
     setSelectedProjects(prev => {
       const next = new Set(prev);
@@ -226,6 +239,9 @@ export function HomePage() {
     { bg: "rgba(186,117,23,0.15)", text: "#BA7517" },
   ];
   const getAvatarColor = (index: number) => avatarColors[index % avatarColors.length];
+  const getUserPermBroadcasters = (userId: number): string[] => {
+    return allPerms.find(p => p.user_id === userId)?.broadcasters || [];
+  };
 
   const Sidebar = () => (
     <aside className={`w-52 ${card} border-r ${cb} flex flex-col shrink-0`}>
@@ -268,7 +284,7 @@ export function HomePage() {
     </aside>
   );
 
-  // ── 작업자 중심 대시보드 (IIFE로 JSX 생성 — 컴포넌트 아님) ──
+  // ── 작업자 중심 대시보드 ──
   const workerDashboardContent = (() => {
     const workerMap = new Map<string, { user: User | null; projects: Project[] }>();
     for (const u of allUsers.filter(u => u.is_active !== false)) {
@@ -295,15 +311,23 @@ export function HomePage() {
       workerEntries = workerEntries.filter(w => w.name.toLowerCase().includes(q));
     }
 
-    // 상태 필터 적용
+    // 상태 필터
     if (dashboardFilter !== "all") {
-      // 해당 상태의 프로젝트가 있는 작업자만 표시
       workerEntries = workerEntries.filter(w =>
         w.projects.some(p => {
           if (dashboardFilter === "draft") return p.status === "draft" || p.status === "rejected";
           return p.status === dashboardFilter;
         })
       );
+    }
+
+    // [7] 방송사 태그 필터
+    if (bcTagFilter) {
+      workerEntries = workerEntries.filter(w => {
+        if (!w.user) return false;
+        const perms = getUserPermBroadcasters(w.user.id);
+        return perms.includes(bcTagFilter);
+      });
     }
 
     const workerNames = workerEntries.map(w => w.name);
@@ -322,6 +346,20 @@ export function HomePage() {
         <div className="flex-1 overflow-y-auto p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
+              <span className={`text-base font-bold ${tp}`}>작업자 현황</span>
+              <span className={`text-xs ${ts}`}>{workerEntries.length}명</span>
+              <button
+                onClick={() => navigate("/settings/members")}
+                className={`text-[10px] px-2 py-0.5 rounded border ${cb} ${ts} hover:text-blue-400 hover:border-blue-400 transition-colors`}
+              >
+                <UserCog size={10} className="inline -mt-px mr-0.5" /> 작업자 관리
+              </button>
+              {/* [6] 방송사 태그 필터 표시 + 해제 */}
+              {bcTagFilter && (
+                <button onClick={() => setBcTagFilter(null)} className="text-[9px] px-2 py-0.5 rounded bg-green-500/20 text-green-400 flex items-center gap-1">
+                  {bcTagFilter} <X size={8} />
+                </button>
+              )}
               <div className={`flex rounded-lg border ${cb} overflow-hidden`}>
                 {([
                   { key: "all" as const, label: "전체" },
@@ -342,9 +380,9 @@ export function HomePage() {
                   </button>
                 ))}
               </div>
-              <span className={`text-base font-bold ${tp}`}>작업자 현황</span>
-              <span className={`text-xs ${ts}`}>{workerEntries.length}명</span>
             </div>
+
+            
             <div className="flex items-center gap-2">
               <div className={`flex items-center gap-1.5 border ${cb} rounded-lg px-3 py-1.5`}>
                 <Search size={13} className={ts} />
@@ -362,6 +400,7 @@ export function HomePage() {
               const initial = w.name.charAt(0);
               const urgentBadge = getWorkerUrgentBadge(w.projects.filter(p => p.status === "draft" || p.status === "rejected"));
               const hasReworkFlag = hasRework(w.projects);
+              const workerPerms = w.user ? getUserPermBroadcasters(w.user.id) : [];
               const activeProjects = w.projects.filter(p => {
                 if (dashboardFilter === "all") return p.status === "draft" || p.status === "rejected" || p.status === "submitted";
                 if (dashboardFilter === "draft") return p.status === "draft" || p.status === "rejected";
@@ -377,6 +416,16 @@ export function HomePage() {
                       <span>진행 <span className="font-bold text-blue-400">{w.draftCount}</span></span>
                       <span>제출 <span className="font-bold text-yellow-400">{w.submittedCount}</span></span>
                       <span>승인 <span className="font-bold text-emerald-400">{w.approvedCount}</span></span>
+                      {/* [8] 작업자 권한 태그 */}
+                    {workerPerms.length > 0 && (
+                      <div className="flex gap-0.5 shrink-0">
+                        {workerPerms.map(bc => (
+                          <button key={bc} onClick={(e) => { e.stopPropagation(); setBcTagFilter(bcTagFilter === bc ? null : bc); }}
+                            className={`text-[8px] px-1 py-0.5 rounded ${bcTagFilter === bc ? "bg-green-500/30 text-green-300" : "bg-green-500/10 text-green-500"} hover:bg-green-500/25`}
+                          >{bc}</button>
+                        ))}
+                      </div>
+                    )}
                     </div>
                     <span className={`text-[11px] ${ts} shrink-0`}>총 {fmtElapsed(w.totalSec)}</span>
                     {urgentBadge && <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0 ${urgentBadge.urgent ? "bg-red-500/20 text-red-400" : `${dm ? "bg-gray-700 text-gray-300" : "bg-gray-200 text-gray-600"}`}`}>{urgentBadge.text}</span>}
@@ -482,12 +531,8 @@ export function HomePage() {
     const dd = dDay(p.deadline);
     return (
       <div className="px-5 py-4 flex items-center gap-4 group">
-        <input
-          type="checkbox"
-          checked={selectedProjects.has(p.id)}
-          onChange={() => toggleProjectCheck(p.id)}
-          className={`w-4 h-4 rounded ${dm ? "border-gray-600 bg-gray-800" : "border-gray-300 bg-white"} cursor-pointer`}
-        />
+        <input type="checkbox" checked={selectedProjects.has(p.id)} onChange={() => toggleProjectCheck(p.id)}
+          className={`w-4 h-4 rounded ${dm ? "border-gray-600 bg-gray-800" : "border-gray-300 bg-white"} cursor-pointer`} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${p.status === "submitted" ? "bg-yellow-500/20 text-yellow-400" : p.status === "approved" ? "bg-emerald-500/20 text-emerald-400" : p.status === "rejected" ? "bg-orange-500/20 text-orange-400" : "bg-blue-500/20 text-blue-400"}`}>
@@ -560,19 +605,24 @@ export function HomePage() {
   // ── 프로젝트 리스트 뷰 ──
   const projectListContent = (
     <main className="flex-1 overflow-y-auto p-6">
-      <h1 className="text-2xl font-black mb-1">안녕하세요, {user?.display_name}님!</h1>
+      {/* [9] 안녕하세요 + 권한 태그 */}
+      <div className="flex items-center gap-3 mb-1">
+        <h1 className="text-2xl font-black">안녕하세요, {user?.display_name}님!</h1>
+        {myPerms.length > 0 && (
+          <div className="flex gap-1">
+            {myPerms.map(bc => (
+              <span key={bc} className="text-[10px] px-2 py-0.5 rounded-lg bg-green-500/15 text-green-400 font-medium">{bc}</span>
+            ))}
+          </div>
+        )}
+      </div>
       <p className={`text-sm ${ts} mb-6`}>좋은 하루입니다. 오늘도 활기차게 시작해봐요!</p>
 
       <div className={`${card} border ${cb} rounded-xl`}>
         <div className={`flex items-center justify-between border-b ${cb} px-5`}>
           <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={filtered.length > 0 && filtered.every(p => selectedProjects.has(p.id))}
-              onChange={toggleAllFiltered}
-              className={`w-4 h-4 rounded ${dm ? "border-gray-600 bg-gray-800" : "border-gray-300 bg-white"} cursor-pointer`}
-              title="전체 선택"
-            />
+            <input type="checkbox" checked={filtered.length > 0 && filtered.every(p => selectedProjects.has(p.id))} onChange={toggleAllFiltered}
+              className={`w-4 h-4 rounded ${dm ? "border-gray-600 bg-gray-800" : "border-gray-300 bg-white"} cursor-pointer`} title="전체 선택" />
             {([
               { key: "draft" as Tab, label: "진행 중", count: counts.draft },
               { key: "submitted" as Tab, label: "제출됨", count: counts.submitted },

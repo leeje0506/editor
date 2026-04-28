@@ -1,21 +1,19 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Home, Settings, Sun, Moon, FileText, Users, Monitor, Keyboard, Bell, User } from "lucide-react";
+import { Home, Settings, Sun, Moon, FileText, Users, Monitor, Keyboard, User } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { BroadcasterPresetsTab } from "./tabs/BroadcasterPresetsTab";
 import { MembersTab } from "./tabs/MembersTab";
 import { ProjectListTab } from "./tabs/ProjectListTab";
 import { ShortcutsTab } from "./tabs/ShortcutsTab";
-import { AccessRequestsTab } from "./tabs/AccessRequestsTab";
 import { MyPageTab } from "./tabs/MyPageTab";
 
 const ALL_TABS = [
   { key: "broadcasters", label: "방송사 프리셋", icon: FileText, adminOnly: true },
-  { key: "members", label: "조직원 관리", icon: Users, adminOnly: true },
+  { key: "members", label: "작업자 관리", icon: Users, adminOnly: true },
   { key: "projects", label: "프로젝트 목록", icon: Monitor, adminOnly: true },
   { key: "shortcuts", label: "단축키 설정", icon: Keyboard, adminOnly: false },
-  { key: "access", label: "접근 요청", icon: Bell, adminOnly: true },
   { key: "mypage", label: "마이페이지", icon: User, adminOnly: false },
 ];
 
@@ -26,8 +24,11 @@ export function SettingsPage() {
   const loadSettings = useSettingsStore((s) => s.load);
   const settingsLoaded = useSettingsStore((s) => s.loaded);
 
-  // 설정은 다크 고정
-  const dark = true;
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem("editor_darkMode");
+    return saved !== null ? saved === "true" : true;
+  });
+  useEffect(() => { localStorage.setItem("editor_darkMode", String(dark)); }, [dark]);
 
   const dm = dark;
   const bg = dm ? "bg-gray-950" : "bg-gray-50";
@@ -39,14 +40,12 @@ export function SettingsPage() {
   const visibleTabs = ALL_TABS.filter(t => !t.adminOnly || isAdmin());
   const activeTab = tab || (isAdmin() ? "broadcasters" : "shortcuts");
 
-  // 기존 workers 탭 URL로 접근 시 members로 리다이렉트
   useEffect(() => {
-    if (tab === "workers") {
+    if (tab === "workers" || tab === "access") {
       navigate("/settings/members", { replace: true });
     }
   }, [tab, navigate]);
 
-  // 설정 페이지 진입 시 개인 설정 로드
   useEffect(() => {
     if (!settingsLoaded) {
       loadSettings();
@@ -55,19 +54,17 @@ export function SettingsPage() {
 
   const renderContent = () => {
     switch (activeTab) {
-      case "broadcasters": return isAdmin() ? <BroadcasterPresetsTab /> : null;
-      case "members": return isAdmin() ? <MembersTab /> : null;
-      case "projects": return isAdmin() ? <ProjectListTab /> : null;
-      case "shortcuts": return <ShortcutsTab />;
-      case "access": return isAdmin() ? <AccessRequestsTab /> : null;
-      case "mypage": return <MyPageTab />;
+      case "broadcasters": return isAdmin() ? <BroadcasterPresetsTab dark={dark} /> : null;
+      case "members": return isAdmin() ? <MembersTab dark={dark} /> : null;
+      case "projects": return isAdmin() ? <ProjectListTab dark={dark} /> : null;
+      case "shortcuts": return <ShortcutsTab dark={dark} />;
+      case "mypage": return <MyPageTab dark={dark} />;
       default: return null;
     }
   };
 
   return (
     <div className={`h-screen ${bg} ${tp} flex flex-col overflow-hidden`}>
-      {/* Header */}
       <header className={`h-12 ${card} border-b ${cb} flex items-center justify-between px-5 shrink-0`}>
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(isAdmin() ? "/dashboard" : "/projects")} className={`${ts} hover:${dm?"text-white":"text-black"}`}>
@@ -76,9 +73,11 @@ export function SettingsPage() {
           <Settings size={18} className="text-purple-400" />
           <span className="font-bold text-sm">관리자 대시보드 및 설정</span>
         </div>
+        <button onClick={() => setDark(!dm)} className={`p-1.5 ${ts} hover:${dm?"text-white":"text-black"}`} title="다크모드 토글">
+          {dm ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
       </header>
 
-      {/* Tab navigation */}
       <div className={`border-b ${cb} px-5 flex gap-1 ${bg}`}>
         {visibleTabs.map(t => (
           <button
@@ -96,7 +95,6 @@ export function SettingsPage() {
         ))}
       </div>
 
-      {/* Content */}
       <main className="flex-1 overflow-y-auto p-6">
         {renderContent()}
       </main>

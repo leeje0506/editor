@@ -1,60 +1,63 @@
 import { useState, useEffect } from "react";
-import { RotateCcw, Keyboard } from "lucide-react";
-import { useSettingsStore, ALL_SHORTCUTS, DEFAULT_SHORTCUTS } from "../../../store/useSettingsStore";
+import { RotateCcw } from "lucide-react";
+import {
+  useSettingsStore,
+  FIXED_SHORTCUTS,
+  CUSTOM_SHORTCUTS,
+  DEFAULT_SHORTCUTS,
+} from "../../../store/useSettingsStore";
 import { eventToKeyString } from "../../../hooks/useKeyboardShortcuts";
 
-export function ShortcutsTab() {
-  const card = "bg-gray-800";
-  const tp = "text-gray-100";
-  const ts = "text-gray-400";
-  const bd = "border-gray-700";
-  const inputBg = "bg-gray-700 text-gray-100";
+interface Props {
+  dark?: boolean;
+}
 
-  const shortcuts = useSettingsStore((s) => s.shortcuts);
-  const updateShortcut = useSettingsStore((s) => s.updateShortcut);
-  const saveAll = useSettingsStore((s) => s.saveAll);
-  const resetToDefaults = useSettingsStore((s) => s.resetToDefaults);
+export function ShortcutsTab({ dark = true }: Props) {
+  const dm = dark;
+  const tp = dm ? "text-gray-100" : "text-gray-800";
+  const ts = dm ? "text-gray-400" : "text-gray-500";
+  const bd = dm ? "border-gray-700" : "border-gray-200";
+  const divider = dm ? "divide-gray-700/50" : "divide-gray-100";
+  const keyBg = dm ? "bg-gray-700 text-gray-300" : "bg-gray-100 text-gray-600";
+  const keyCustom = "border-yellow-500/50 bg-yellow-500/10 text-yellow-400";
+  const keyEditing = "border-blue-500 bg-blue-500/20 text-blue-400 animate-pulse";
+  const keyDefault = dm ? "border-gray-600 bg-gray-700 text-gray-400" : "border-gray-200 bg-gray-50 text-gray-500";
 
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [pendingKey, setPendingKey] = useState("");
+  const { shortcuts, updateShortcut, saveAll, resetToDefaults } = useSettingsStore();
+
+  const [editingAction, setEditingAction] = useState<string | null>(null);
   const [conflictMsg, setConflictMsg] = useState("");
   const [saveMsg, setSaveMsg] = useState("");
 
-  // 키 감지 리스너
   useEffect(() => {
-    if (!editingId) return;
-
+    if (!editingAction) return;
     const handler = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const keyStr = eventToKeyString(e);
       if (!keyStr) return;
-
-      if (e.key === "Escape") {
-        setEditingId(null);
-        setPendingKey("");
+      if (keyStr === "Escape") {
+        setEditingAction(null);
         setConflictMsg("");
         return;
       }
-
-      setPendingKey(keyStr);
-
-      const conflict = updateShortcut(editingId, keyStr);
-      if (conflict) {
-        const conflictAction = ALL_SHORTCUTS.find((a) => a.id === conflict);
-        setConflictMsg(`"${conflictAction?.label || conflict}"에서 이미 사용 중`);
-        const prevKey = shortcuts[editingId] || DEFAULT_SHORTCUTS[editingId];
-        updateShortcut(editingId, prevKey);
+      const conflict = updateShortcut(editingAction, keyStr);
+      if (conflict === "__blocked__") {
+        setConflictMsg("이 키는 사용할 수 없습니다");
+        setTimeout(() => setConflictMsg(""), 2000);
+      } else if (conflict) {
+        const allActions = [...FIXED_SHORTCUTS, ...CUSTOM_SHORTCUTS];
+        const conflictLabel = allActions.find(a => a.id === conflict)?.label || conflict;
+        setConflictMsg(`"${conflictLabel}"에서 이미 사용 중입니다`);
+        setTimeout(() => setConflictMsg(""), 2000);
       } else {
+        setEditingAction(null);
         setConflictMsg("");
-        setEditingId(null);
-        setPendingKey("");
       }
     };
-
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [editingId, shortcuts, updateShortcut]);
+  }, [editingAction, updateShortcut]);
 
   const handleSave = async () => {
     await saveAll();
@@ -70,109 +73,79 @@ export function ShortcutsTab() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto py-6 px-4">
+    <div className="max-w-3xl mx-auto py-6 px-4">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className={`text-lg font-bold ${tp}`}>단축키 설정</h2>
           <p className={`text-xs ${ts} mt-1`}>편집기에서 사용할 단축키를 개인별로 설정할 수 있습니다.</p>
         </div>
         <div className="flex items-center gap-2">
-          {saveMsg && (
-            <span className="text-xs text-emerald-500 font-medium">{saveMsg}</span>
-          )}
-          <button
-            onClick={handleReset}
-            className={`flex items-center gap-1 border ${bd} ${ts} px-2.5 py-1.5 rounded text-xs hover:opacity-80`}
-          >
+          {saveMsg && <span className="text-xs text-emerald-500 font-medium">{saveMsg}</span>}
+          <button onClick={handleReset} className={`flex items-center gap-1 border ${bd} ${ts} px-2.5 py-1.5 rounded-lg text-xs hover:opacity-80`}>
             <RotateCcw size={12} /> 기본값 초기화
           </button>
-          <button
-            onClick={handleSave}
-            className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-blue-700"
-          >
+          <button onClick={handleSave} className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-700">
             저장
           </button>
         </div>
       </div>
 
-      <div className={`rounded-lg border ${bd} overflow-hidden`}>
-        <table className={`w-full text-sm ${ts}`}>
-          <thead>
-            <tr className={`bg-gray-750 border-b ${bd}`}>
-              <th className="text-left px-4 py-2.5 font-medium w-44">액션</th>
-              <th className="text-left px-4 py-2.5 font-medium">설명</th>
-              <th className="text-center px-4 py-2.5 font-medium w-48">단축키</th>
-              <th className="text-center px-4 py-2.5 font-medium w-20">변경</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-700">
-            {ALL_SHORTCUTS.map((action) => {
-              const currentKey = shortcuts[action.id] || DEFAULT_SHORTCUTS[action.id];
-              const isEditing = editingId === action.id;
-              const isDefault = currentKey === DEFAULT_SHORTCUTS[action.id];
+      {conflictMsg && (
+        <div className="text-xs px-3 py-2 rounded-lg text-orange-500 bg-orange-500/10 mb-4">{conflictMsg}</div>
+      )}
 
+      <div className="grid grid-cols-2 gap-5">
+        {/* 기본 단축키 */}
+        <div>
+          <div className={`text-sm font-bold ${tp} mb-1.5`}>기본 단축키</div>
+          <div className={`text-[11px] ${ts} mb-3`}>변경할 수 없습니다</div>
+          <div className={`border ${bd} rounded-xl divide-y ${divider}`}>
+            {FIXED_SHORTCUTS.map(action => {
+              const key = shortcuts[action.id] || DEFAULT_SHORTCUTS[action.id] || "";
               return (
-                <tr key={action.id} className={`${card} ${isEditing ? "bg-blue-900/20" : ""}`}>
-                  <td className={`px-4 py-3 font-medium ${tp}`}>{action.label}</td>
-                  <td className={`px-4 py-3 text-xs ${ts}`}>{action.description}</td>
-                  <td className="px-4 py-3 text-center">
-                    {isEditing ? (
-                      <div className="flex flex-col items-center gap-1">
-                        <div className={`inline-flex items-center gap-1 px-3 py-1.5 rounded border-2 border-blue-500 ${inputBg} text-xs font-mono animate-pulse`}>
-                          <Keyboard size={12} />
-                          {pendingKey || "키 입력 대기 중..."}
-                        </div>
-                        {conflictMsg && (
-                          <span className="text-[10px] text-red-500 font-medium">{conflictMsg}</span>
-                        )}
-                        <span className="text-[10px] text-gray-500">Esc로 취소</span>
-                      </div>
-                    ) : (
-                      <span className={`inline-block px-2.5 py-1 rounded text-xs font-mono ${
-                        isDefault
-                          ? "bg-gray-700 text-gray-300"
-                          : "bg-blue-500/10 text-blue-500 font-bold"
-                      }`}>
-                        {formatKeyDisplay(currentKey)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {isEditing ? (
-                      <button
-                        onClick={() => { setEditingId(null); setPendingKey(""); setConflictMsg(""); }}
-                        className="text-xs text-red-500 hover:underline"
-                      >
-                        취소
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => { setEditingId(action.id); setPendingKey(""); setConflictMsg(""); }}
-                        className="text-xs text-blue-500 hover:underline"
-                      >
-                        변경
-                      </button>
-                    )}
-                  </td>
-                </tr>
+                <div key={action.id} className="flex items-center justify-between px-4 py-3">
+                  <div>
+                    <div className={`text-sm font-medium ${tp}`}>{action.label}</div>
+                    <div className={`text-[11px] ${ts}`}>{action.description}</div>
+                  </div>
+                  <code className={`px-2.5 py-1 rounded text-xs font-mono ${keyBg}`}>{key}</code>
+                </div>
               );
             })}
-          </tbody>
-        </table>
+          </div>
+        </div>
+
+        {/* 커스텀 단축키 */}
+        <div>
+          <div className={`text-sm font-bold ${tp} mb-1.5`}>커스텀 단축키</div>
+          <div className={`text-[11px] ${ts} mb-3`}>클릭 후 키를 눌러 변경</div>
+          <div className={`border ${bd} rounded-xl divide-y ${divider} max-h-[480px] overflow-y-auto`}>
+            {CUSTOM_SHORTCUTS.map(action => {
+              const defaultKey = DEFAULT_SHORTCUTS[action.id] || "";
+              const currentKey = shortcuts[action.id] || defaultKey;
+              const isEditing = editingAction === action.id;
+              const isCustom = currentKey !== defaultKey;
+
+              return (
+                <div key={action.id} className="flex items-center justify-between px-4 py-3">
+                  <div className="min-w-0 flex-1 mr-3">
+                    <div className={`text-sm font-medium ${tp}`}>{action.label}</div>
+                    <div className={`text-[11px] ${ts}`}>{action.description}</div>
+                  </div>
+                  <button
+                    onClick={() => setEditingAction(isEditing ? null : action.id)}
+                    className={`px-2.5 py-1 rounded text-xs font-mono min-w-[80px] text-center border transition-colors shrink-0 ${
+                      isEditing ? keyEditing : isCustom ? keyCustom : keyBg + " border-transparent"
+                    }`}
+                  >
+                    {isEditing ? "입력..." : currentKey || "—"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
-}
-
-/** 단축키 표시용 포맷 */
-function formatKeyDisplay(key: string): string {
-  return key
-    .replace("ArrowUp", "↑")
-    .replace("ArrowDown", "↓")
-    .replace("ArrowLeft", "←")
-    .replace("ArrowRight", "→")
-    .replace("Space", "스페이스")
-    .replace("Delete", "Del")
-    .replace("Escape", "Esc")
-    .replace("Enter", "Enter");
 }

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Film, FileText, Monitor, Loader2 } from "lucide-react";
+import { X, Film, FileText, Monitor, Loader2, Shield, AlertTriangle } from "lucide-react";
 import { projectsApi } from "../../api/projects";
+import { permissionsApi } from "../../api/permissions";
 import { useBroadcasterStore } from "../../store/useBroadcasterStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import type { Project } from "../../types";
@@ -24,12 +25,20 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const [error, setError] = useState("");
   const [videoDragOver, setVideoDragOver] = useState(false);
   const [subDragOver, setSubDragOver] = useState(false);
-  /** 업로드 중 안내 모달 표시 */
   const [showUploadModal, setShowUploadModal] = useState(false);
   const videoRef = useRef<HTMLInputElement>(null);
   const subRef = useRef<HTMLInputElement>(null);
   const bcStore = useBroadcasterStore();
   const user = useAuthStore((s) => s.user);
+
+  // 권한 관련
+  const [myPerms, setMyPerms] = useState<string[]>([]);
+  const [permLoaded, setPermLoaded] = useState(false);
+  const [requestingPerm, setRequestingPerm] = useState(false);
+  const [requestReason, setRequestReason] = useState("");
+  const [requestMsg, setRequestMsg] = useState("");
+
+  const isAdminUser = user?.role === "master" || user?.role === "manager";
 
   useEffect(() => {
     bcStore.fetch().then(() => {
@@ -37,21 +46,25 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
         setBroadcaster(bcStore.names[0]);
       }
     });
+    // 내 권한 로드
+    permissionsApi.getMyPermissions().then(perms => {
+      setMyPerms(perms);
+      setPermLoaded(true);
+    }).catch(() => setPermLoaded(true));
   }, []);
 
-  /** 파일명에서 프로젝트명 추출 + 자동 설정 */
+  const hasBroadcasterPerm = isAdminUser || myPerms.includes(broadcaster);
+
   const autoSetName = useCallback((fileName: string, mode: "video" | "subtitle") => {
     if (nameManual) return;
     const withoutExt = fileName.replace(/\.[^.]+$/, "");
     const displayName = user?.display_name || user?.username || "작업자";
 
     if (mode === "subtitle") {
-      // {이름}_{접미사}.srt → {이름} 추출 (마지막 _ 앞)
       const lastUnderscore = withoutExt.lastIndexOf("_");
       const baseName = lastUnderscore > 0 ? withoutExt.slice(0, lastUnderscore) : withoutExt;
       setName(`${baseName}_${displayName}`);
     } else {
-      // 영상: 파일명 전체
       setName(`${withoutExt}_${displayName}`);
     }
   }, [nameManual, user]);
@@ -63,7 +76,6 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
 
   const handleSubtitleSelected = useCallback((file: File) => {
     setSubtitleFile(file);
-    // 영상이 아직 없을 때만 자막 파일명으로 자동 생성
     if (!videoFile) {
       autoSetName(file.name, "subtitle");
     }
@@ -79,18 +91,33 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const inpF = "focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
   const today = new Date().toISOString().split("T")[0];
 
-  /** 자막 파일 확장자로 import 타입 판별 */
   const getSubtitleImportType = (file: File): "srt" | "json" => {
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
     return ext === "json" ? "json" : "srt";
   };
 
+  const handleRequestPerm = async () => {
+    if (!broadcaster) return;
+    setRequestingPerm(true);
+    try {
+      await permissionsApi.createRequest(broadcaster, requestReason || undefined);
+      setRequestMsg("권한 요청 완료! 관리자 승인을 기다려주세요.");
+      setRequestReason("");
+      setTimeout(() => setRequestMsg(""), 4000);
+    } catch (e: any) {
+      setRequestMsg(e?.response?.data?.detail || "요청 실패");
+      setTimeout(() => setRequestMsg(""), 3000);
+    } finally {
+      setRequestingPerm(false);
+    }
+  };
+
   const handleCreate = async () => {
     if (!name.trim()) { setError("프로젝트 명칭을 입력해주세요."); return; }
+    if (!hasBroadcasterPerm) { setError(`'${broadcaster}' 방송사 작업 권한이 없습니다.`); return; }
     setCreating(true);
     setError("");
 
-    // 파일 업로드가 하나라도 있으면 업로드 모달 표시
     const hasFiles = !!(videoFile || subtitleFile);
     if (hasFiles) setShowUploadModal(true);
 
@@ -100,7 +127,6 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
         name: name.trim(), broadcaster, description: description || undefined, deadline: deadline || undefined,
       });
 
-      // 자막 업로드 (있을 때만)
       if (subtitleFile) {
         const importType = getSubtitleImportType(subtitleFile);
         if (importType === "json") {
@@ -112,7 +138,6 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
         }
       }
 
-      // 영상 업로드 (있을 때만)
       if (videoFile) {
         setProgress("영상 업로드 중...");
         await projectsApi.uploadVideo(project.id, videoFile);
@@ -161,7 +186,6 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const dropZoneActive = "border-blue-500 bg-blue-500/10";
   const dropZoneIdle = `${bd} hover:border-blue-500/50`;
 
-  /** 선택된 자막 파일의 타입 표시 */
   const subFileLabel = subtitleFile
     ? `${subtitleFile.name}${getSubtitleImportType(subtitleFile) === "json" ? " (JSON 모드)" : ""}`
     : null;
@@ -189,13 +213,55 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
             {/* 방송사 */}
             <div>
               <label className={`block text-xs font-medium ${ts} mb-1.5`}>방송사 <span className="text-red-500">*</span></label>
-              <select value={broadcaster} onChange={(e) => setBroadcaster(e.target.value)} className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none ${inp} ${inpF}`}>
-                {bcStore.names.map((bc) => <option key={bc} value={bc}>{bc}</option>)}
+              <select value={broadcaster} onChange={(e) => { setBroadcaster(e.target.value); setRequestMsg(""); }} className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none ${inp} ${inpF}`}>
+                {bcStore.names.map((bc) => (
+                  <option key={bc} value={bc}>
+                    {bc}{!isAdminUser && myPerms.includes(bc) ? " ✓" : ""}
+                  </option>
+                ))}
               </select>
               {rules && (
                 <div className={`mt-1.5 text-[11px] ${ts} ${dm ? "bg-gray-800" : "bg-gray-50"} rounded px-3 py-1.5`}>
                   자막 기준: 최대 {rules.max_lines}줄 / 줄당 {rules.max_chars_per_line}자
                   <span className={`ml-2 ${dm ? "text-gray-600" : "text-gray-400"}`}>(관리 페이지에서 수정)</span>
+                </div>
+              )}
+
+              {/* 권한 없음 경고 + 요청 UI */}
+              {permLoaded && !hasBroadcasterPerm && broadcaster && (
+                <div className={`mt-2 rounded-lg p-3 ${dm ? "bg-orange-500/5 border border-orange-500/15" : "bg-orange-50 border border-orange-200"}`}>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <AlertTriangle size={13} className="text-orange-400" />
+                    <span className="text-xs font-medium text-orange-400">'{broadcaster}' 방송사 작업 권한이 없습니다</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={requestReason}
+                      onChange={(e) => setRequestReason(e.target.value)}
+                      placeholder="사유 (선택)"
+                      className={`flex-1 border rounded px-2 py-1.5 text-xs outline-none ${inp} focus:border-blue-500`}
+                    />
+                    <button
+                      onClick={handleRequestPerm}
+                      disabled={requestingPerm}
+                      className="bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white px-3 py-1.5 rounded text-xs font-medium flex items-center gap-1 shrink-0"
+                    >
+                      <Shield size={11} /> 권한 요청
+                    </button>
+                  </div>
+                  {requestMsg && (
+                    <div className={`mt-1.5 text-[11px] ${requestMsg.includes("실패") || requestMsg.includes("이미") ? "text-red-400" : "text-emerald-400"}`}>
+                      {requestMsg}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 권한 있음 표시 */}
+              {permLoaded && hasBroadcasterPerm && broadcaster && !isAdminUser && (
+                <div className="mt-1.5 flex items-center gap-1">
+                  <Shield size={11} className="text-green-400" />
+                  <span className="text-[11px] text-green-400">권한 보유</span>
                 </div>
               )}
             </div>
@@ -251,8 +317,12 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
           </div>
           <div className={`px-6 py-4 border-t ${bd} flex items-center justify-end gap-3`}>
             <button onClick={onClose} className={`px-4 py-2 text-sm ${ts} hover:opacity-80`}>취소</button>
-            <button onClick={handleCreate} disabled={creating} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-bold flex items-center gap-2">
-              <Monitor size={16} />{creating ? "생성 중..." : "워크스페이스 생성"}
+            <button
+              onClick={handleCreate}
+              disabled={creating || (!hasBroadcasterPerm && permLoaded)}
+              className={`${!hasBroadcasterPerm && permLoaded ? "bg-gray-600 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"} disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-bold flex items-center gap-2`}
+            >
+              <Monitor size={16} />{creating ? "생성 중..." : !hasBroadcasterPerm && permLoaded ? "권한 없음" : "워크스페이스 생성"}
             </button>
           </div>
         </div>

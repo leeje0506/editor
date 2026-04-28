@@ -14,16 +14,25 @@ function fmtDate(iso: string|null) {
 
 type Filter = "all" | "draft" | "submitted" | "approved";
 
-export function ProjectListTab() {
+interface Props {
+  dark?: boolean;
+}
+
+export function ProjectListTab({ dark = true }: Props) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
 
   useEffect(() => { projectsApi.list().then(setProjects).catch(() => {}); }, []);
 
   const filtered = filter === "all" ? projects : projects.filter(p => p.status === filter);
-  const bd = "border-gray-800";
-  const card = "bg-gray-900";
-  const ts = "text-gray-400";
+
+  const dm = dark;
+  const bd = dm ? "border-gray-800" : "border-gray-200";
+  const card = dm ? "bg-gray-900" : "bg-white";
+  const ts = dm ? "text-gray-400" : "text-gray-500";
+  const tp = dm ? "text-gray-100" : "text-gray-900";
+  const divider = dm ? "divide-gray-800" : "divide-gray-200";
+  const rowHover = dm ? "hover:bg-gray-800/50" : "hover:bg-gray-50";
 
   const statusBadge = (s: string) => {
     const m: Record<string, { bg: string; text: string; label: string }> = {
@@ -86,9 +95,9 @@ export function ProjectListTab() {
               <th className="py-2.5 px-3 w-10"></th>
             </tr>
           </thead>
-          <tbody className={`divide-y divide-gray-800`}>
+          <tbody className={`divide-y ${divider}`}>
             {filtered.map(p => (
-              <tr key={p.id} className="hover:bg-gray-800/50">
+              <tr key={p.id} className={rowHover}>
                 <td className="py-2.5 px-3"><input type="checkbox" className="rounded" /></td>
                 <td className="py-2.5 px-3 font-medium">{p.assigned_to_name || p.created_by_name || "—"}</td>
                 <td className="py-2.5 px-3 font-bold">{p.name}</td>
