@@ -8,6 +8,7 @@ import { permissionsApi } from "../../../api/permissions";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { useWorkspaceStore } from "../../../store/useWorkspaceStore";
 import type { User, Workspace } from "../../../types";
+import { nfcTrim } from "../../../utils/normalize";
 
 interface Props {
   dark?: boolean;
@@ -72,12 +73,14 @@ export function MembersTab({ dark = true }: Props) {
   // ── 계정 CRUD ──
 
   const handleCreate = async () => {
-    if (!newId.trim()) return;
+    const username = nfcTrim(newId);
+    if (!username) return;
+    const displayName = nfcTrim(newName) || username;
     try {
       await authApi.createUser({
-        username: newId.trim(),
-        password: newId.trim(),
-        display_name: newName.trim() || newId.trim(),
+        username,
+        password: username,
+        display_name: displayName,
         role: newRole,
       });
       setNewId("");
@@ -114,7 +117,10 @@ export function MembersTab({ dark = true }: Props) {
   const saveEdit = async () => {
     if (!editId) return;
     try {
-      await authApi.updateUser(editId, { display_name: editName.trim(), role: editRole });
+      await authApi.updateUser(editId, {
+        display_name: nfcTrim(editName),
+        role: editRole,
+      });
       setEditId(null);
       showMsg("수정 완료");
       fetchUsers();

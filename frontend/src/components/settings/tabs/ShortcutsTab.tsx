@@ -72,6 +72,9 @@ export function ShortcutsTab({ dark = true }: Props) {
     setTimeout(() => setSaveMsg(""), 2000);
   };
 
+  // 두 카드 동일 높이 통일
+  const listMaxH = "max-h-[480px]";
+
   return (
     <div className="max-w-3xl mx-auto py-6 px-4">
       <div className="flex items-center justify-between mb-6">
@@ -99,7 +102,7 @@ export function ShortcutsTab({ dark = true }: Props) {
         <div>
           <div className={`text-sm font-bold ${tp} mb-1.5`}>기본 단축키</div>
           <div className={`text-[11px] ${ts} mb-3`}>변경할 수 없습니다</div>
-          <div className={`border ${bd} rounded-xl divide-y ${divider}`}>
+          <div className={`border ${bd} rounded-xl divide-y ${divider} ${listMaxH} overflow-y-auto`}>
             {FIXED_SHORTCUTS.map(action => {
               const key = shortcuts[action.id] || DEFAULT_SHORTCUTS[action.id] || "";
               return (
@@ -119,7 +122,7 @@ export function ShortcutsTab({ dark = true }: Props) {
         <div>
           <div className={`text-sm font-bold ${tp} mb-1.5`}>커스텀 단축키</div>
           <div className={`text-[11px] ${ts} mb-3`}>클릭 후 키를 눌러 변경</div>
-          <div className={`border ${bd} rounded-xl divide-y ${divider} max-h-[480px] overflow-y-auto`}>
+          <div className={`border ${bd} rounded-xl divide-y ${divider} ${listMaxH} overflow-y-auto`}>
             {CUSTOM_SHORTCUTS.map(action => {
               const defaultKey = DEFAULT_SHORTCUTS[action.id] || "";
               const currentKey = shortcuts[action.id] || defaultKey;

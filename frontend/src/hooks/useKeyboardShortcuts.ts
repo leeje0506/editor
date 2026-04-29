@@ -8,6 +8,7 @@ import { useSettingsStore, eventToKeyString } from "../store/useSettingsStore";
  */
 const BLOCK_IN_INPUT: Set<string> = new Set([
   "play_pause",
+  "play_pause_alt",
   "prev",
   "next",
   "delete",
@@ -54,6 +55,7 @@ export function useKeyboardShortcuts(
 
       switch (actionId) {
         case "play_pause":
+        case "play_pause_alt":
           playerState.togglePlay();
           break;
 
@@ -279,13 +281,13 @@ export function useKeyboardShortcuts(
           break;
         }
 
-        case "focus_text": {
-          const textarea = document.querySelector<HTMLTextAreaElement>(
-            "[data-quick-editor-textarea]"
-          );
-          textarea?.focus();
-          break;
-        }
+        // case "focus_text": {
+        //   const textarea = document.querySelector<HTMLTextAreaElement>(
+        //     "[data-quick-editor-textarea]"
+        //   );
+        //   textarea?.focus();
+        //   break;
+        // }
 
         case "save":
           onSave();

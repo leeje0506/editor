@@ -1,10 +1,11 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useTimelineStore } from "../../store/useTimelineStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
+import { useBroadcasterStore } from "../../store/useBroadcasterStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { usePlayback } from "../../hooks/usePlayback";
 import { projectsApi } from "../../api/projects";
@@ -13,7 +14,6 @@ import type { Project } from "../../types";
 import { TopNav } from "../nav/TopNav";
 import { VideoPlayer } from "../video/VideoPlayer";
 import { SubtitleGrid } from "../grid/SubtitleGrid";
-import { QuickEditor } from "../editor/QuickEditor";
 import { Timeline } from "../timeline/Timeline";
 import { SubtitleDisplayPanel } from "../video/SubtitleDisplayPanel";
 import { FindReplaceModal } from "../modals/FindReplaceModal";
@@ -25,7 +25,6 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL;
 type EditorMode = "srt" | "json";
 
 const DEFAULT_VIDEO_W = 960;
-const DEFAULT_EDITOR_H = 160;
 const DEFAULT_TL_H = 220;
 
 function HResizeHandle({
@@ -81,11 +80,6 @@ export function AppLayout() {
     return saved ? Number(saved) : DEFAULT_VIDEO_W;
   });
 
-  const [editorHeight, setEditorHeight] = useState(() => {
-    const saved = localStorage.getItem("editor_editorHeight");
-    return saved ? Number(saved) : DEFAULT_EDITOR_H;
-  });
-
   const [timelineHeight, setTimelineHeight] = useState(() => {
     const saved = localStorage.getItem("editor_timelineHeight");
     return saved ? Number(saved) : DEFAULT_TL_H;
@@ -96,10 +90,6 @@ export function AppLayout() {
   useEffect(() => {
     localStorage.setItem("editor_videoWidth", String(videoWidth));
   }, [videoWidth]);
-
-  useEffect(() => {
-    localStorage.setItem("editor_editorHeight", String(editorHeight));
-  }, [editorHeight]);
 
   useEffect(() => {
     localStorage.setItem("editor_timelineHeight", String(timelineHeight));
@@ -121,43 +111,45 @@ export function AppLayout() {
   const user = useAuthStore((s) => s.user);
   const isWorker = !user?.role || !["master", "manager"].includes(user.role);
   const loadSettings = useSettingsStore((s) => s.load);
+
+  // broadcaster store: 검수 룰의 진실의 원천
+  const bcRules = useBroadcasterStore((s) => s.rules);
+  const bcFetch = useBroadcasterStore((s) => s.fetch);
+
   const [videoKey, setVideoKey] = useState(0);
 
   const readOnly = project ? isReadOnly(project.status, isWorker) : false;
+
+  // 프로젝트 broadcaster 기준 최신 룰 (없으면 project 자체 값 fallback)
+  // const liveRule = useMemo(() => {
+  //   const rule = project?.broadcaster ? bcRules[project.broadcaster] : null;
+  //   return {
+  //     maxChars: rule?.max_chars_per_line ?? project?.max_chars_per_line ?? 18,
+  //     maxLines: rule?.max_lines ?? project?.max_lines ?? 2,
+  //     minDurationMs: rule?.min_duration_ms ?? (project as any)?.min_duration_ms ?? 500,
+  //     speakerMode: rule?.speaker_mode ?? project?.speaker_mode ?? "name",
+  //   };
+  // }, [project, bcRules]);
+  const liveRule = useMemo(() => {
+    const rule = project?.broadcaster ? bcRules[project.broadcaster] : null;
+    console.log("[liveRule]", {
+      broadcaster: project?.broadcaster,
+      rule,
+      allBcRules: bcRules,
+      project_max_chars: project?.max_chars_per_line,
+    });
+    return {
+      maxChars: rule?.max_chars_per_line ?? project?.max_chars_per_line ?? 18,
+      maxLines: rule?.max_lines ?? project?.max_lines ?? 2,
+      minDurationMs: rule?.min_duration_ms ?? (project as any)?.min_duration_ms ?? 500,
+      speakerMode: rule?.speaker_mode ?? project?.speaker_mode ?? "name",
+    };
+  }, [project, bcRules]);
 
   const handleVideoWidthChange = useCallback((w: number) => {
     const maxW = Math.floor(window.innerWidth * 0.7);
     setVideoWidth(Math.min(w, maxW));
   }, []);
-
-  const handleEditorTopDrag = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setDragging(true);
-
-      const startY = e.clientY;
-      const startEH = editorHeight;
-
-      const onMove = (ev: MouseEvent) => {
-        const dy = ev.clientY - startY;
-        setEditorHeight(Math.max(80, Math.min(400, startEH - dy)));
-      };
-
-      const onUp = () => {
-        setDragging(false);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-      };
-
-      document.body.style.cursor = "ns-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    },
-    [editorHeight],
-  );
 
   const handleTimelineTopDrag = useCallback(
     (e: React.MouseEvent) => {
@@ -240,7 +232,8 @@ export function AppLayout() {
       .catch(() => setPeaks(null));
 
     loadSettings();
-  }, [pid, init, loadSettings, navigate, setTimelineTotalMs, setTotalMs]);
+    bcFetch();  // 편집기 진입 시 broadcaster 룰 로드
+  }, [pid, init, loadSettings, bcFetch, navigate, setTimelineTotalMs, setTotalMs]);
 
   useEffect(() => {
     timerRef.current = window.setInterval(() => setElapsed((prev) => prev + 1), 1000);
@@ -414,6 +407,7 @@ export function AppLayout() {
       setTotalMs(p.total_duration_ms);
       setTimelineTotalMs(p.total_duration_ms);
       setVideoKey((k) => k + 1);
+      await bcFetch();  // 방송사 룰도 다시 fetch
       await init(pid);
     } catch {}
   };
@@ -470,7 +464,7 @@ export function AppLayout() {
 
   useKeyboardShortcuts(
     handleSave,
-    project?.max_chars_per_line ?? 18,
+    liveRule.maxChars,
     () => setShowFindReplace(true),
   );
   usePlayback();
@@ -533,32 +527,17 @@ export function AppLayout() {
 
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <div className={`flex-1 flex flex-col ${card} border-r ${bd} min-h-0 overflow-hidden`}>
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <SubtitleGrid
-              dark={dm}
-              readOnly={readOnly}
-              editorMode={editorMode}
-              projectId={pid}
-              maxChars={project?.max_chars_per_line ?? 18}
-              maxLines={project?.max_lines ?? 2}
-              minDurationMs={(project as any)?.min_duration_ms ?? 500}
-              onSubtitleUploaded={handleSubtitleUploaded}
-              speakerMode={project?.speaker_mode ?? "name"}
-            />
-          </div>
-
-          <HResizeHandle dark={dm} onMouseDown={handleEditorTopDrag} />
-
-          <div className="shrink-0 overflow-hidden" style={{ height: editorHeight }}>
-            <QuickEditor
-              dark={dm}
-              maxChars={project?.max_chars_per_line ?? 18}
-              maxLines={project?.max_lines ?? 2}
-              readOnly={readOnly}
-              editorMode={editorMode}
-              speakerMode={project?.speaker_mode ?? "name"}
-            />
-          </div>
+          <SubtitleGrid
+            dark={dm}
+            readOnly={readOnly}
+            editorMode={editorMode}
+            projectId={pid}
+            maxChars={liveRule.maxChars}
+            maxLines={liveRule.maxLines}
+            minDurationMs={liveRule.minDurationMs}
+            onSubtitleUploaded={handleSubtitleUploaded}
+            speakerMode={liveRule.speakerMode}
+          />
         </div>
 
         <div

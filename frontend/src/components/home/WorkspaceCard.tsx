@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Folder, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { workspacesApi } from "../../api/workspaces";
 import { useAuthStore } from "../../store/useAuthStore";
+import { nfcTrim } from "../../utils/normalize";
 import type { Workspace } from "../../types";
 
 interface Stats {
@@ -49,7 +50,6 @@ export function WorkspaceCard({ ws, onClick, onRenamed, onDeleted, dark = false 
     };
   }, [ws.id, isAdmin]);
 
-  // 외부 클릭으로 메뉴 닫기
   useEffect(() => {
     if (!menuOpen) return;
     const close = () => setMenuOpen(false);
@@ -62,7 +62,6 @@ export function WorkspaceCard({ ws, onClick, onRenamed, onDeleted, dark = false 
     };
   }, [menuOpen]);
 
-  // 편집 진입 시 input focus + select
   useEffect(() => {
     if (editing && inputRef.current) {
       inputRef.current.focus();
@@ -110,14 +109,14 @@ export function WorkspaceCard({ ws, onClick, onRenamed, onDeleted, dark = false 
   };
 
   const handleSubmitEdit = async () => {
-    const trimmed = editVal.trim();
-    if (!trimmed || trimmed === ws.name) {
+    const cleaned = nfcTrim(editVal);
+    if (!cleaned || cleaned === ws.name) {
       setEditing(false);
       setEditVal(ws.name);
       return;
     }
     try {
-      await workspacesApi.rename(ws.id, trimmed);
+      await workspacesApi.rename(ws.id, cleaned);
       setEditing(false);
       onRenamed?.();
     } catch (e: any) {
@@ -157,7 +156,6 @@ export function WorkspaceCard({ ws, onClick, onRenamed, onDeleted, dark = false 
         onClick={handleCardClick}
         className={`relative text-left border rounded-lg p-4 transition-colors cursor-pointer w-full ${cardCls}`}
       >
-        {/* ⋮ 메뉴 버튼 (우측 상단) */}
         {isAdmin && (
           <button
             ref={menuBtnRef}
@@ -238,7 +236,6 @@ export function WorkspaceCard({ ws, onClick, onRenamed, onDeleted, dark = false 
         )}
       </div>
 
-      {/* 드롭다운 메뉴 */}
       {menuOpen &&
         createPortal(
           <div
@@ -266,7 +263,6 @@ export function WorkspaceCard({ ws, onClick, onRenamed, onDeleted, dark = false 
           document.body,
         )}
 
-      {/* 삭제 confirm 모달 */}
       {confirmDelete &&
         createPortal(
           <div

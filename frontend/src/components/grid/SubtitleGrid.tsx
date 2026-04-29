@@ -7,18 +7,21 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { msToTimecode } from "../../utils/time";
 import { GridToolbar } from "./GridToolbar";
 import { GridFilters, type Filters } from "./GridFilters";
-import { FileText, Loader2 } from "lucide-react";
+import { FileText, Loader2, AlertTriangle } from "lucide-react";
 import { projectsApi } from "../../api/projects";
-import { validateSubtitleLocal } from "../../utils/validation";
+import {
+  validateSubtitleLocal,
+  calcSpeakerReserved,
+  countTextChars,
+} from "../../utils/validation";
+import { nfc } from "../../utils/normalize";
 import type { Subtitle } from "../../types";
 
 interface Props {
   dark: boolean;
   readOnly?: boolean;
   editorMode?: "srt" | "json";
-  /** 프로젝트 ID (자막 업로드용) */
   projectId?: number;
-  /** 자막 업로드 완료 후 콜백 */
   onSubtitleUploaded?: () => void;
   maxChars?: number;
   maxLines?: number;
@@ -28,11 +31,6 @@ interface Props {
 
 function msToDuration(ms: number): string {
   return (ms / 1000).toFixed(3);
-}
-
-function parseErrors(err: string): Set<string> {
-  if (!err) return new Set();
-  return new Set(err.split(",").map((e) => e.trim()));
 }
 
 /* ── 엑셀 스타일 드롭다운 셀 ── */
@@ -46,18 +44,12 @@ interface DropCellProps {
   fontSize: number;
   onSelect: (v: string) => void;
   onCellClick: () => void;
+  onRequestEdit?: () => void;  // 더블클릭 시 직접 입력 모드로 전환 (선택)
 }
 
 function DropCell({
-  value,
-  label,
-  options,
-  dark,
-  disabled,
-  colorCls,
-  fontSize,
-  onSelect,
-  onCellClick,
+  value, label, options, dark, disabled, colorCls, fontSize,
+  onSelect, onCellClick, onRequestEdit,
 }: DropCellProps) {
   const [open, setOpen] = useState(false);
   const cellRef = useRef<HTMLDivElement>(null);
@@ -67,13 +59,9 @@ function DropCell({
     if (!open) return;
     const handler = (e: MouseEvent) => {
       if (
-        cellRef.current &&
-        !cellRef.current.contains(e.target as Node) &&
-        dropRef.current &&
-        !dropRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
+        cellRef.current && !cellRef.current.contains(e.target as Node) &&
+        dropRef.current && !dropRef.current.contains(e.target as Node)
+      ) setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -91,11 +79,17 @@ function DropCell({
     e.stopPropagation();
     onCellClick();
     if (disabled) return;
-    if (e.detail >= 2) {
-      setOpen(false);
-      return;
-    }
+    if (e.detail >= 2) { setOpen(false); return; }
     setOpen((prev) => !prev);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (disabled) return;
+    if (onRequestEdit) {
+      setOpen(false);
+      onRequestEdit();
+    }
   };
 
   const bg = dark ? "bg-gray-700" : "bg-white";
@@ -109,124 +103,216 @@ function DropCell({
       <div
         ref={cellRef}
         onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
         className={`flex items-center justify-center gap-0.5 cursor-pointer ${colorCls || ""}`}
       >
         <span>{label}</span>
         <span className="text-[8px] opacity-40">▼</span>
       </div>
-      {open &&
-        createPortal(
-          <div
-            ref={dropRef}
-            className={`fixed z-[9999] ${bg} border ${border} rounded shadow-xl`}
-            style={{
-              top: pos.top,
-              left: pos.left,
-              width: Math.max(pos.width, 64),
-              fontSize: `${fontSize}px`,
-            }}
-          >
-            {options.map((opt) => (
-              <div
-                key={opt.v}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect(opt.v);
-                  setOpen(false);
-                }}
-                className={`px-3 py-1.5 cursor-pointer text-center ${text} ${hoverBg} ${
-                  opt.v === value ? activeBg : ""
-                } first:rounded-t last:rounded-b`}
-              >
-                {opt.label}
-              </div>
-            ))}
-          </div>,
-          document.body,
-        )}
+      {open && createPortal(
+        <div
+          ref={dropRef}
+          className={`fixed z-[9999] ${bg} border ${border} rounded shadow-xl`}
+          style={{ top: pos.top, left: pos.left, width: Math.max(pos.width, 64), fontSize: `${fontSize}px` }}
+        >
+          {options.map((opt) => (
+            <div
+              key={opt.v}
+              onClick={(e) => { e.stopPropagation(); onSelect(opt.v); setOpen(false); }}
+              className={`px-3 py-1.5 cursor-pointer text-center ${text} ${hoverBg} ${
+                opt.v === value ? activeBg : ""
+              } first:rounded-t last:rounded-b`}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
     </>
   );
 }
 
-/* ── TODO : 테스트용 인라인 텍스트 편집 셀 ── */
-function EditableTextCell({
-  text,
-  dark,
-  disabled,
-  fontSize,
-  className,
-  onChange,
-  onCellClick,
-}: {
+/* ── 인라인 단일행 텍스트 입력 (화자명 직접 입력용) ── */
+interface InlineTextInputProps {
+  value: string;
+  dark: boolean;
+  fontSize: number;
+  onCommit: (v: string) => void;
+  onCancel: () => void;
+}
+
+function InlineTextInput({ value, dark, fontSize, onCommit, onCancel }: InlineTextInputProps) {
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    const end = el.value.length;
+    el.setSelectionRange(end, end);
+  }, []);
+
+  const inp = dark
+    ? "bg-gray-700 text-gray-100 border-gray-600"
+    : "bg-white text-gray-800 border-gray-300";
+
+  return (
+    <input
+      ref={inputRef}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onBlur={() => {
+        const cleaned = nfc(draft);
+        if (cleaned !== value) onCommit(cleaned);
+        else onCancel();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && e.shiftKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          const cleaned = nfc(draft);
+          if (cleaned !== value) onCommit(cleaned);
+          else onCancel();
+          return;
+        }
+        if (e.key === "Enter") {
+          // 화자는 한 줄 입력 — Enter도 종료로 처리
+          e.preventDefault();
+          e.stopPropagation();
+          const cleaned = nfc(draft);
+          if (cleaned !== value) onCommit(cleaned);
+          else onCancel();
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          onCancel();
+          return;
+        }
+        e.stopPropagation();
+      }}
+      style={{ fontSize: `${fontSize}px` }}
+      className={`w-full border rounded px-1 py-0.5 outline-none focus:border-blue-500 text-center ${inp}`}
+    />
+  );
+}
+
+/* ── 인라인 텍스트 셀 (대사) ── */
+interface EditableTextCellProps {
   text: string;
+  isEditing: boolean;
   dark: boolean;
   disabled?: boolean;
   fontSize: number;
   className?: string;
   onChange: (text: string) => void;
   onCellClick: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(text);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  onRequestEdit: () => void;
+  onExitEdit: () => void;
+}
 
-  useEffect(() => { setValue(text); }, [text]);
+function EditableTextCell({
+  text, isEditing, dark, disabled, fontSize, className,
+  onChange, onCellClick, onRequestEdit, onExitEdit,
+}: EditableTextCellProps) {
+  const [value, setValue] = useState(text);
+  const taRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, [editing]);
+    if (!isEditing) setValue(text);
+  }, [text, isEditing]);
 
-  if (disabled || !editing) {
+  const resize = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, []);
+
+  useEffect(() => {
+    if (isEditing && taRef.current) {
+      const ta = taRef.current;
+      setValue(text);
+      ta.focus();
+      const end = ta.value.length;
+      ta.setSelectionRange(end, end);
+      requestAnimationFrame(resize);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing]);
+
+  useEffect(() => {
+    if (isEditing) resize();
+  }, [value, isEditing, resize]);
+
+  if (!isEditing) {
+    const lines = text.length === 0 ? [""] : text.split("\n");
     return (
       <div
         className={className}
+        onClick={(e) => { e.stopPropagation(); onCellClick(); }}
         onDoubleClick={(e) => {
+          e.stopPropagation();
           if (disabled) return;
-          e.stopPropagation();
-          setEditing(true);
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          onCellClick();
+          onRequestEdit();
         }}
         title={text}
       >
-        <div className="leading-snug whitespace-pre-wrap break-all line-clamp-2">
-          {text}
+        <div className="flex flex-col leading-snug">
+          {lines.map((line, i) => (
+            <div
+              key={i}
+              className="overflow-hidden whitespace-nowrap text-ellipsis"
+            >
+              {line || "\u200B"}
+            </div>
+          ))}
         </div>
       </div>
     );
   }
 
-  const inp = dark ? "bg-gray-700 text-gray-100 border-gray-600" : "bg-white text-gray-800 border-gray-300";
+  const inp = dark
+    ? "bg-gray-700 text-gray-100 border-gray-600"
+    : "bg-white text-gray-800 border-gray-300";
 
   return (
-    <div className={className} onClick={(e) => e.stopPropagation()}>
+    <div className={className} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <textarea
-        ref={inputRef}
+        ref={taRef}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onBlur={() => {
-          setEditing(false);
-          if (value !== text) onChange(value);
+          const cleaned = nfc(value);
+          if (cleaned !== text) onChange(cleaned);
+          onExitEdit();
         }}
         onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            setValue(text);
-            setEditing(false);
-          }
-          if (e.key === "Enter" && !e.shiftKey) {
+          if (e.key === "Enter" && e.shiftKey) {
             e.preventDefault();
-            setEditing(false);
-            if (value !== text) onChange(value);
+            e.stopPropagation();
+            const cleaned = nfc(value);
+            if (cleaned !== text) onChange(cleaned);
+            onExitEdit();
+            return;
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            setValue(text);
+            onExitEdit();
+            return;
           }
           e.stopPropagation();
         }}
+        rows={1}
         style={{ fontSize: `${fontSize}px` }}
-        className={`w-full h-full border rounded px-1 py-0.5 outline-none focus:border-blue-500 resize-none leading-snug ${inp}`}
+        className={`w-full border rounded px-1 py-0.5 outline-none focus:border-blue-500 resize-none leading-snug overflow-hidden ${inp}`}
       />
     </div>
   );
@@ -249,14 +335,13 @@ export function SubtitleGrid({
   const subtitleDragDepthRef = useRef(0);
 
   const [filters, setFilters] = useState<Filters>({
-    type: "전체",
-    textPos: "전체",
-    error: "전체",
-    search: "",
+    type: "전체", textPos: "전체", error: "전체", search: "",
   });
   const [uploading, setUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);          // 대사 셀 편집 중인 자막 id
+  const [editingSpeakerId, setEditingSpeakerId] = useState<number | null>(null);  // 화자 셀 편집 중인 자막 id
 
   const subtitles = useSubtitleStore((s) => s.subtitles);
   const selectedId = useSubtitleStore((s) => s.selectedId);
@@ -267,11 +352,12 @@ export function SubtitleGrid({
   const updateLocal = useSubtitleStore((s) => s.updateLocal);
   const flushDirty = useSubtitleStore((s) => s.flushDirty);
 
-  /** v8.3 강화 저장 정책: DropCell 변경 / 텍스트 셀 확정 시 즉시 서버 반영.
-   * updateLocal로 dirtyMap에 기록한 직후 flushDirty()를 fire-and-forget으로 호출. */
   const updateAndFlush = useCallback(
     (id: number, data: Partial<Subtitle>) => {
-      updateLocal(id, data);
+      const normalized: Partial<Subtitle> = { ...data };
+      if (typeof normalized.text === "string") normalized.text = nfc(normalized.text);
+      if (typeof normalized.speaker === "string") normalized.speaker = nfc(normalized.speaker);
+      updateLocal(id, normalized);
       void flushDirty();
     },
     [updateLocal, flushDirty],
@@ -281,6 +367,7 @@ export function SubtitleGrid({
   const setVideoPreviewMs = usePlayerStore((s) => s.setVideoPreviewMs);
   const ensureVisible = useTimelineStore((s) => s.ensureVisible);
   const listFontSize = useSettingsStore((s) => s.subtitleDisplay.listFontSize);
+  const focusTextKey = useSettingsStore((s) => s.shortcuts.focus_text);
 
   const dm = dark;
   const card = dm ? "bg-gray-800" : "bg-white";
@@ -289,15 +376,13 @@ export function SubtitleGrid({
   const bd = dm ? "border-gray-700" : "border-gray-200";
   const bdl = dm ? "border-gray-700" : "border-gray-100";
   const hr = dm ? "hover:bg-blue-900/25" : "hover:bg-blue-100";
-  //선택 행 색상
   const sr = dm ? "bg-blue-900/25" : "bg-blue-100";
   const mr = dm ? "bg-blue-900/10" : "bg-blue-50";
-  //오류 셀 색상
   const errCellBg = dm ? "bg-orange-900/50" : "bg-orange-100";
 
   const speakerOptions = useMemo(() => {
     const names = [...new Set(subtitles.map((s) => s.speaker).filter(Boolean))].sort();
-    return [{ v: "", label: "-" }, ...names.map((n) => ({ v: n, label: n }))];
+    return [{ v: "", label: "(없음)" }, ...names.map((n) => ({ v: n, label: n }))];
   }, [subtitles]);
 
   const filtered = useMemo(() => {
@@ -324,13 +409,9 @@ export function SubtitleGrid({
       } else {
         const last = currentGroup[currentGroup.length - 1];
         if (sub.start_ms < last.end_ms) currentGroup.push(sub);
-        else {
-          groups.push(currentGroup);
-          currentGroup = [sub];
-        }
+        else { groups.push(currentGroup); currentGroup = [sub]; }
       }
     }
-
     if (currentGroup.length > 0) groups.push(currentGroup);
 
     for (const group of groups) {
@@ -345,11 +426,9 @@ export function SubtitleGrid({
         }
       }
     }
-
     return map;
   }, [subtitles]);
 
-  /* ── 선택 병합 가능 여부 판별 ── */
   const canMergeSelection = useMemo(() => {
     if (multiSelect.size < 2 || multiSelect.size > 3) return false;
     const selected = subtitles.filter((s) => multiSelect.has(s.id));
@@ -367,6 +446,45 @@ export function SubtitleGrid({
       row.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }, [selectedId]);
+
+  // ── 편집 진입 단축키 (focus_text, 기본 Shift+Enter — 대사 셀로만) ──
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (readOnly) return;
+      if (selectedId == null) return;
+      if (editingId != null || editingSpeakerId != null) return;
+      const target = e.target as HTMLElement;
+      if (target && (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      )) return;
+
+      const parts: string[] = [];
+      if (e.ctrlKey || e.metaKey) parts.push("Ctrl");
+      if (e.shiftKey) parts.push("Shift");
+      if (e.altKey) parts.push("Alt");
+      let key = e.key;
+      if (key === " ") key = "Space";
+      if (["Control", "Meta", "Shift", "Alt"].includes(key)) return;
+      if (key.length === 1 && key >= "a" && key <= "z") key = key.toUpperCase();
+      parts.push(key);
+      const combo = parts.join("+");
+
+      if (combo === focusTextKey) {
+        e.preventDefault();
+        setEditingId(selectedId);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedId, editingId, editingSpeakerId, readOnly, focusTextKey]);
+
+  // 선택 변경 시 편집 모드(대사/화자 모두) 종료
+  useEffect(() => {
+    if (editingId != null && editingId !== selectedId) setEditingId(null);
+    if (editingSpeakerId != null && editingSpeakerId !== selectedId) setEditingSpeakerId(null);
+  }, [selectedId, editingId, editingSpeakerId]);
 
   const handleClick = (id: number, e: React.MouseEvent) => {
     if (playing) return;
@@ -389,12 +507,9 @@ export function SubtitleGrid({
     }
   };
 
-  /* ── 우클릭 컨텍스트 메뉴 ── */
   const handleContextMenu = (e: React.MouseEvent, id: number) => {
     e.preventDefault();
-    if (!multiSelect.has(id)) {
-      selectSingle(id);
-    }
+    if (!multiSelect.has(id)) selectSingle(id);
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
@@ -417,23 +532,16 @@ export function SubtitleGrid({
     [playing, selectedId, selectSingle, subtitles, setVideoPreviewMs],
   );
 
-  /* ── 자막 파일 업로드 핸들러 ── */
   const handleSubtitleFileUpload = useCallback(
     async (file: File) => {
       if (!projectId || uploading) return;
-
       setUploading(true);
       try {
         const ext = file.name.split(".").pop()?.toLowerCase() || "";
-        if (ext === "json") {
-          await projectsApi.uploadJson(projectId, file);
-        } else {
-          await projectsApi.uploadSubtitle(projectId, file);
-        }
+        if (ext === "json") await projectsApi.uploadJson(projectId, file);
+        else await projectsApi.uploadSubtitle(projectId, file);
         onSubtitleUploaded?.();
-      } catch {
-        // 실패 시 무시
-      } finally {
+      } catch {} finally {
         setUploading(false);
       }
     },
@@ -452,10 +560,8 @@ export function SubtitleGrid({
 
   const handleSubtitleDragEnter = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       if (readOnly || uploading || !projectId) return;
-
       subtitleDragDepthRef.current += 1;
       setIsDragOver(true);
     },
@@ -464,10 +570,8 @@ export function SubtitleGrid({
 
   const handleSubtitleDragOver = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       if (readOnly || uploading || !projectId) return;
-
       e.dataTransfer.dropEffect = "copy";
       if (!isDragOver) setIsDragOver(true);
     },
@@ -476,29 +580,21 @@ export function SubtitleGrid({
 
   const handleSubtitleDragLeave = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       if (readOnly || uploading || !projectId) return;
-
       subtitleDragDepthRef.current -= 1;
-      if (subtitleDragDepthRef.current <= 0) {
-        resetSubtitleDragState();
-      }
+      if (subtitleDragDepthRef.current <= 0) resetSubtitleDragState();
     },
     [readOnly, uploading, projectId, resetSubtitleDragState],
   );
 
   const handleSubtitleDrop = useCallback(
     async (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       resetSubtitleDragState();
-
       if (readOnly || uploading || !projectId) return;
-
       const file = Array.from(e.dataTransfer.files ?? []).find(isSubtitleUploadFile);
       if (!file) return;
-
       await handleSubtitleFileUpload(file);
     },
     [readOnly, uploading, projectId, isSubtitleUploadFile, handleSubtitleFileUpload, resetSubtitleDragState],
@@ -506,13 +602,13 @@ export function SubtitleGrid({
 
   const cw = {
     seq: "3%",
-    start: "10%",
-    end: "10%",
+    start: "9%",
+    end: "9%",
     dur: "5%",
     type: "5%",
-    spk: "6%",
-    spkDel: "6%",
-    txtDel: "6%",
+    spk: "8%",
+    spkDel: "5%",
+    txtDel: "5%",
     pos: "5%",
   };
   const cellCls = "py-2 overflow-hidden text-ellipsis whitespace-nowrap";
@@ -535,41 +631,45 @@ export function SubtitleGrid({
 
   const headerRow = (
     <tr>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
-        #
-      </th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
-        시작
-      </th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
-        종료
-      </th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
-        길이
-      </th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
-        유형
-      </th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
-        화자
-      </th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
-        화자삭제
-      </th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
-        대사
-      </th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>
-        대사삭제
-      </th>
-      <th className={`${cellCls} font-medium`} style={cellStyle}>
-        위치
-      </th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>#</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>시작</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>종료</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>길이</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>유형</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>화자</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>화자삭제</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>대사</th>
+      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>대사삭제</th>
+      <th className={`${cellCls} font-medium`} style={cellStyle}>위치</th>
     </tr>
   );
 
-  /** 자막 0개일 때 empty state */
   const isEmpty = subtitles.length === 0;
+
+  const selectedSub = useMemo(
+    () => subtitles.find((s) => s.id === selectedId) || null,
+    [subtitles, selectedId],
+  );
+
+  const footerInfo = useMemo(() => {
+    if (!selectedSub) return null;
+    const speakerReserved = calcSpeakerReserved(
+      selectedSub.speaker,
+      !!selectedSub.speaker_deleted,
+      speakerMode,
+    );
+    const lines = selectedSub.text.split("\n");
+    const lineChars = lines.map((line) => countTextChars(line));
+    const totalChars = lineChars.reduce((a, b) => a + b, 0);
+    const totalWithSpeaker = totalChars + speakerReserved;
+    const lineCount = Math.max(1, lines.length);
+    const limit = maxChars * lineCount;
+    const isOver = totalWithSpeaker > limit;
+    return {
+      lineChars, speakerReserved, totalWithSpeaker, limit, isOver,
+      maxChars, errors: selectedSub.error,
+    };
+  }, [selectedSub, speakerMode, maxChars]);
 
   return (
     <div className={`h-full flex flex-col overflow-hidden border-b ${bd}`}>
@@ -584,7 +684,6 @@ export function SubtitleGrid({
       </div>
 
       {isEmpty ? (
-        /* ── 자막 없음: 업로드 버튼 + 드래그 업로드 ── */
         <div className={`flex-1 flex items-center justify-center ${card}`}>
           <input
             ref={fileInputRef}
@@ -597,7 +696,6 @@ export function SubtitleGrid({
               e.currentTarget.value = "";
             }}
           />
-
           {uploading ? (
             <div className="flex flex-col items-center gap-3">
               <Loader2 size={28} className="text-blue-500 animate-spin" />
@@ -620,12 +718,9 @@ export function SubtitleGrid({
               tabIndex={0}
               className={`flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-dashed cursor-pointer transition-colors group ${
                 isDragOver
-                  ? dm
-                    ? "border-blue-500 bg-blue-500/10"
-                    : "border-blue-500 bg-blue-50"
-                  : dm
-                    ? "border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5"
-                    : "border-gray-300 hover:border-blue-400 hover:bg-blue-50"
+                  ? dm ? "border-blue-500 bg-blue-500/10" : "border-blue-500 bg-blue-50"
+                  : dm ? "border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5"
+                       : "border-gray-300 hover:border-blue-400 hover:bg-blue-50"
               }`}
             >
               <FileText
@@ -633,20 +728,13 @@ export function SubtitleGrid({
                 className={`transition-colors ${
                   isDragOver
                     ? "text-blue-500"
-                    : dm
-                      ? "text-gray-600 group-hover:text-blue-500"
-                      : "text-gray-400 group-hover:text-blue-500"
+                    : dm ? "text-gray-600 group-hover:text-blue-500"
+                         : "text-gray-400 group-hover:text-blue-500"
                 }`}
               />
-              <span
-                className={`text-sm font-medium transition-colors ${
-                  isDragOver
-                    ? "text-blue-500"
-                    : dm
-                      ? "text-gray-500 group-hover:text-blue-400"
-                      : "text-gray-400 group-hover:text-blue-400"
-                }`}
-              >
+              <span className={`text-sm font-medium transition-colors ${
+                isDragOver ? "text-blue-500" : dm ? "text-gray-500 group-hover:text-blue-400" : "text-gray-400 group-hover:text-blue-400"
+              }`}>
                 자막 파일 추가
               </span>
               <span className={`text-[10px] ${dm ? "text-gray-700" : "text-gray-300"}`}>
@@ -656,179 +744,216 @@ export function SubtitleGrid({
           )}
         </div>
       ) : (
-        /* ── 자막 테이블 ── */
-        <div ref={scrollRef} className={`flex-1 overflow-y-auto overflow-x-hidden ${card} min-h-0`}>
-          <table
-            className={`w-full ${ts}`}
-            style={{ fontSize: `${listFontSize}px`, tableLayout: "fixed" }}
-          >
-            {colGroup}
-            <thead className={`border-b ${bd} ${card} sticky top-0 z-10`}>{headerRow}</thead>
-            <tbody className={`divide-y ${dm ? "divide-gray-600" : "divide-gray-200"}`}>
-              {filtered.map((sub) => {
-                const isSel = selectedId === sub.id;
-                const isMulti = multiSelect.has(sub.id) && !isSel;
-                const duration = sub.end_ms - sub.start_ms;
+        <>
+          <div ref={scrollRef} className={`flex-1 overflow-y-auto overflow-x-hidden ${card} min-h-0`}>
+            <table
+              className={`w-full ${ts}`}
+              style={{ fontSize: `${listFontSize}px`, tableLayout: "fixed" }}
+            >
+              {colGroup}
+              <thead className={`border-b ${bd} ${card} sticky top-0 z-10`}>{headerRow}</thead>
+              <tbody className={`divide-y ${dm ? "divide-gray-600" : "divide-gray-200"}`}>
+                {filtered.map((sub) => {
+                  const isSel = selectedId === sub.id;
+                  const isMulti = multiSelect.has(sub.id) && !isSel;
+                  const duration = sub.end_ms - sub.start_ms;
 
-                // 실시간 검수 (서버 error 대신 로컬 계산)
-                const localErrors = new Set(validateSubtitleLocal(
-                  sub.text,
-                  sub.speaker,
-                  !!sub.speaker_deleted,
-                  sub.start_ms,
-                  sub.end_ms,
-                  maxChars,
-                  maxLines,
-                  minDurationMs,
-                  speakerMode,
-                ));
-                // 서버 오버랩은 로컬에서 계산 안 하므로 서버 error에서 가져옴
-                if (sub.error?.includes("오버랩")) localErrors.add("오버랩");
+                  const localErrors = new Set(validateSubtitleLocal(
+                    sub.text, sub.speaker, !!sub.speaker_deleted,
+                    sub.start_ms, sub.end_ms,
+                    maxChars, maxLines, minDurationMs, speakerMode,
+                  ));
+                  if (sub.error?.includes("오버랩")) localErrors.add("오버랩");
 
-                const overlap = overlapCellMap.get(sub.id);
-                const rowBg = isSel ? sr : isMulti ? mr : "";
-                const startCellBg = overlap?.startErr ? errCellBg : "";
-                const endCellBg = overlap?.endErr ? errCellBg : "";
-                const durCellBg = localErrors.has("최소길이") ? errCellBg : "";
-                const textCellBg = localErrors.has("글자초과") ? errCellBg : "";
+                  const overlap = overlapCellMap.get(sub.id);
+                  const rowBg = isSel ? sr : isMulti ? mr : "";
+                  const startCellBg = overlap?.startErr ? errCellBg : "";
+                  const endCellBg = overlap?.endErr ? errCellBg : "";
+                  const durCellBg = localErrors.has("최소길이") ? errCellBg : "";
+                  const textCellBg = localErrors.has("글자초과") ? errCellBg : "";
 
-                // 삭제: bool 필드 (위치와 독립)
-                const spkDeleted = !!sub.speaker_deleted;
-                const txtDeleted = !!sub.text_deleted;
-                // 위치: speaker_pos / text_pos (삭제와 독립)
-                const isTop = sub.speaker_pos === "top" || sub.text_pos === "top";
+                  const spkDeleted = !!sub.speaker_deleted;
+                  const txtDeleted = !!sub.text_deleted;
+                  const isTop = sub.speaker_pos === "top" || sub.text_pos === "top";
 
-                return (
-                  <tr
-                    key={sub.id}
-                    id={`row-${sub.id}`}
-                    onClick={(e) => handleClick(sub.id, e)}
-                    onDoubleClick={() => handleDblClick(sub.id)}
-                    onContextMenu={(e) => handleContextMenu(e, sub.id)}
-                    className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
-                  >
-                    <td className={`${cellCls} relative`} style={cellStyle}>
-                      {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
-                      {sub.seq}
-                    </td>
-                    <td className={`${cellCls} font-mono ${tp} ${startCellBg}`} style={cellStyle}>
-                      {msToTimecode(sub.start_ms)}
-                    </td>
-                    <td className={`${cellCls} font-mono ${tp} ${endCellBg}`} style={cellStyle}>
-                      {msToTimecode(sub.end_ms)}
-                    </td>
-                    <td className={`${cellCls} font-mono ${tp} ${durCellBg}`} style={cellStyle}>
-                      {msToDuration(duration)}
-                    </td>
-                    <td className={`${cellCls}`} style={cellStyle}>
-                      <DropCell
-                        dark={dm}
-                        disabled={readOnly}
-                        fontSize={listFontSize}
-                        value={sub.type}
-                        label={sub.type === "effect" ? "효과" : "대사"}
-                        options={[
-                          { v: "dialogue", label: "대사" },
-                          { v: "effect", label: "효과" },
-                        ]}
-                        onSelect={(v) => updateAndFlush(sub.id, { type: v as "dialogue" | "effect" })}
-                        onCellClick={() => triggerSelect(sub.id)}
-                      />
-                    </td>
-                    <td className={`${cellCls} ${tp}`} style={cellStyle}>
-                      <DropCell
-                        dark={dm}
-                        disabled={readOnly}
-                        fontSize={listFontSize}
-                        value={sub.speaker}
-                        label={sub.speaker || "(없음)"}
-                        options={speakerOptions}
-                        onSelect={(v) => updateAndFlush(sub.id, { speaker: v })}
-                        onCellClick={() => triggerSelect(sub.id)}
-                      />
-                    </td>
-                    {/* 화자삭제: speaker_deleted bool */}
-                    <td className={`${cellCls}`} style={cellStyle}>
-                      <DropCell
-                        dark={dm}
-                        disabled={readOnly}
-                        fontSize={listFontSize}
-                        value={spkDeleted ? "true" : "false"}
-                        label={spkDeleted ? "삭제" : "유지"}
-                        colorCls={spkDeleted ? "text-red-500" : ""}
-                        options={[
-                          { v: "false", label: "유지" },
-                          { v: "true", label: "삭제" },
-                        ]}
-                        onSelect={(v) =>
-                          updateAndFlush(sub.id, { speaker_deleted: v === "true" })
-                        }
-                        onCellClick={() => triggerSelect(sub.id)}
-                      />
-                    </td>
-                    {/* TODO : 테스트용 대사: 더블클릭으로 인라인 편집 */}
-                    <td
-                      className={`py-2 overflow-hidden ${tp} ${textCellBg} px-3`}
-                      style={{ textAlign: "left" }}
+                  const isEditingThis = editingId === sub.id;
+                  const isEditingSpeakerThis = editingSpeakerId === sub.id;
+
+                  return (
+                    <tr
+                      key={sub.id}
+                      id={`row-${sub.id}`}
+                      onClick={(e) => handleClick(sub.id, e)}
+                      onDoubleClick={() => handleDblClick(sub.id)}
+                      onContextMenu={(e) => handleContextMenu(e, sub.id)}
+                      className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
                     >
-                      <EditableTextCell
-                        text={sub.text}
-                        dark={dm}
-                        disabled={readOnly}
-                        fontSize={listFontSize}
-                        className="leading-snug"
-                        onChange={(v) => updateAndFlush(sub.id, { text: v })}
-                        onCellClick={() => triggerSelect(sub.id)}
-                      />
-                    </td>
-                    {/* 대사삭제: text_deleted bool */}
-                    <td className={`${cellCls}`} style={cellStyle}>
-                      <DropCell
-                        dark={dm}
-                        disabled={readOnly}
-                        fontSize={listFontSize}
-                        value={txtDeleted ? "true" : "false"}
-                        label={txtDeleted ? "삭제" : "유지"}
-                        colorCls={txtDeleted ? "text-red-500" : ""}
-                        options={[
-                          { v: "false", label: "유지" },
-                          { v: "true", label: "삭제" },
-                        ]}
-                        onSelect={(v) =>
-                          updateAndFlush(sub.id, { text_deleted: v === "true" })
-                        }
-                        onCellClick={() => triggerSelect(sub.id)}
-                      />
-                    </td>
-                    {/* 위치: speaker_pos / text_pos (삭제와 완전 독립) */}
-                    <td className={`${cellCls}`} style={cellStyle}>
-                      <DropCell
-                        dark={dm}
-                        disabled={readOnly}
-                        fontSize={listFontSize}
-                        value={isTop ? "top" : "default"}
-                        label={isTop ? "상단" : "하단"}
-                        colorCls={isTop ? "text-blue-500" : ""}
-                        options={[
-                          { v: "default", label: "하단" },
-                          { v: "top", label: "상단" },
-                        ]}
-                        onSelect={(v) => {
-                          const pos = v as "default" | "top";
-                          updateAndFlush(sub.id, { speaker_pos: pos, text_pos: pos });
-                        }}
-                        onCellClick={() => triggerSelect(sub.id)}
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      <td className={`${cellCls} relative`} style={cellStyle}>
+                        {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
+                        {sub.seq}
+                      </td>
+                      <td className={`${cellCls} font-mono ${tp} ${startCellBg}`} style={cellStyle}>
+                        {msToTimecode(sub.start_ms)}
+                      </td>
+                      <td className={`${cellCls} font-mono ${tp} ${endCellBg}`} style={cellStyle}>
+                        {msToTimecode(sub.end_ms)}
+                      </td>
+                      <td className={`${cellCls} font-mono ${tp} ${durCellBg}`} style={cellStyle}>
+                        {msToDuration(duration)}
+                      </td>
+                      <td className={`${cellCls}`} style={cellStyle}>
+                        <DropCell
+                          dark={dm} disabled={readOnly} fontSize={listFontSize}
+                          value={sub.type}
+                          label={sub.type === "effect" ? "효과" : "대사"}
+                          options={[{ v: "dialogue", label: "대사" }, { v: "effect", label: "효과" }]}
+                          onSelect={(v) => updateAndFlush(sub.id, { type: v as "dialogue" | "effect" })}
+                          onCellClick={() => triggerSelect(sub.id)}
+                        />
+                      </td>
+                      {/* 화자: 한 번 클릭 = 드롭다운 / 더블클릭 = 직접 입력 */}
+                      <td
+                        className={`py-2 px-2 ${tp}`}
+                        style={{ textAlign: "center", wordBreak: "break-word", whiteSpace: "normal" }}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                      >
+                        {isEditingSpeakerThis ? (
+                          <InlineTextInput
+                            value={sub.speaker}
+                            dark={dm}
+                            fontSize={listFontSize}
+                            onCommit={(v) => {
+                              updateAndFlush(sub.id, { speaker: v });
+                              setEditingSpeakerId(null);
+                            }}
+                            onCancel={() => setEditingSpeakerId(null)}
+                          />
+                        ) : (
+                          <DropCell
+                            dark={dm} disabled={readOnly} fontSize={listFontSize}
+                            value={sub.speaker}
+                            label={sub.speaker || "(없음)"}
+                            options={speakerOptions}
+                            onSelect={(v) => updateAndFlush(sub.id, { speaker: v })}
+                            onCellClick={() => triggerSelect(sub.id)}
+                            onRequestEdit={() => {
+                              if (readOnly) return;
+                              triggerSelect(sub.id);
+                              setEditingSpeakerId(sub.id);
+                            }}
+                          />
+                        )}
+                      </td>
+                      <td className={`${cellCls}`} style={cellStyle}>
+                        <DropCell
+                          dark={dm} disabled={readOnly} fontSize={listFontSize}
+                          value={spkDeleted ? "true" : "false"}
+                          label={spkDeleted ? "삭제" : "유지"}
+                          colorCls={spkDeleted ? "text-red-500" : ""}
+                          options={[{ v: "false", label: "유지" }, { v: "true", label: "삭제" }]}
+                          onSelect={(v) => updateAndFlush(sub.id, { speaker_deleted: v === "true" })}
+                          onCellClick={() => triggerSelect(sub.id)}
+                        />
+                      </td>
+                      {/* 대사 */}
+                      <td
+                        className={`py-2 px-3 ${tp} ${textCellBg}`}
+                        style={{ textAlign: "left", verticalAlign: "top" }}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                      >
+                        <EditableTextCell
+                          text={sub.text}
+                          isEditing={isEditingThis}
+                          dark={dm}
+                          disabled={readOnly}
+                          fontSize={listFontSize}
+                          className="leading-snug"
+                          onChange={(v) => updateAndFlush(sub.id, { text: v })}
+                          onCellClick={() => triggerSelect(sub.id)}
+                          onRequestEdit={() => {
+                            if (readOnly) return;
+                            triggerSelect(sub.id);
+                            setEditingId(sub.id);
+                          }}
+                          onExitEdit={() => setEditingId(null)}
+                        />
+                      </td>
+                      <td className={`${cellCls}`} style={cellStyle}>
+                        <DropCell
+                          dark={dm} disabled={readOnly} fontSize={listFontSize}
+                          value={txtDeleted ? "true" : "false"}
+                          label={txtDeleted ? "삭제" : "유지"}
+                          colorCls={txtDeleted ? "text-red-500" : ""}
+                          options={[{ v: "false", label: "유지" }, { v: "true", label: "삭제" }]}
+                          onSelect={(v) => updateAndFlush(sub.id, { text_deleted: v === "true" })}
+                          onCellClick={() => triggerSelect(sub.id)}
+                        />
+                      </td>
+                      <td className={`${cellCls}`} style={cellStyle}>
+                        <DropCell
+                          dark={dm} disabled={readOnly} fontSize={listFontSize}
+                          value={isTop ? "top" : "default"}
+                          label={isTop ? "상단" : "하단"}
+                          colorCls={isTop ? "text-blue-500" : ""}
+                          options={[{ v: "default", label: "하단" }, { v: "top", label: "상단" }]}
+                          onSelect={(v) => {
+                            const pos = v as "default" | "top";
+                            updateAndFlush(sub.id, { speaker_pos: pos, text_pos: pos });
+                          }}
+                          onCellClick={() => triggerSelect(sub.id)}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* footer */}
+          <div className={`shrink-0 border-t ${bd} ${card} px-3 py-1.5 flex items-center justify-between text-[11px]`}>
+            {footerInfo ? (
+              <>
+                <div className={`${ts} flex items-center gap-3 flex-wrap`}>
+                  {footerInfo.lineChars.map((cnt, i) => {
+                    const withSpeaker = i === 0 ? cnt + footerInfo.speakerReserved : cnt;
+                    const lineOver = withSpeaker > footerInfo.maxChars;
+                    return (
+                      <span key={i}>
+                        {`${i + 1}줄 : `}
+                        <span className={lineOver ? "text-red-500 font-medium" : tp}>{withSpeaker}</span>
+                      </span>
+                    );
+                  })}
+                  <span>
+                    {"전체 : "}
+                    <span className={footerInfo.isOver ? "text-red-500 font-medium" : "text-blue-500"}>
+                      {footerInfo.totalWithSpeaker}
+                    </span>
+                  </span>
+                  <span style={{ display: "inline-block", padding: "0 4px" }}>|</span>
+                  <span>
+                    {"기준 : "}
+                    <span className={footerInfo.isOver ? "text-red-500" : tp}>
+                      {footerInfo.maxChars}, {footerInfo.limit}
+                    </span>
+                  </span>
+                </div>
+                {footerInfo.errors && (
+                  <span className="text-red-500 flex items-center gap-1">
+                    <AlertTriangle size={11} />
+                    {footerInfo.errors}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className={ts}>자막을 선택하세요</span>
+            )}
+          </div>
+        </>
       )}
 
-      {/* ── 우클릭 컨텍스트 메뉴 ── */}
+      {/* 우클릭 컨텍스트 메뉴 */}
       {contextMenu && createPortal(
         <div
           className={`fixed z-[9999] rounded shadow-xl border py-1 min-w-[160px] ${
@@ -836,28 +961,19 @@ export function SubtitleGrid({
           }`}
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
-          {/* 싱크 추가 */}
           <button
             disabled={readOnly}
-            onClick={() => {
-              setContextMenu(null);
-              useSubtitleStore.getState().addAfter();
-            }}
+            onClick={() => { setContextMenu(null); useSubtitleStore.getState().addAfter(); }}
             className={`w-full text-left px-3 py-1.5 text-xs ${
-              !readOnly
-                ? `${dm ? "text-gray-200 hover:bg-gray-600" : "text-gray-700 hover:bg-blue-50"}`
-                : `${dm ? "text-gray-500" : "text-gray-400"} cursor-not-allowed`
+              !readOnly ? `${dm ? "text-gray-200 hover:bg-gray-600" : "text-gray-700 hover:bg-blue-50"}`
+                        : `${dm ? "text-gray-500" : "text-gray-400"} cursor-not-allowed`
             }`}
           >
             싱크 추가
           </button>
-          {/* 싱크 분할 */}
           <button
             disabled={readOnly || !selectedId}
-            onClick={() => {
-              setContextMenu(null);
-              useSubtitleStore.getState().splitSelected();
-            }}
+            onClick={() => { setContextMenu(null); useSubtitleStore.getState().splitSelected(); }}
             className={`w-full text-left px-3 py-1.5 text-xs ${
               !readOnly && selectedId
                 ? `${dm ? "text-gray-200 hover:bg-gray-600" : "text-gray-700 hover:bg-blue-50"}`
@@ -866,13 +982,9 @@ export function SubtitleGrid({
           >
             싱크 분할
           </button>
-          {/* 싱크 삭제 */}
           <button
             disabled={readOnly || multiSelect.size === 0}
-            onClick={() => {
-              setContextMenu(null);
-              useSubtitleStore.getState().deleteSelected();
-            }}
+            onClick={() => { setContextMenu(null); useSubtitleStore.getState().deleteSelected(); }}
             className={`w-full text-left px-3 py-1.5 text-xs ${
               !readOnly && multiSelect.size > 0
                 ? `${dm ? "text-gray-200 hover:bg-gray-600" : "text-gray-700 hover:bg-blue-50"}`
@@ -881,16 +993,12 @@ export function SubtitleGrid({
           >
             싱크 삭제 ({multiSelect.size}개)
           </button>
-          {/* 구분선 */}
           <div className={`my-1 border-t ${dm ? "border-gray-600" : "border-gray-200"}`} />
-          {/* 선택 병합 */}
           <button
             disabled={!canMergeSelection || readOnly}
             onClick={() => {
               setContextMenu(null);
-              if (canMergeSelection) {
-                useSubtitleStore.getState().mergeSelected();
-              }
+              if (canMergeSelection) useSubtitleStore.getState().mergeSelected();
             }}
             className={`w-full text-left px-3 py-1.5 text-xs ${
               canMergeSelection && !readOnly

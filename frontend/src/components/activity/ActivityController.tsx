@@ -177,11 +177,11 @@ export function ActivityController() {
       const sincePresence = now - lastPresenceAt;
       // 콘솔 로그 추가 (5초마다만 찍기)
       if (Math.floor(sincePresence / 1000) % 5 === 0) {
-        console.log("[IdleCheck]", Math.floor(sincePresence / 1000) + "s idle");
+        // console.log("[IdleCheck]", Math.floor(sincePresence / 1000) + "s idle");
       }
 
       if (sincePresence >= IDLE_TIMEOUT_MS) {
-        console.log("[IdleCheck] OPENING MODAL");
+        // console.log("[IdleCheck] OPENING MODAL");
         openModal();
       }
     }, 1000);

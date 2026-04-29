@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Home, Moon, Sun, Save, Send, Settings, Clock, Download, Lock, LogOut, FileJson, FileText, Users } from "lucide-react";
 import { ProjectSettingsModal } from "../modals/ProjectSettingsModal";
 import { BulkSpeakerModal } from "../modals/BulkSpeakerModal";
+import { useBroadcasterStore } from "../../store/useBroadcasterStore";
 import type { Project } from "../../types";
 type EditorMode = "srt" | "json";
 
@@ -40,6 +41,12 @@ export function TopNav({
   const [showSettings, setShowSettings] = useState(false);
   const [showDlMenu, setShowDlMenu] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
+
+  // broadcaster store에서 최신 룰 가져옴 (project 자체 값보다 우선)
+  const bcRules = useBroadcasterStore((s) => s.rules);
+  const liveRule = project?.broadcaster ? bcRules[project.broadcaster] : null;
+  const displayMaxLines = liveRule?.max_lines ?? project?.max_lines ?? 2;
+  const displayMaxChars = liveRule?.max_chars_per_line ?? project?.max_chars_per_line ?? 15;
 
   const dm = dark;
   const card = dm ? "bg-gray-800" : "bg-white";
@@ -100,7 +107,7 @@ export function TopNav({
             </div>
             <div className={`text-[10px] ${ts} flex gap-2 items-center`}>
               <span>방송사: <strong className="text-blue-500">{project?.broadcaster || "-"}</strong></span>
-              <span>(최대 {project?.max_lines || 2}줄, {project?.max_chars_per_line || 15}자)</span>
+              <span>(최대 {displayMaxLines}줄, {displayMaxChars}자)</span>
               <span className={`flex items-center gap-0.5 ${dm ? "text-yellow-400" : "text-yellow-600"}`}>
                 <Clock size={10} /> 소요 시간: {formatElapsed(elapsed)}
               </span>

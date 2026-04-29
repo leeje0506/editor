@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { FileText, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { projectsApi } from "../../api/projects";
 import { useAuthStore } from "../../store/useAuthStore";
+import { nfcTrim } from "../../utils/normalize";
 import type { Project } from "../../types";
 import { getStatusLabel, STATUS_LABEL_COLORS } from "../../utils/statusLabel";
 
@@ -47,8 +48,6 @@ export function ProjectCard({
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 메뉴 권한: 관리자 무조건. 작업자는 본인 생성분만 (created_by 비교 가능하면).
-  // 여기선 관리자만 메뉴 노출 (worker는 카드 정보 자체 축약 모드)
   const canShowMenu = isAdmin && !isWorker;
 
   useEffect(() => {
@@ -122,14 +121,14 @@ export function ProjectCard({
   };
 
   const handleSubmitEdit = async () => {
-    const trimmed = editVal.trim();
-    if (!trimmed || trimmed === project.name) {
+    const cleaned = nfcTrim(editVal);
+    if (!cleaned || cleaned === project.name) {
       setEditing(false);
       setEditVal(project.name);
       return;
     }
     try {
-      await projectsApi.update(project.id, { name: trimmed });
+      await projectsApi.update(project.id, { name: cleaned });
       setEditing(false);
       onRenamed?.();
     } catch (e: any) {
@@ -157,7 +156,6 @@ export function ProjectCard({
         onClick={handleCardClick}
         className={`relative text-left border rounded-lg p-4 transition-colors cursor-pointer w-full ${cardCls}`}
       >
-        {/* ⋮ 메뉴 버튼 (우측 상단) */}
         {canShowMenu && (
           <button
             ref={menuBtnRef}
@@ -250,7 +248,6 @@ export function ProjectCard({
         )}
       </div>
 
-      {/* 드롭다운 메뉴 */}
       {menuOpen &&
         createPortal(
           <div
@@ -278,7 +275,6 @@ export function ProjectCard({
           document.body,
         )}
 
-      {/* 삭제 confirm 모달 */}
       {confirmDelete &&
         createPortal(
           <div

@@ -60,8 +60,14 @@ export function BroadcasterPresetsTab({ dark = true }: Props) {
       for (const r of updatedRules) {
         payload[r.name] = { max_lines: r.max_lines, max_chars_per_line: r.max_chars_per_line, allow_overlap: r.allow_overlap, min_duration_ms: r.min_duration_ms, speaker_mode: r.speaker_mode };
       }
+      // await projectsApi.saveBroadcasterRules(payload);
+      // await useBroadcasterStore.getState().fetch();
+      // setMsg("저장 완료!"); setTimeout(() => setMsg(""), 2000);
+      console.log("[saveToServer] payload:", payload);
       await projectsApi.saveBroadcasterRules(payload);
+      console.log("[saveToServer] saved, refetching...");
       await useBroadcasterStore.getState().fetch();
+      console.log("[saveToServer] store after fetch:", useBroadcasterStore.getState().rules);
       setMsg("저장 완료!"); setTimeout(() => setMsg(""), 2000);
     } catch { setMsg("저장 실패"); setTimeout(() => setMsg(""), 2000); }
     setSaving(false);

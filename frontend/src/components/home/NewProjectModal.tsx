@@ -4,6 +4,7 @@ import { projectsApi } from "../../api/projects";
 import { useBroadcasterStore } from "../../store/useBroadcasterStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
+import { nfcTrim } from "../../utils/normalize";
 import type { Project } from "../../types";
 
 interface Props {
@@ -111,7 +112,10 @@ export function NewProjectModal({ dark, initialWorkspaceId, onClose, onCreate }:
   };
 
   const handleCreate = async () => {
-    if (!name.trim()) { setError("프로젝트 명칭을 입력해주세요."); return; }
+    const cleanName = nfcTrim(name);
+    const cleanDescription = nfcTrim(description);
+
+    if (!cleanName) { setError("프로젝트 명칭을 입력해주세요."); return; }
     if (workspaceId === null) { setError("워크스페이스를 선택해주세요."); return; }
     if (!broadcaster) { setError("방송사를 선택해주세요."); return; }
 
@@ -125,9 +129,9 @@ export function NewProjectModal({ dark, initialWorkspaceId, onClose, onCreate }:
       setProgress("프로젝트 생성 중...");
       const project = await projectsApi.create({
         workspace_id: workspaceId,
-        name: name.trim(),
+        name: cleanName,
         broadcaster,
-        description: description || undefined,
+        description: cleanDescription || undefined,
         deadline: deadline || undefined,
       });
 

@@ -4,28 +4,19 @@ import { useAuthStore } from "../../../store/useAuthStore";
 import { useWorkspaceStore } from "../../../store/useWorkspaceStore";
 import { authApi } from "../../../api/auth";
 import { permissionsApi, type WorkspacePermission } from "../../../api/permissions";
+import { nfcTrim } from "../../../utils/normalize";
 import type { Workspace } from "../../../types";
 
 interface Props {
   dark?: boolean;
 }
 
-/**
- * 직접 부여 받은 워크스페이스 ID 집합 + 전체 트리 byId를 받아서
- * 표시할 노드들을 만든다.
- *
- * 표시 규칙:
- * - 직접 부여 노드 = 본인 + 모든 후손 (상속 효과)
- * - 그 노드들로 가는 조상 경로도 골격으로 표시 (회색 텍스트)
- */
 function buildPermissionTree(
   grantedIds: Set<number>,
   byId: Map<number, Workspace>,
   tree: Workspace[],
 ): Array<{ ws: Workspace; depth: number; granted: boolean; inherited: boolean }> {
-  // 1) 표시 대상 ID 모으기
   const visibleIds = new Set<number>();
-  // granted 노드 + 그 후손 + 조상 경로
   const addWithDescendants = (id: number) => {
     if (visibleIds.has(id)) return;
     visibleIds.add(id);
@@ -45,8 +36,6 @@ function buildPermissionTree(
     addAncestors(id);
   }
 
-  // 2) tree 순서(평탄 정렬)대로 visible 노드 골라내고 depth 계산
-  //    상속 여부: 조상 중에 granted가 있으면 inherited
   const isAncestorGranted = (id: number): boolean => {
     let cur = byId.get(id);
     while (cur && cur.parent_id !== null) {
@@ -97,7 +86,6 @@ export function MyPageTab({ dark = true }: Props) {
   const [profileMsg, setProfileMsg] = useState("");
   const [pwMsg, setPwMsg] = useState("");
 
-  // ── 권한 ──
   const [myPerms, setMyPerms] = useState<WorkspacePermission[]>([]);
 
   useEffect(() => {
@@ -113,7 +101,6 @@ export function MyPageTab({ dark = true }: Props) {
     }
   };
 
-  // 직접 부여받은 워크스페이스 ID 집합
   const grantedIds = useMemo(() => {
     const s = new Set<number>();
     for (const p of myPerms) {
@@ -122,7 +109,6 @@ export function MyPageTab({ dark = true }: Props) {
     return s;
   }, [myPerms]);
 
-  // 표시할 트리
   const permRows = useMemo(
     () => buildPermissionTree(grantedIds, byId, tree),
     [grantedIds, byId, tree],
@@ -146,7 +132,7 @@ export function MyPageTab({ dark = true }: Props) {
 
   const handleSaveProfile = async () => {
     try {
-      await authApi.updateMe({ display_name: displayName });
+      await authApi.updateMe({ display_name: nfcTrim(displayName) });
       await loadUser();
       setProfileMsg("저장 완료!");
       setTimeout(() => setProfileMsg(""), 2000);
@@ -181,7 +167,6 @@ export function MyPageTab({ dark = true }: Props) {
       </div>
 
       <div className="flex gap-6">
-        {/* 좌측: 프로필 + 비밀번호 */}
         <div className="flex-1">
           <div className={`${card} border ${bd} rounded-xl p-6`}>
             {!displayName && (
@@ -281,7 +266,6 @@ export function MyPageTab({ dark = true }: Props) {
           </div>
         </div>
 
-        {/* 우측: 워크스페이스 권한 트리 */}
         <div className="w-[320px] shrink-0">
           <div className={`${card} border ${bd} rounded-xl p-5`}>
             <div className="flex items-center gap-2 mb-3">
