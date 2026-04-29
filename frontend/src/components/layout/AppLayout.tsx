@@ -466,8 +466,8 @@ export function AppLayout() {
     handleSave,
     liveRule.maxChars,
     () => setShowFindReplace(true),
+    liveRule.speakerMode,
   );
-  usePlayback();
 
   const dm = dark;
   const bg = dm ? "bg-gray-900" : "bg-gray-100";

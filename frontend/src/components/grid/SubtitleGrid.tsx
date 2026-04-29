@@ -44,7 +44,7 @@ interface DropCellProps {
   fontSize: number;
   onSelect: (v: string) => void;
   onCellClick: () => void;
-  onRequestEdit?: () => void;  // 더블클릭 시 직접 입력 모드로 전환 (선택)
+  onRequestEdit?: () => void;
 }
 
 function DropCell({
@@ -133,17 +133,26 @@ function DropCell({
   );
 }
 
-/* ── 인라인 단일행 텍스트 입력 (화자명 직접 입력용) ── */
+/* ── 인라인 단일행 텍스트 입력 (화자명) ──
+   - 타이핑 중: 부모(store)에 raw 값을 흘려보냄 — IME composition 중엔 차단
+   - composition 끝: 직전 입력 한 번 더 흘려보냄
+   - commit (blur / Enter / Shift+Enter): NFC 정규화 후 onCommit
+   - cancel (Esc): onCancel만 호출, 부모에 raw 흘렸던 값 복원은 부모가 처리
+*/
 interface InlineTextInputProps {
-  value: string;
+  value: string;                        // 시작 시 텍스트 (이후엔 동기화 안 됨)
   dark: boolean;
   fontSize: number;
-  onCommit: (v: string) => void;
-  onCancel: () => void;
+  onLiveChange?: (raw: string) => void; // 타이핑 중 raw 값 (IME 안전)
+  onCommit: (v: string) => void;        // 종료 + 저장 (NFC 적용됨)
+  onCancel: () => void;                 // 취소 (Esc / 같은 값)
 }
 
-function InlineTextInput({ value, dark, fontSize, onCommit, onCancel }: InlineTextInputProps) {
+function InlineTextInput({
+  value, dark, fontSize, onLiveChange, onCommit, onCancel,
+}: InlineTextInputProps) {
   const [draft, setDraft] = useState(value);
+  const composingRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -162,7 +171,18 @@ function InlineTextInput({ value, dark, fontSize, onCommit, onCancel }: InlineTe
     <input
       ref={inputRef}
       value={draft}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => {
+        const v = e.target.value;
+        setDraft(v);
+        // IME composition 중이 아닐 때만 부모에 흘려보냄 (자소 분리 방지)
+        if (!composingRef.current) onLiveChange?.(v);
+      }}
+      onCompositionStart={() => { composingRef.current = true; }}
+      onCompositionEnd={(e) => {
+        composingRef.current = false;
+        // 조합 끝난 직후 한 번 흘려보냄
+        onLiveChange?.((e.target as HTMLInputElement).value);
+      }}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       onBlur={() => {
@@ -202,7 +222,12 @@ function InlineTextInput({ value, dark, fontSize, onCommit, onCancel }: InlineTe
   );
 }
 
-/* ── 인라인 텍스트 셀 (대사) ── */
+/* ── 인라인 텍스트 셀 (대사) ──
+   - 타이핑 중: 부모(store)에 raw 값을 흘려보냄 — IME composition 중엔 차단
+   - composition 끝: 직전 입력 한 번 더 흘려보냄
+   - commit (blur / Shift+Enter): NFC 정규화 후 onChange
+   - cancel (Esc): 원본 텍스트로 복원
+*/
 interface EditableTextCellProps {
   text: string;
   isEditing: boolean;
@@ -210,7 +235,8 @@ interface EditableTextCellProps {
   disabled?: boolean;
   fontSize: number;
   className?: string;
-  onChange: (text: string) => void;
+  onLiveChange?: (raw: string) => void; // 타이핑 중 raw 값 (IME 안전)
+  onChange: (text: string) => void;      // 종료 + 저장 (NFC 적용됨)
   onCellClick: () => void;
   onRequestEdit: () => void;
   onExitEdit: () => void;
@@ -218,10 +244,13 @@ interface EditableTextCellProps {
 
 function EditableTextCell({
   text, isEditing, dark, disabled, fontSize, className,
-  onChange, onCellClick, onRequestEdit, onExitEdit,
+  onLiveChange, onChange, onCellClick, onRequestEdit, onExitEdit,
 }: EditableTextCellProps) {
   const [value, setValue] = useState(text);
+  const composingRef = useRef(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  // 편집 진입 시점의 원본 텍스트 (Esc 취소용)
+  const originalRef = useRef<string>(text);
 
   useEffect(() => {
     if (!isEditing) setValue(text);
@@ -238,6 +267,7 @@ function EditableTextCell({
     if (isEditing && taRef.current) {
       const ta = taRef.current;
       setValue(text);
+      originalRef.current = text;
       ta.focus();
       const end = ta.value.length;
       ta.setSelectionRange(end, end);
@@ -286,10 +316,20 @@ function EditableTextCell({
       <textarea
         ref={taRef}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          const v = e.target.value;
+          setValue(v);
+          // IME composition 중이 아닐 때만 부모에 흘려보냄
+          if (!composingRef.current) onLiveChange?.(v);
+        }}
+        onCompositionStart={() => { composingRef.current = true; }}
+        onCompositionEnd={(e) => {
+          composingRef.current = false;
+          onLiveChange?.((e.target as HTMLTextAreaElement).value);
+        }}
         onBlur={() => {
           const cleaned = nfc(value);
-          if (cleaned !== text) onChange(cleaned);
+          if (cleaned !== originalRef.current) onChange(cleaned);
           onExitEdit();
         }}
         onKeyDown={(e) => {
@@ -297,14 +337,16 @@ function EditableTextCell({
             e.preventDefault();
             e.stopPropagation();
             const cleaned = nfc(value);
-            if (cleaned !== text) onChange(cleaned);
+            if (cleaned !== originalRef.current) onChange(cleaned);
             onExitEdit();
             return;
           }
           if (e.key === "Escape") {
             e.preventDefault();
             e.stopPropagation();
-            setValue(text);
+            // 원본으로 복원 + 부모에도 알림
+            setValue(originalRef.current);
+            onLiveChange?.(originalRef.current);
             onExitEdit();
             return;
           }
@@ -340,8 +382,8 @@ export function SubtitleGrid({
   const [uploading, setUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [editingId, setEditingId] = useState<number | null>(null);          // 대사 셀 편집 중인 자막 id
-  const [editingSpeakerId, setEditingSpeakerId] = useState<number | null>(null);  // 화자 셀 편집 중인 자막 id
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingSpeakerId, setEditingSpeakerId] = useState<number | null>(null);
 
   const subtitles = useSubtitleStore((s) => s.subtitles);
   const selectedId = useSubtitleStore((s) => s.selectedId);
@@ -352,6 +394,15 @@ export function SubtitleGrid({
   const updateLocal = useSubtitleStore((s) => s.updateLocal);
   const flushDirty = useSubtitleStore((s) => s.flushDirty);
 
+  /** 타이핑 중 store만 갱신 (서버 저장 X). NFC도 안 함 — IME 안전. */
+  const updateLocalRaw = useCallback(
+    (id: number, data: Partial<Subtitle>) => {
+      updateLocal(id, data);
+    },
+    [updateLocal],
+  );
+
+  /** 종료 시 NFC 적용 + 서버 저장. */
   const updateAndFlush = useCallback(
     (id: number, data: Partial<Subtitle>) => {
       const normalized: Partial<Subtitle> = { ...data };
@@ -447,7 +498,7 @@ export function SubtitleGrid({
     }
   }, [selectedId]);
 
-  // ── 편집 진입 단축키 (focus_text, 기본 Shift+Enter — 대사 셀로만) ──
+  // ── 편집 진입 단축키 (focus_text) ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (readOnly) return;
@@ -480,7 +531,6 @@ export function SubtitleGrid({
     return () => window.removeEventListener("keydown", handler);
   }, [selectedId, editingId, editingSpeakerId, readOnly, focusTextKey]);
 
-  // 선택 변경 시 편집 모드(대사/화자 모두) 종료
   useEffect(() => {
     if (editingId != null && editingId !== selectedId) setEditingId(null);
     if (editingSpeakerId != null && editingSpeakerId !== selectedId) setEditingSpeakerId(null);
@@ -811,7 +861,7 @@ export function SubtitleGrid({
                           onCellClick={() => triggerSelect(sub.id)}
                         />
                       </td>
-                      {/* 화자: 한 번 클릭 = 드롭다운 / 더블클릭 = 직접 입력 */}
+                      {/* 화자 */}
                       <td
                         className={`py-2 px-2 ${tp}`}
                         style={{ textAlign: "center", wordBreak: "break-word", whiteSpace: "normal" }}
@@ -822,6 +872,7 @@ export function SubtitleGrid({
                             value={sub.speaker}
                             dark={dm}
                             fontSize={listFontSize}
+                            onLiveChange={(raw) => updateLocalRaw(sub.id, { speaker: raw })}
                             onCommit={(v) => {
                               updateAndFlush(sub.id, { speaker: v });
                               setEditingSpeakerId(null);
@@ -868,6 +919,7 @@ export function SubtitleGrid({
                           disabled={readOnly}
                           fontSize={listFontSize}
                           className="leading-snug"
+                          onLiveChange={(raw) => updateLocalRaw(sub.id, { text: raw })}
                           onChange={(v) => updateAndFlush(sub.id, { text: v })}
                           onCellClick={() => triggerSelect(sub.id)}
                           onRequestEdit={() => {

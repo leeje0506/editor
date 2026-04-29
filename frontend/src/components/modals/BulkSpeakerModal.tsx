@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
+import { nfcTrim } from "../../utils/normalize";
 
 interface Props {
   dark: boolean;
@@ -21,7 +22,7 @@ export function BulkSpeakerModal({ dark, onClose }: Props) {
 
   const handleSubmit = async () => {
     if (!from) return;
-    await bulkSpeaker(from, to);
+    await bulkSpeaker(nfcTrim(from), nfcTrim(to));
     onClose();
   };
 
