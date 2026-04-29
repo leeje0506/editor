@@ -229,6 +229,7 @@ export function WorkspaceExplorer() {
             onSelect={handleSelectWs}
             onSelectProject={handleOpenProject}
             onMenuAction={handleMenuAction}
+            onCreateRoot={() => promptAndCreate(null)}
             dark={dark}
           />
         </aside>
@@ -342,6 +343,8 @@ export function WorkspaceExplorer() {
                           key={ws.id}
                           ws={ws}
                           onClick={handleSelectWs}
+                          onRenamed={() => { void fetchTree(); void fetchBody(); }}
+                          onDeleted={() => { void fetchTree(); void fetchBody(); }}
                           dark={dark}
                         />
                       ))}
@@ -360,6 +363,8 @@ export function WorkspaceExplorer() {
                           project={p}
                           onClick={handleOpenProject}
                           isWorker={!isAdmin}
+                          onRenamed={() => { void fetchBody(); if (currentId !== null) invalidateProjectsForWs(currentId); }}
+                          onDeleted={() => { void fetchBody(); if (currentId !== null) invalidateProjectsForWs(currentId); }}
                           dark={dark}
                         />
                       ))}

@@ -260,6 +260,16 @@ def count_workspace_contents(db: Session, workspace_id: int) -> Dict:
         "subtitle_count": subtitle_count,
     }
 
+def count_depth1_workspaces(db: Session) -> int:
+    """현재 존재하는 depth 1(루트) 워크스페이스 수.
+
+    삭제 시 마지막 depth 1을 막기 위한 검증용.
+    """
+    return (
+        db.query(Workspace)
+        .filter(Workspace.parent_id.is_(None))
+        .count()
+    )
 
 # ── 파일 정리 (프로젝트 단위) ────────────────────────────────
 

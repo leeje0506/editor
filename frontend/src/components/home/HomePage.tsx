@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
-  Trash2, Pencil, MoreVertical, UserCog, Search, ChevronRight,
+  Trash2, Pencil, MoreVertical, UserCog, Search, ChevronRight, Folder, Monitor,
 } from "lucide-react";
 import { projectsApi } from "../../api/projects";
 import { authApi } from "../../api/auth";
@@ -57,7 +57,6 @@ function calcProgressPct(projects: Project[]): number | null {
   return Math.min(100, Math.round((sumProgress / sumVideo) * 100));
 }
 
-// 단일 프로젝트 진척률
 function projectProgressPct(p: Project): number | null {
   if (!p.video_duration_ms || p.video_duration_ms <= 0) return null;
   return Math.min(100, Math.round(((p.progress_ms || 0) / p.video_duration_ms) * 100));
@@ -107,7 +106,6 @@ export function HomePage() {
     try {
       const wsList = await workspacesApi.list();
       setWorkspaces(wsList);
-      // 모든 워크스페이스에 대해 stats 병렬 fetch
       const pairs = await Promise.all(
         wsList.map(async (w) => {
           try {
@@ -219,14 +217,13 @@ export function HomePage() {
   ];
   const getAvatarColor = (index: number) => avatarColors[index % avatarColors.length];
 
-  // 작업자 카드 헤더의 진척률 바 (인라인)
   const ProgressBar = ({ pct }: { pct: number | null }) => {
     if (pct === null) {
-      return <span className={`text-[11px] ${ts} shrink-0`}>—</span>;
+      return <span className={`text-xs ${ts} shrink-0`}>—</span>;
     }
     return (
-      <div className="flex items-center gap-1.5 w-32 shrink-0">
-        <span className={`text-[11px] font-bold ${tp} w-9 text-right shrink-0`}>{pct}%</span>
+      <div className="flex items-center gap-1.5 w-36 shrink-0">
+        <span className={`text-xs font-bold ${tp} w-10 text-right shrink-0`}>{pct}%</span>
         <div className={`flex-1 h-1.5 rounded-full overflow-hidden ${barBg}`}>
           <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
         </div>
@@ -234,14 +231,12 @@ export function HomePage() {
     );
   };
 
-  // ── 워크스페이스 진척률 트리 ──
   const renderWorkspaceProgressTree = () => {
     if (workspaces.length === 0) {
-      return <div className={`text-[10px] ${ts}`}>데이터 없음</div>;
+      return <div className={`text-[11px] ${ts}`}>데이터 없음</div>;
     }
-    // 평탄 리스트 → tree 정렬은 이미 depth ASC, name ASC. 그대로 들여쓰기로 그림.
     return (
-      <ul className="flex flex-col gap-1">
+      <ul className="flex flex-col gap-1.5">
         {workspaces.map((w) => {
           const stats = wsStats.get(w.id);
           const pct = stats ? Math.min(100, Math.round(stats.progress_ratio * 100)) : null;
@@ -249,12 +244,12 @@ export function HomePage() {
           return (
             <li
               key={w.id}
-              className="flex items-center gap-1.5"
-              style={{ paddingLeft: `${(depth - 1) * 12}px` }}
+              className="flex items-center gap-2"
+              style={{ paddingLeft: `${(depth - 1) * 14}px` }}
             >
-              {depth > 1 && <span className={`${ts} text-[9px]`}>└</span>}
-              <span className={`text-[10px] ${tp} flex-1 truncate`}>{w.name}</span>
-              <div className={`w-16 h-1.5 rounded-full overflow-hidden ${dm ? "bg-gray-700" : "bg-gray-200"} shrink-0`}>
+              {depth > 1 && <span className={`${ts} text-[10px]`}>└</span>}
+              <span className={`text-xs ${tp} flex-1 truncate`}>{w.name}</span>
+              <div className={`w-20 h-1.5 rounded-full overflow-hidden ${dm ? "bg-gray-700" : "bg-gray-200"} shrink-0`}>
                 {pct !== null && (
                   <div
                     className="h-full bg-emerald-500"
@@ -262,7 +257,7 @@ export function HomePage() {
                   />
                 )}
               </div>
-              <span className={`text-[9px] ${ts} w-8 text-right shrink-0`}>
+              <span className={`text-[11px] ${ts} w-10 text-right shrink-0`}>
                 {pct !== null ? `${pct}%` : "—"}
               </span>
             </li>
@@ -272,7 +267,6 @@ export function HomePage() {
     );
   };
 
-  // ── 작업자 중심 대시보드 ──
   const workerDashboardContent = (() => {
     const workerMap = new Map<string, { user: User | null; projects: Project[] }>();
     for (const u of allUsers.filter(u => u.is_active !== false)) {
@@ -312,22 +306,16 @@ export function HomePage() {
 
     const workerNames = workerEntries.map(w => w.name);
     const allExpanded = expandedWorkers.size === workerNames.length && workerNames.length > 0;
-
     const submittedProjects = projects.filter(p => p.status === "submitted");
 
     return (
       <div className="flex flex-1 min-h-0">
-        <div className="flex-1 overflow-y-auto p-5">
+        {/* 좌측 메인 (7) */}
+        <div className="flex-[7] min-w-0 overflow-y-auto p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <span className={`text-base font-bold ${tp}`}>작업자 현황</span>
-              <span className={`text-xs ${ts}`}>{workerEntries.length}명</span>
-              <button
-                onClick={() => navigate("/settings/members")}
-                className={`text-[10px] px-2 py-0.5 rounded border ${cb} ${ts} hover:text-blue-400 hover:border-blue-400 transition-colors`}
-              >
-                <UserCog size={10} className="inline -mt-px mr-0.5" /> 작업자 관리
-              </button>
+              <span className={`text-lg font-bold ${tp}`}>작업자 현황</span>
+              <span className={`text-sm ${ts}`}>{workerEntries.length}명</span>
               <div className={`flex rounded-lg border ${cb} overflow-hidden`}>
                 {([
                   { key: "all" as const, label: "전체" },
@@ -338,7 +326,7 @@ export function HomePage() {
                   <button
                     key={f.key}
                     onClick={() => setDashboardFilter(f.key)}
-                    className={`px-2.5 py-1 text-[10px] font-medium transition-colors ${
+                    className={`px-3 py-1 text-[11px] font-medium transition-colors ${
                       dashboardFilter === f.key
                         ? "bg-blue-500/20 text-blue-400"
                         : `${ts} hover:${dm ? "text-white" : "text-black"} hover:${dm ? "bg-gray-800" : "bg-gray-100"}`
@@ -348,11 +336,22 @@ export function HomePage() {
                   </button>
                 ))}
               </div>
+              <button
+                onClick={() => navigate("/settings/members")}
+                className={`text-[11px] px-2 py-0.5 rounded border ${cb} ${ts} hover:text-blue-400 hover:border-blue-400 transition-colors`}
+              >
+                <UserCog size={11} className="inline -mt-px mr-0.5" /> 작업자 관리
+              </button>
+              <button
+                onClick={() => navigate("/settings/projects")}
+                className={`text-[11px] px-2 py-0.5 rounded border ${cb} ${ts} hover:text-blue-400 hover:border-blue-400 transition-colors`}
+              >
+                <Monitor size={11} className="inline -mt-px mr-0.5" /> 프로젝트 관리
+              </button>
             </div>
-
             <div className="flex items-center gap-2">
               <div className={`flex items-center gap-1.5 border ${cb} rounded-lg px-3 py-1.5`}>
-                <Search size={13} className={ts} />
+                <Search size={14} className={ts} />
                 <input value={workerSearch} onChange={e => setWorkerSearch(e.target.value)} placeholder="작업자 검색..." className={`bg-transparent text-xs outline-none ${tp} w-32`} />
               </div>
               <button onClick={() => toggleAllWorkers(workerNames)} className={`text-xs border ${cb} rounded-lg px-3 py-1.5 ${ts} hover:${dm ? "text-white" : "text-black"}`}>
@@ -361,7 +360,7 @@ export function HomePage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             {workerEntries.map((w, idx) => {
               const isOpen = expandedWorkers.has(w.name);
               const avatar = getAvatarColor(idx);
@@ -376,22 +375,22 @@ export function HomePage() {
               });
               return (
                 <div key={w.name} className={`${card} border ${cb} rounded-lg overflow-hidden`}>
-                  <div className={`flex items-center gap-2.5 px-3.5 py-2.5 cursor-pointer hover:${dm ? "bg-gray-800/50" : "bg-gray-50"} transition-colors`} onClick={() => toggleWorker(w.name)}>
-                    <ChevronRight size={14} className={`${ts} transition-transform ${isOpen ? "rotate-90" : ""}`} />
-                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0" style={{ background: avatar.bg, color: avatar.text }}>{initial}</div>
-                    <span className={`text-xs font-bold ${tp} w-14 shrink-0 truncate`}>{w.name}</span>
-                    <div className={`flex-1 flex items-center gap-3 text-[11px] ${ts}`}>
+                  <div className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:${dm ? "bg-gray-800/50" : "bg-gray-50"} transition-colors`} onClick={() => toggleWorker(w.name)}>
+                    <ChevronRight size={15} className={`${ts} transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: avatar.bg, color: avatar.text }}>{initial}</div>
+                    <span className={`text-sm font-bold ${tp} w-16 shrink-0 truncate`}>{w.name}</span>
+                    <div className={`flex-1 flex items-center gap-4 text-xs ${ts}`}>
                       <span>진행 <span className="font-bold text-blue-400">{w.draftCount}</span></span>
                       <span>제출 <span className="font-bold text-yellow-400">{w.submittedCount}</span></span>
                       <span>완료 <span className="font-bold text-emerald-400">{w.approvedCount}</span></span>
                     </div>
-                    <span className={`text-[11px] ${ts} shrink-0`}>총 {fmtElapsed(w.totalSec)}</span>
-                    {urgentBadge && <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0 ${urgentBadge.urgent ? "bg-red-500/20 text-red-400" : `${dm ? "bg-gray-700 text-gray-300" : "bg-gray-200 text-gray-600"}`}`}>{urgentBadge.text}</span>}
-                    {hasReworkFlag && <span className="text-[9px] px-1.5 py-0.5 rounded font-medium bg-orange-500/20 text-orange-400 shrink-0">재작업</span>}
+                    <span className={`text-xs ${ts} shrink-0`}>총 {fmtElapsed(w.totalSec)}</span>
+                    {urgentBadge && <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${urgentBadge.urgent ? "bg-red-500/20 text-red-400" : `${dm ? "bg-gray-700 text-gray-300" : "bg-gray-200 text-gray-600"}`}`}>{urgentBadge.text}</span>}
+                    {hasReworkFlag && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-orange-500/20 text-orange-400 shrink-0">재작업</span>}
                     <ProgressBar pct={w.progressPct} />
                   </div>
                   {isOpen && activeProjects.length > 0 && (
-                    <div className={`border-t ${cb} px-3.5 py-2 flex flex-col gap-1.5`} style={{ paddingLeft: 48 }}>
+                    <div className={`border-t ${cb} px-4 py-2.5 flex flex-col gap-2`} style={{ paddingLeft: 56 }}>
                       {activeProjects.map(p => {
                         const dd = dDay(p.deadline);
                         const isChangingWorker = workerChangeId === p.id;
@@ -399,38 +398,53 @@ export function HomePage() {
                         const colorCls = STATUS_LABEL_COLORS[label];
                         const pct = projectProgressPct(p);
                         return (
-                          <div key={p.id} className={`flex items-center gap-2 px-3 py-2 rounded-md text-[11px] ${p.status === "submitted" ? dm ? "bg-yellow-500/5 border border-yellow-500/10" : "bg-yellow-50 border border-yellow-100" : dm ? "bg-gray-800/60" : "bg-gray-50"}`}>
-                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0 ${colorCls}`}>
+                          <div key={p.id} className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs ${p.status === "submitted" ? dm ? "bg-yellow-500/5 border border-yellow-500/10" : "bg-yellow-50 border border-yellow-100" : dm ? "bg-gray-800/60" : "bg-gray-50"}`}>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${colorCls}`}>
                               {label}
                             </span>
-                            <span className={`${tp} flex-1 truncate`}>{p.name}</span>
+                            <div className="flex-1 min-w-0 flex flex-col gap-0.5 py-0.5">
+                              {p.workspace_path && p.workspace_path.length > 0 && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`/projects/${p.workspace_id}`);
+                                  }}
+                                  className={`flex items-center gap-1 text-[10px] ${ts} hover:text-blue-400 hover:underline truncate self-start max-w-full`}
+                                  title="이 워크스페이스로 이동"
+                                >
+                                  <Folder size={10} className="shrink-0" />
+                                  <span className="truncate">{p.workspace_path.join(" / ")}</span>
+                                </button>
+                              )}
+                              <span className={`${tp} truncate font-medium text-xs`}>{p.name}</span>
+                            </div>
                             <span className={`${ts} shrink-0`}>{p.broadcaster}</span>
                             <span className={`${ts} shrink-0`}>{fmtElapsed(p.elapsed_seconds)}</span>
                             {pct !== null && (
-                              <div className="flex items-center gap-1 w-24 shrink-0">
+                              <div className="flex items-center gap-1 w-28 shrink-0">
                                 <div className={`flex-1 h-1.5 rounded-full overflow-hidden ${barBg}`}>
                                   <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
                                 </div>
-                                <span className={`text-[9px] ${ts} w-7 text-right shrink-0`}>{pct}%</span>
+                                <span className={`text-[10px] ${ts} w-8 text-right shrink-0`}>{pct}%</span>
                               </div>
                             )}
-                            {dd && <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0 ${dd.urgent ? "bg-red-500/20 text-red-400" : `${dm ? "bg-gray-700 text-gray-300" : "bg-gray-200 text-gray-600"}`}`}>{dd.text}</span>}
+                            {dd && <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${dd.urgent ? "bg-red-500/20 text-red-400" : `${dm ? "bg-gray-700 text-gray-300" : "bg-gray-200 text-gray-600"}`}`}>{dd.text}</span>}
                             {isChangingWorker ? (
                               <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-                                <select value={workerChangeVal} onChange={e => setWorkerChangeVal(e.target.value)} autoFocus className={`text-[10px] px-1.5 py-0.5 rounded border outline-none ${dm ? "bg-gray-700 border-gray-600 text-white" : "bg-white border-gray-300 text-black"}`}>
+                                <select value={workerChangeVal} onChange={e => setWorkerChangeVal(e.target.value)} autoFocus className={`text-[11px] px-1.5 py-0.5 rounded border outline-none ${dm ? "bg-gray-700 border-gray-600 text-white" : "bg-white border-gray-300 text-black"}`}>
                                   <option value="">선택...</option>
                                   {allUsers.filter(u => u.is_active !== false).map(u => (<option key={u.id} value={u.id}>{u.display_name || u.username}</option>))}
                                 </select>
-                                <button onClick={() => handleWorkerChange(p.id)} className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 hover:bg-blue-500/25">확인</button>
-                                <button onClick={() => { setWorkerChangeId(null); setWorkerChangeVal(""); }} className={`text-[9px] px-1.5 py-0.5 rounded ${ts}`}>취소</button>
+                                <button onClick={() => handleWorkerChange(p.id)} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 hover:bg-blue-500/25">확인</button>
+                                <button onClick={() => { setWorkerChangeId(null); setWorkerChangeVal(""); }} className={`text-[10px] px-1.5 py-0.5 rounded ${ts}`}>취소</button>
                               </div>
                             ) : (
-                              <button onClick={(e) => { e.stopPropagation(); setWorkerChangeId(p.id); setWorkerChangeVal(""); }} className={`text-[9px] px-1.5 py-0.5 rounded shrink-0 ${dm ? "bg-gray-700 text-gray-300 hover:bg-gray-600" : "bg-gray-200 text-gray-600 hover:bg-gray-300"}`} title="담당자 변경">
-                                <UserCog size={10} className="inline -mt-px" /> 변경
+                              <button onClick={(e) => { e.stopPropagation(); setWorkerChangeId(p.id); setWorkerChangeVal(""); }} className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${dm ? "bg-gray-700 text-gray-300 hover:bg-gray-600" : "bg-gray-200 text-gray-600 hover:bg-gray-300"}`} title="담당자 변경">
+                                <UserCog size={11} className="inline -mt-px" /> 변경
                               </button>
                             )}
                             {p.status === "submitted" && isAdmin() && (
-                              <button onClick={(e) => { e.stopPropagation(); navigate(`/editor/${p.id}`); }} className="text-[9px] px-2 py-0.5 rounded font-medium bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 shrink-0">검수</button>
+                              <button onClick={(e) => { e.stopPropagation(); navigate(`/editor/${p.id}`); }} className="text-[10px] px-2 py-0.5 rounded font-medium bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 shrink-0">검수</button>
                             )}
                             <button
                               onClick={(e) => {
@@ -448,7 +462,7 @@ export function HomePage() {
                               }}
                               className={`p-1 rounded shrink-0 ${ts} hover:${dm ? "text-white" : "text-black"}`}
                             >
-                              <MoreVertical size={12} />
+                              <MoreVertical size={13} />
                             </button>
                           </div>
                         );
@@ -456,7 +470,7 @@ export function HomePage() {
                     </div>
                   )}
                   {isOpen && activeProjects.length === 0 && (
-                    <div className={`border-t ${cb} px-3.5 py-3 ${ts} text-[11px]`} style={{ paddingLeft: 48 }}>진행 중인 작업이 없습니다</div>
+                    <div className={`border-t ${cb} px-4 py-3 ${ts} text-xs`} style={{ paddingLeft: 56 }}>진행 중인 작업이 없습니다</div>
                   )}
                 </div>
               );
@@ -467,39 +481,36 @@ export function HomePage() {
           </div>
         </div>
 
-        {/* 우측 패널 */}
-        <div className={`w-72 ${card} border-l ${cb} p-4 overflow-y-auto shrink-0 flex flex-col gap-3`}>
-          <div className={`text-xs font-bold ${ts}`}>전체 현황</div>
+        {/* 우측 패널 (3) */}
+        <div className={`flex-[3] min-w-0 ${card} border-l ${cb} p-4 overflow-y-auto flex flex-col gap-3`}>
+          <div className={`text-sm font-bold ${ts}`}>전체 현황</div>
 
-          {/* 통계 카드 3종 (진행 / 완료 / 전체) */}
           <div className="grid grid-cols-3 gap-2">
             {[
               { label: "진행", value: counts.draft, color: "text-blue-400" },
               { label: "완료", value: counts.approved, color: "text-emerald-400" },
               { label: "전체", value: totalCount, color: tp },
             ].map(c => (
-              <div key={c.label} className={`${dm ? "bg-gray-800" : "bg-gray-50"} rounded-lg p-2.5 text-center`}>
-                <div className={`text-[10px] ${ts}`}>{c.label}</div>
-                <div className={`text-lg font-bold ${c.color}`}>{c.value}</div>
+              <div key={c.label} className={`${dm ? "bg-gray-800" : "bg-gray-50"} rounded-lg p-3 text-center`}>
+                <div className={`text-[11px] ${ts}`}>{c.label}</div>
+                <div className={`text-xl font-bold ${c.color}`}>{c.value}</div>
               </div>
             ))}
           </div>
 
-          {/* 워크스페이스 진척률 트리 */}
           <div className={`${dm ? "bg-gray-800" : "bg-gray-50"} rounded-lg p-3`}>
-            <div className={`text-[10px] font-medium ${ts} mb-2.5`}>워크스페이스 진척률</div>
+            <div className={`text-xs font-medium ${ts} mb-2.5`}>워크스페이스 진척률</div>
             {renderWorkspaceProgressTree()}
           </div>
 
-          {/* 검수 대기 */}
           {submittedProjects.length > 0 && (
             <div className={`rounded-lg p-3 ${dm ? "bg-yellow-500/5 border border-yellow-500/10" : "bg-yellow-50 border border-yellow-100"}`}>
-              <div className="text-[10px] font-bold text-yellow-400 mb-2">검수 대기 {submittedProjects.length}건</div>
+              <div className="text-xs font-bold text-yellow-400 mb-2">검수 대기 {submittedProjects.length}건</div>
               <div className="flex flex-col gap-1.5">
                 {submittedProjects.map(p => (
                   <div key={p.id} className="flex items-center justify-between cursor-pointer group" onClick={() => navigate(`/editor/${p.id}`)}>
-                    <span className={`text-[10px] ${tp} truncate flex-1 group-hover:text-blue-400 transition-colors`}>{p.name}</span>
-                    <span className={`text-[9px] ${ts} ml-2 shrink-0`}>{p.assigned_to_name || p.created_by_name}</span>
+                    <span className={`text-[11px] ${tp} truncate flex-1 group-hover:text-blue-400 transition-colors`}>{p.name}</span>
+                    <span className={`text-[10px] ${ts} ml-2 shrink-0`}>{p.assigned_to_name || p.created_by_name}</span>
                   </div>
                 ))}
               </div>
@@ -536,7 +547,7 @@ export function HomePage() {
       )}
 
       {renameId !== null && createPortal(
-        <div className={`fixed inset-0 z-[9999] flex items-center justify-center bg-black/50`} onClick={() => setRenameId(null)}>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" onClick={() => setRenameId(null)}>
           <div className={`${card} border ${cb} rounded-xl p-4 w-80`} onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-bold mb-3">프로젝트 이름 수정</h3>
             <input

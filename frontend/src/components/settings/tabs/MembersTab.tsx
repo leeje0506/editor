@@ -456,7 +456,7 @@ export function MembersTab({ dark = true }: Props) {
         <div className="flex items-center justify-between mb-4 shrink-0">
           <div className="flex items-center gap-2">
             <Users size={18} className="text-green-400" />
-            <h2 className="text-base font-bold">작업자 관리</h2>
+            <h2 className="text-base font-bold">권한 관리</h2>
           </div>
           {msg && (
             <span

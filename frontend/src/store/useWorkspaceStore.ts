@@ -110,8 +110,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const byId = buildById(tree);
       const { currentId } = get();
       const currentPath = buildPath(byId, currentId);
-      // 트리 갱신 시 프로젝트 캐시도 비움 (작업자 권한 변경 등으로 보이는 범위가 달라질 수 있음)
-      set({ tree, byId, currentPath, loading: false, projectsByWs: new Map() });
+      // projectsByWs는 보존 (사이드바 자동 접힘 방지).
+      // 명시적 무효화가 필요한 경우 invalidateProjectsForWs / invalidateAllProjects 호출.
+      set({ tree, byId, currentPath, loading: false });
     } catch (e: any) {
       set({ loading: false, error: e?.message ?? "fetch failed" });
     }

@@ -149,7 +149,7 @@ export function ProjectListTab({ dark = true }: Props) {
     <div className={tp}>
       <div className="flex items-center gap-2 mb-6">
         <Monitor size={20} className="text-blue-400" />
-        <h2 className="text-lg font-bold">전체 프로젝트 목록</h2>
+        <h2 className="text-lg font-bold">프로젝트 및 담당자 관리</h2>
       </div>
 
       <div className={`${card} border ${bd} rounded-xl overflow-hidden`}>
@@ -251,7 +251,9 @@ export function ProjectListTab({ dark = true }: Props) {
                     </td>
                     <td className="py-2.5 px-3 font-bold">{p.name}</td>
                     <td className={`py-2.5 px-3 text-xs ${ts}`}>
-                      {p.workspace_path || "—"}
+                      {p.workspace_path && p.workspace_path.length > 0
+                        ? p.workspace_path.join(" / ")
+                        : "—"}
                     </td>
                     <td className="py-2.5 px-3">{p.broadcaster}</td>
                     <td className={`py-2.5 px-3 ${ts}`}>{p.description || "—"}</td>

@@ -11,8 +11,8 @@ import { MyPageTab } from "./tabs/MyPageTab";
 
 const ALL_TABS = [
   { key: "broadcasters", label: "방송사 프리셋", icon: FileText, adminOnly: true },
-  { key: "members", label: "작업자 관리", icon: Users, adminOnly: true },
-  { key: "projects", label: "프로젝트 목록", icon: Monitor, adminOnly: true },
+  { key: "members", label: "권한 관리", icon: Users, adminOnly: true },
+  { key: "projects", label: "프로젝트 관리", icon: Monitor, adminOnly: true },
   { key: "shortcuts", label: "단축키 설정", icon: Keyboard, adminOnly: false },
   { key: "mypage", label: "마이페이지", icon: User, adminOnly: false },
 ];

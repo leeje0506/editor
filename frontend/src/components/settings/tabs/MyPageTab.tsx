@@ -297,7 +297,7 @@ export function MyPageTab({ dark = true }: Props) {
             ) : (
               <>
                 <div className={`text-[11px] ${subtle} mb-3 leading-relaxed`}>
-                  <span className="text-green-400">●</span> 직접 부여 ·{" "}
+                  <span className="text-green-400">●</span> 권한 ·{" "}
                   <span className={subtle}>○</span> 상속(상위에 권한 있음)
                 </div>
                 <ul className="space-y-0.5">

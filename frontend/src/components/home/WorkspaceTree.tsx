@@ -13,6 +13,7 @@ interface Props {
   onSelect: (id: number) => void;
   onSelectProject: (id: number) => void;
   onMenuAction: (action: TreeMenuAction, ws: Workspace) => void;
+  onCreateRoot?: () => void;   // ★ 신규: depth 1 워크스페이스 추가
   dark?: boolean;
 }
 
@@ -22,6 +23,7 @@ export function WorkspaceTree({
   onSelect,
   onSelectProject,
   onMenuAction,
+  onCreateRoot,
   dark = false,
 }: Props) {
   const tree = useWorkspaceStore((s) => s.tree);
@@ -74,10 +76,19 @@ export function WorkspaceTree({
 
   return (
     <div className="flex flex-col h-full">
-      <div
-        className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide ${headerCls}`}
-      >
-        {isAdmin ? "워크스페이스" : "내 워크스페이스"}
+      <div className="px-3 py-2 flex items-center gap-1">
+        <span className={`flex-1 text-xs font-semibold uppercase tracking-wide ${headerCls}`}>
+          {isAdmin ? "워크스페이스" : "내 워크스페이스"}
+        </span>
+        {isAdmin && onCreateRoot && (
+          <button
+            onClick={onCreateRoot}
+            className={`p-0.5 rounded ${hoverBgCls}`}
+            title="새 워크스페이스"
+          >
+            <Plus size={12} />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">

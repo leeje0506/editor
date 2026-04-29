@@ -18,7 +18,7 @@ from app.services.permission_service import (
 from app.services.workspace_service import (
     compute_depth, generate_unique_name,
     list_workspaces_flat, get_workspace_stats, count_workspace_contents,
-    force_delete_workspace,
+    force_delete_workspace, count_depth1_workspaces,
 )
 
 router = APIRouter()
@@ -157,13 +157,21 @@ def delete_workspace(
 ):
     """워크스페이스 삭제.
 
+    - 마지막 depth 1 워크스페이스는 삭제 거부 (최소 1개는 존재해야 함)
     - 비어있으면 즉시 삭제
-    - 비어있지 않고 force=false → 409 + 카운트 안내 (`{"error": "not_empty", "workspace_count": ..., "project_count": ..., "subtitle_count": ...}`)
-    - force=true → 트랜잭션 내 leaf-first 강제 삭제 (안의 워크스페이스/프로젝트/자막 모두 삭제 + 파일 정리)
+    - 비어있지 않고 force=false → 409 + 카운트 안내
+    - force=true → 트랜잭션 내 leaf-first 강제 삭제
     """
     ws = db.query(Workspace).get(ws_id)
     if ws is None:
         raise HTTPException(404, "워크스페이스를 찾을 수 없습니다")
+
+    # 마지막 depth 1 워크스페이스 삭제 거부 — 최소 1개 보존
+    if ws.parent_id is None and count_depth1_workspaces(db) <= 1:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "last_root", "message": "워크스페이스가 최소 1개 필요합니다"},
+        )
 
     counts = count_workspace_contents(db, ws_id)
     is_empty = counts["workspace_count"] == 0 and counts["project_count"] == 0
