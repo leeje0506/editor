@@ -15,7 +15,12 @@ type BroadcasterRule = {
 };
 
 export const projectsApi = {
-  list: async (params?: { status?: string; broadcaster?: string; search?: string }) => {
+  list: async (params?: {
+    status?: string;
+    broadcaster?: string;
+    search?: string;
+    workspace_id?: number;
+  }) => {
     const r = await api.get("/projects", { params });
     return ensureArray<Project>(r.data, "projectsApi.list");
   },
@@ -26,6 +31,7 @@ export const projectsApi = {
   },
 
   create: async (data: {
+    workspace_id: number;          // ★ 필수 — 모든 프로젝트는 워크스페이스 소속
     name: string;
     broadcaster?: string;
     description?: string;
@@ -42,6 +48,11 @@ export const projectsApi = {
   },
 
   delete: (id: number) => api.delete(`/projects/${id}`),
+
+  /** 다중 삭제 — 백엔드는 한 번에 한 건씩 DELETE 받으므로 클라이언트에서 Promise.all로 묶음 */
+  deleteMany: async (ids: number[]) => {
+    await Promise.all(ids.map((id) => api.delete(`/projects/${id}`)));
+  },
 
   submit: async (id: number) => {
     const r = await api.post(`/projects/${id}/submit`);
@@ -116,8 +127,18 @@ export const projectsApi = {
     });
   },
 
-  downloadJson: (id: number) => `${API_BASE}/projects/${id}/download/json`,
-  downloadSubtitle: (id: number) => `${API_BASE}/projects/${id}/download/subtitle`,
+  /** SRT/자막 파일을 받기 위한 URL을 만든다. suffix는 파일명 접미사 (기본 'final') */
+  downloadSubtitle: (id: number, suffix?: string) => {
+    const qs = suffix ? `?suffix=${encodeURIComponent(suffix)}` : "";
+    return `${API_BASE}/projects/${id}/download/subtitle${qs}`;
+  },
+
+  /** video_project.json 형식 다운로드 URL. suffix는 파일명 접미사 (기본 'export') */
+  downloadJson: (id: number, suffix?: string) => {
+    const qs = suffix ? `?suffix=${encodeURIComponent(suffix)}` : "";
+    return `${API_BASE}/projects/${id}/download/json${qs}`;
+  },
+  
   videoStreamUrl: (id: number) => `${API_BASE}/projects/${id}/stream/video`,
 
   getWaveform: async (id: number) => {

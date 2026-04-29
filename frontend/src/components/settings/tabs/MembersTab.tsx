@@ -1,21 +1,31 @@
 import { useEffect, useState, useMemo } from "react";
-import { Users, Plus, Trash2, ChevronDown, ChevronRight, Pencil, Check, X, KeyRound, Search, Shield, Bell } from "lucide-react";
+import {
+  Users, Plus, Trash2, ChevronDown, ChevronRight, Pencil, Check, X,
+  KeyRound, Search, Shield, Folder,
+} from "lucide-react";
 import { authApi } from "../../../api/auth";
 import { permissionsApi } from "../../../api/permissions";
-import { useBroadcasterStore } from "../../../store/useBroadcasterStore";
 import { useAuthStore } from "../../../store/useAuthStore";
-import type { User } from "../../../types";
-import type { PermissionRequest, UserPermissionSummary } from "../../../api/permissions";
+import { useWorkspaceStore } from "../../../store/useWorkspaceStore";
+import type { User, Workspace } from "../../../types";
 
-interface Props { dark?: boolean; }
+interface Props {
+  dark?: boolean;
+}
 
 export function MembersTab({ dark = true }: Props) {
   const dm = dark;
   const bd = dm ? "border-gray-800" : "border-gray-200";
   const card = dm ? "bg-gray-900" : "bg-white";
-  const inp = dm ? "bg-gray-800 text-gray-100 border-gray-700" : "bg-white text-gray-800 border-gray-300";
+  const inp = dm
+    ? "bg-gray-800 text-gray-100 border-gray-700"
+    : "bg-white text-gray-800 border-gray-300";
   const ts = dm ? "text-gray-400" : "text-gray-500";
   const tp = dm ? "text-gray-100" : "text-gray-900";
+  const subtle = dm ? "text-gray-500" : "text-gray-400";
+  const innerBg = dm ? "bg-gray-800" : "bg-gray-100";
+
+  // ── 계정 ──
   const [users, setUsers] = useState<User[]>([]);
   const [newId, setNewId] = useState("");
   const [newName, setNewName] = useState("");
@@ -28,33 +38,36 @@ export function MembersTab({ dark = true }: Props) {
   const [msg, setMsg] = useState("");
   const [memberSearch, setMemberSearch] = useState("");
 
-  // 권한 관련
-  const [allPerms, setAllPerms] = useState<UserPermissionSummary[]>([]);
-  const [permRequests, setPermRequests] = useState<PermissionRequest[]>([]);
-  const [editPermUserId, setEditPermUserId] = useState<number | null>(null);
-  const [editPermBroadcasters, setEditPermBroadcasters] = useState<Set<string>>(new Set());
+  // ── 권한 패널 ──
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [grantedIds, setGrantedIds] = useState<Set<number>>(new Set());
+  const [loadingPerms, setLoadingPerms] = useState(false);
+  const [savingPerms, setSavingPerms] = useState(false);
 
   const currentUser = useAuthStore((s) => s.user);
-  const bcStore = useBroadcasterStore();
+
+  // 워크스페이스 트리 (전체)
+  const tree = useWorkspaceStore((s) => s.tree);
+  const byId = useWorkspaceStore((s) => s.byId);
+  const fetchTree = useWorkspaceStore((s) => s.fetch);
 
   const fetchUsers = async () => {
-    try { setUsers(await authApi.listUsers()); } catch {}
-  };
-  const fetchPerms = async () => {
-    try { setAllPerms(await permissionsApi.getAllPermissions()); } catch {}
-  };
-  const fetchRequests = async () => {
-    try { setPermRequests(await permissionsApi.listRequests("pending")); } catch {}
+    try {
+      setUsers(await authApi.listUsers());
+    } catch {
+      /* ignore */
+    }
   };
 
   useEffect(() => {
     fetchUsers();
-    fetchPerms();
-    fetchRequests();
-    bcStore.fetch();
-  }, []);
+    fetchTree();
+  }, [fetchTree]);
 
-  const showMsg = (text: string) => { setMsg(text); setTimeout(() => setMsg(""), 2000); };
+  const showMsg = (text: string) => {
+    setMsg(text);
+    setTimeout(() => setMsg(""), 2000);
+  };
 
   // ── 계정 CRUD ──
 
@@ -67,7 +80,8 @@ export function MembersTab({ dark = true }: Props) {
         display_name: newName.trim() || newId.trim(),
         role: newRole,
       });
-      setNewId(""); setNewName("");
+      setNewId("");
+      setNewName("");
       showMsg("계정 생성 완료");
       fetchUsers();
     } catch (e: any) {
@@ -76,17 +90,26 @@ export function MembersTab({ dark = true }: Props) {
   };
 
   const handleDelete = async (id: number) => {
-    if (id === currentUser?.id) { showMsg("자기 자신은 삭제할 수 없습니다"); return; }
+    if (id === currentUser?.id) {
+      showMsg("자기 자신은 삭제할 수 없습니다");
+      return;
+    }
     if (!confirm("정말 삭제(비활성화)하시겠습니까?")) return;
     try {
       await authApi.deleteUser(id);
       showMsg("삭제 완료");
+      // 권한 패널에서 보고 있던 사용자면 닫기
+      if (selectedUser?.id === id) setSelectedUser(null);
       fetchUsers();
-    } catch { showMsg("삭제 실패"); }
+    } catch {
+      showMsg("삭제 실패");
+    }
   };
 
   const startEdit = (u: User) => {
-    setEditId(u.id); setEditName(u.display_name || u.username); setEditRole(u.role);
+    setEditId(u.id);
+    setEditName(u.display_name || u.username);
+    setEditRole(u.role);
   };
   const saveEdit = async () => {
     if (!editId) return;
@@ -102,52 +125,62 @@ export function MembersTab({ dark = true }: Props) {
 
   const handleResetPw = async (id: number) => {
     if (!confirm("비밀번호를 초기화하시겠습니까?")) return;
-    try { await authApi.resetPassword(id); showMsg("비밀번호 초기화 완료"); }
-    catch { showMsg("초기화 실패"); }
+    try {
+      await authApi.resetPassword(id);
+      showMsg("비밀번호 초기화 완료");
+    } catch {
+      showMsg("초기화 실패");
+    }
   };
 
-  // ── 권한 편집 ──
+  // ── 권한 패널 ──
 
-  const getUserPerms = (userId: number): string[] => {
-    const found = allPerms.find(p => p.user_id === userId);
-    return found?.broadcasters || [];
+  const selectUserForPermissions = async (u: User) => {
+    setSelectedUser(u);
+    setLoadingPerms(true);
+    try {
+      const perms = await permissionsApi.getUserPermissions(u.id);
+      const ids = new Set<number>();
+      for (const p of perms) {
+        if (p.workspace?.id != null) ids.add(p.workspace.id);
+      }
+      setGrantedIds(ids);
+    } catch {
+      setGrantedIds(new Set());
+    } finally {
+      setLoadingPerms(false);
+    }
   };
 
-  const startPermEdit = (userId: number) => {
-    setEditPermUserId(userId);
-    setEditPermBroadcasters(new Set(getUserPerms(userId)));
+  // 어떤 노드의 조상 중에 granted된 게 있는지
+  const hasGrantedAncestor = (id: number, granted: Set<number>): boolean => {
+    let cur = byId.get(id);
+    while (cur && cur.parent_id !== null) {
+      if (granted.has(cur.parent_id)) return true;
+      cur = byId.get(cur.parent_id);
+    }
+    return false;
   };
 
-  const togglePermBroadcaster = (bc: string) => {
-    setEditPermBroadcasters(prev => {
+  const toggleGranted = (id: number) => {
+    setGrantedIds((prev) => {
       const next = new Set(prev);
-      next.has(bc) ? next.delete(bc) : next.add(bc);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
-  const savePermEdit = async () => {
-    if (editPermUserId === null) return;
+  const savePermissions = async () => {
+    if (!selectedUser) return;
+    setSavingPerms(true);
     try {
-      await permissionsApi.bulkGrant(editPermUserId, Array.from(editPermBroadcasters));
-      setEditPermUserId(null);
+      await permissionsApi.bulkGrant(selectedUser.id, Array.from(grantedIds));
       showMsg("권한 저장 완료");
-      fetchPerms();
     } catch (e: any) {
       showMsg(e?.response?.data?.detail || "권한 저장 실패");
-    }
-  };
-
-  // ── 권한 요청 처리 ──
-
-  const handleReviewRequest = async (reqId: number, status: "approved" | "rejected") => {
-    try {
-      await permissionsApi.reviewRequest(reqId, status);
-      showMsg(status === "approved" ? "승인 완료" : "거절 완료");
-      fetchRequests();
-      fetchPerms();
-    } catch (e: any) {
-      showMsg(e?.response?.data?.detail || "처리 실패");
+    } finally {
+      setSavingPerms(false);
     }
   };
 
@@ -156,120 +189,260 @@ export function MembersTab({ dark = true }: Props) {
   const searchLower = memberSearch.trim().toLowerCase();
   const filterUser = (u: User) => {
     if (!searchLower) return true;
-    return (u.display_name || "").toLowerCase().includes(searchLower) || u.username.toLowerCase().includes(searchLower);
+    return (
+      (u.display_name || "").toLowerCase().includes(searchLower) ||
+      u.username.toLowerCase().includes(searchLower)
+    );
   };
 
-  const masters = users.filter(u => u.role === "master" && filterUser(u));
-  const managers = users.filter(u => u.role === "manager" && filterUser(u));
-  const workers = users.filter(u => u.role !== "master" && u.role !== "manager" && filterUser(u));
+  const masters = users.filter((u) => u.role === "master" && filterUser(u));
+  const managers = users.filter((u) => u.role === "manager" && filterUser(u));
+  const workers = users.filter(
+    (u) => u.role !== "master" && u.role !== "manager" && filterUser(u),
+  );
 
   // ── UI 헬퍼 ──
 
   const roleBadge = (role: string) => {
-    const c: Record<string, string> = { master: "bg-red-500/20 text-red-400", manager: "bg-purple-500/20 text-purple-400" };
+    const c: Record<string, string> = {
+      master: "bg-red-500/20 text-red-400",
+      manager: "bg-purple-500/20 text-purple-400",
+    };
     const l: Record<string, string> = { master: "마스터", manager: "관리자", worker: "작업자" };
-    return <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${c[role] || "bg-blue-500/20 text-blue-400"}`}>{l[role] || role}</span>;
+    return (
+      <span
+        className={`text-[10px] px-2 py-0.5 rounded font-medium ${
+          c[role] || "bg-blue-500/20 text-blue-400"
+        }`}
+      >
+        {l[role] || role}
+      </span>
+    );
   };
-  const toggleCollapse = (key: string) => setCollapsed(p => ({ ...p, [key]: !p[key] }));
+  const toggleCollapse = (key: string) =>
+    setCollapsed((p) => ({ ...p, [key]: !p[key] }));
+
+  // ── 권한 트리 행 ──
+
+  const renderPermissionTree = () => {
+    // tree는 평탄 정렬, 각 노드 depth 계산하면서 렌더
+    const depthOf = (id: number): number => {
+      let depth = 1;
+      let cur = byId.get(id);
+      while (cur && cur.parent_id !== null) {
+        depth++;
+        cur = byId.get(cur.parent_id);
+      }
+      return depth;
+    };
+
+    if (tree.length === 0) {
+      return (
+        <div className={`text-xs ${ts} py-4 text-center`}>
+          워크스페이스가 없습니다.
+        </div>
+      );
+    }
+
+    return (
+      <ul className="space-y-0.5">
+        {tree.map((ws) => {
+          const depth = depthOf(ws.id);
+          const isGranted = grantedIds.has(ws.id);
+          const ancestorGranted = hasGrantedAncestor(ws.id, grantedIds);
+          // 상위에 권한이 있으면 자식 직접 부여는 의미 없음 → disabled
+          const disabled = ancestorGranted;
+          return (
+            <li
+              key={ws.id}
+              className="flex items-center gap-2 py-1 text-xs"
+              style={{ paddingLeft: `${(depth - 1) * 14}px` }}
+            >
+              <input
+                type="checkbox"
+                checked={isGranted}
+                disabled={disabled}
+                onChange={() => toggleGranted(ws.id)}
+                className="w-3.5 h-3.5 rounded border-gray-600 disabled:opacity-40"
+              />
+              <Folder
+                size={12}
+                className={
+                  isGranted
+                    ? "text-green-400"
+                    : ancestorGranted
+                      ? "text-green-400/40"
+                      : subtle
+                }
+              />
+              <span
+                className={
+                  isGranted
+                    ? "text-green-400 font-medium"
+                    : ancestorGranted
+                      ? `${subtle} line-through`
+                      : tp
+                }
+              >
+                {ws.name}
+              </span>
+              {ancestorGranted && (
+                <span className={`text-[9px] ${subtle} ml-auto`}>상위 포함</span>
+              )}
+              {isGranted && !ancestorGranted && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400 ml-auto">
+                  직접
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
 
   // ── UserRow ──
 
   const UserRow = ({ u }: { u: User }) => {
     const isEditing = editId === u.id;
     const isSelf = u.id === currentUser?.id;
-    const perms = getUserPerms(u.id);
-    const isEditingPerm = editPermUserId === u.id;
+    const isSelected = selectedUser?.id === u.id;
 
     return (
-      <div className={`px-4 py-2.5 ${card}`}>
+      <div
+        className={`px-4 py-2.5 ${card} ${isSelected ? "ring-1 ring-blue-500" : ""}`}
+      >
         <div className="flex items-center justify-between">
           {isEditing ? (
             <>
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <input value={editName} onChange={e => setEditName(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditId(null); }}
-                  className={`border rounded px-2 py-1 text-xs outline-none ${inp} focus:border-blue-500 w-28`} autoFocus />
-                <select value={editRole} onChange={e => setEditRole(e.target.value)} className={`border rounded px-1.5 py-1 text-[11px] outline-none ${inp}`}>
+                <input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveEdit();
+                    if (e.key === "Escape") setEditId(null);
+                  }}
+                  className={`border rounded px-2 py-1 text-xs outline-none ${inp} focus:border-blue-500 w-28`}
+                  autoFocus
+                />
+                <select
+                  value={editRole}
+                  onChange={(e) => setEditRole(e.target.value)}
+                  className={`border rounded px-1.5 py-1 text-[11px] outline-none ${inp}`}
+                >
                   <option value="worker">작업자</option>
-                  {currentUser?.role === "master" && <option value="manager">관리자</option>}
-                  {currentUser?.role === "master" && <option value="master">마스터</option>}
+                  {currentUser?.role === "master" && (
+                    <option value="manager">관리자</option>
+                  )}
+                  {currentUser?.role === "master" && (
+                    <option value="master">마스터</option>
+                  )}
                 </select>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <button onClick={saveEdit} className="text-emerald-400 hover:text-emerald-300"><Check size={14} /></button>
-                <button onClick={() => setEditId(null)} className="text-gray-500 hover:text-gray-300"><X size={14} /></button>
+                <button onClick={saveEdit} className="text-emerald-400 hover:text-emerald-300">
+                  <Check size={14} />
+                </button>
+                <button
+                  onClick={() => setEditId(null)}
+                  className="text-gray-500 hover:text-gray-300"
+                >
+                  <X size={14} />
+                </button>
               </div>
             </>
           ) : (
             <>
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="font-medium text-xs truncate">{u.display_name || u.username}</span>
-                {u.username !== (u.display_name || u.username) && <span className={`text-[10px] ${ts} shrink-0`}>({u.username})</span>}
+              <button
+                onClick={() => selectUserForPermissions(u)}
+                className="flex items-center gap-1.5 min-w-0 flex-1 text-left"
+              >
+                <span className="font-medium text-xs truncate">
+                  {u.display_name || u.username}
+                </span>
+                {u.username !== (u.display_name || u.username) && (
+                  <span className={`text-[10px] ${ts} shrink-0`}>({u.username})</span>
+                )}
                 {roleBadge(u.role)}
-                {u.is_active === false && <span className="text-[9px] px-1 py-0.5 rounded bg-gray-700 text-gray-400 shrink-0">비활성</span>}
-              </div>
+                {u.is_active === false && (
+                  <span className="text-[9px] px-1 py-0.5 rounded bg-gray-700 text-gray-400 shrink-0">
+                    비활성
+                  </span>
+                )}
+              </button>
               <div className="flex items-center gap-1 shrink-0">
-                <button onClick={() => startPermEdit(u.id)} className="text-green-400 hover:text-green-300" title="방송사 권한"><Shield size={13} /></button>
-                <button onClick={() => startEdit(u)} className="text-blue-400 hover:text-blue-300" title="수정"><Pencil size={13} /></button>
-                <button onClick={() => handleResetPw(u.id)} className="text-yellow-400 hover:text-yellow-300" title="비밀번호 초기화"><KeyRound size={13} /></button>
-                <button onClick={() => handleDelete(u.id)} className={`${isSelf ? "text-gray-700 cursor-not-allowed" : "text-red-400 hover:text-red-300"}`} disabled={isSelf} title={isSelf ? "자기 자신은 삭제 불가" : "삭제"}>
+                <button
+                  onClick={() => startEdit(u)}
+                  className="text-blue-400 hover:text-blue-300"
+                  title="수정"
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  onClick={() => handleResetPw(u.id)}
+                  className="text-yellow-400 hover:text-yellow-300"
+                  title="비밀번호 초기화"
+                >
+                  <KeyRound size={13} />
+                </button>
+                <button
+                  onClick={() => handleDelete(u.id)}
+                  className={
+                    isSelf
+                      ? "text-gray-700 cursor-not-allowed"
+                      : "text-red-400 hover:text-red-300"
+                  }
+                  disabled={isSelf}
+                  title={isSelf ? "자기 자신은 삭제 불가" : "삭제"}
+                >
                   <Trash2 size={13} />
                 </button>
               </div>
             </>
           )}
         </div>
-
-        {/* 방송사 권한 태그 */}
-        {!isEditing && !isEditingPerm && perms.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-1.5 ml-0.5">
-            {perms.map(bc => (
-              <span key={bc} className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">{bc}</span>
-            ))}
-          </div>
-        )}
-
-        {/* 권한 편집 모드 */}
-        {isEditingPerm && (
-          <div className="mt-2 p-2.5 bg-gray-800 rounded-lg">
-            <div className="text-[10px] text-gray-500 mb-2">방송사 권한 선택 (체크된 방송사에 작업 가능)</div>
-            <div className="flex flex-wrap gap-2 mb-2.5">
-              {bcStore.names.map(bc => (
-                <label key={bc} className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editPermBroadcasters.has(bc)}
-                    onChange={() => togglePermBroadcaster(bc)}
-                    className="w-3.5 h-3.5 rounded border-gray-600 bg-gray-700"
-                  />
-                  <span className="text-[11px] text-gray-300">{bc}</span>
-                </label>
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={savePermEdit} className="text-[10px] px-3 py-1 rounded bg-green-600 hover:bg-green-700 text-white font-medium">저장</button>
-              <button onClick={() => setEditPermUserId(null)} className={`text-[10px] px-3 py-1 rounded ${ts}`}>취소</button>
-            </div>
-          </div>
-        )}
       </div>
     );
   };
 
   // ── GroupSection ──
 
-  const GroupSection = ({ title, items, color, sectionKey }: { title: string; items: User[]; color: string; sectionKey: string }) => {
+  const GroupSection = ({
+    title,
+    items,
+    color,
+    sectionKey,
+  }: {
+    title: string;
+    items: User[];
+    color: string;
+    sectionKey: string;
+  }) => {
     const open = !collapsed[sectionKey];
     return (
       <div className="mb-2">
-        <button onClick={() => toggleCollapse(sectionKey)} className={`w-full flex items-center gap-2 px-4 py-2 ${color} rounded-t-lg text-xs font-medium`}>
+        <button
+          onClick={() => toggleCollapse(sectionKey)}
+          className={`w-full flex items-center gap-2 px-4 py-2 ${color} rounded-t-lg text-xs font-medium`}
+        >
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           {title} <span className="opacity-60">({items.length}명)</span>
         </button>
         {open && (
-          <div className={`border border-t-0 ${bd} rounded-b-lg divide-y divide-gray-800`}>
-            {items.map(u => <UserRow key={u.id} u={u} />)}
-            {items.length === 0 && <div className={`px-4 py-3 text-xs ${ts}`}>{searchLower ? "검색 결과 없음" : "멤버가 없습니다"}</div>}
+          <div
+            className={`border border-t-0 ${bd} rounded-b-lg ${
+              dm ? "divide-gray-800" : "divide-gray-200"
+            } divide-y`}
+          >
+            {items.map((u) => (
+              <UserRow key={u.id} u={u} />
+            ))}
+            {items.length === 0 && (
+              <div className={`px-4 py-3 text-xs ${ts}`}>
+                {searchLower ? "검색 결과 없음" : "멤버가 없습니다"}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -277,8 +450,7 @@ export function MembersTab({ dark = true }: Props) {
   };
 
   return (
-    <div className="flex gap-6 h-full">
-
+    <div className={`flex gap-6 h-full ${tp}`}>
       {/* ──────── 좌측: 작업자 관리 ──────── */}
       <div className="flex-1 flex flex-col min-h-0">
         <div className="flex items-center justify-between mb-4 shrink-0">
@@ -286,53 +458,110 @@ export function MembersTab({ dark = true }: Props) {
             <Users size={18} className="text-green-400" />
             <h2 className="text-base font-bold">작업자 관리</h2>
           </div>
-          {msg && <span className={`text-[11px] font-medium ${msg.includes("실패") || msg.includes("불가") ? "text-red-400" : "text-emerald-400"}`}>{msg}</span>}
+          {msg && (
+            <span
+              className={`text-[11px] font-medium ${
+                msg.includes("실패") || msg.includes("불가")
+                  ? "text-red-400"
+                  : "text-emerald-400"
+              }`}
+            >
+              {msg}
+            </span>
+          )}
         </div>
 
         {/* 생성 폼 */}
         <div className={`${card} border ${bd} rounded-xl p-4 mb-4 shrink-0`}>
-          <div className="text-[11px] text-gray-500 mb-2">새 계정 생성 (초기 비밀번호 = 아이디)</div>
+          <div className={`text-[11px] ${ts} mb-2`}>
+            새 계정 생성 (초기 비밀번호 = 아이디)
+          </div>
           <div className="flex items-end gap-2">
             <div className="flex-1">
               <label className={`block text-[11px] ${ts} mb-1`}>아이디</label>
-              <input value={newId} onChange={e => setNewId(e.target.value)} placeholder="예: worker01"
-                onKeyDown={e => { if (e.key === "Enter") handleCreate(); }}
-                className={`w-full border rounded-lg px-2.5 py-2 text-xs outline-none ${inp} focus:border-blue-500`} />
+              <input
+                value={newId}
+                onChange={(e) => setNewId(e.target.value)}
+                placeholder="예: worker01"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreate();
+                }}
+                className={`w-full border rounded-lg px-2.5 py-2 text-xs outline-none ${inp} focus:border-blue-500`}
+              />
             </div>
             <div className="flex-1">
               <label className={`block text-[11px] ${ts} mb-1`}>이름</label>
-              <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="예: 홍길동"
-                onKeyDown={e => { if (e.key === "Enter") handleCreate(); }}
-                className={`w-full border rounded-lg px-2.5 py-2 text-xs outline-none ${inp} focus:border-blue-500`} />
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="예: 홍길동"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreate();
+                }}
+                className={`w-full border rounded-lg px-2.5 py-2 text-xs outline-none ${inp} focus:border-blue-500`}
+              />
             </div>
             <div className="w-24">
               <label className={`block text-[11px] ${ts} mb-1`}>역할</label>
-              <select value={newRole} onChange={e => setNewRole(e.target.value)} className={`w-full border rounded-lg px-2 py-2 text-xs outline-none ${inp}`}>
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value)}
+                className={`w-full border rounded-lg px-2 py-2 text-xs outline-none ${inp}`}
+              >
                 <option value="worker">작업자</option>
-                {currentUser?.role === "master" && <option value="manager">관리자</option>}
+                {currentUser?.role === "master" && (
+                  <option value="manager">관리자</option>
+                )}
                 {currentUser?.role === "master" && <option value="master">마스터</option>}
               </select>
             </div>
-            <button onClick={handleCreate} className="bg-emerald-600 hover:bg-emerald-700 text-white p-2 rounded-lg shrink-0" title="계정 생성">
+            <button
+              onClick={handleCreate}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white p-2 rounded-lg shrink-0"
+              title="계정 생성"
+            >
               <Plus size={16} />
             </button>
           </div>
         </div>
 
         {/* 검색 + 서브 탭 */}
-        <div className="flex items-center justify-between mb-3 border-b border-gray-800 pb-0 shrink-0">
+        <div
+          className={`flex items-center justify-between mb-3 border-b ${bd} pb-0 shrink-0`}
+        >
           <div className="flex gap-3">
-            <button onClick={() => setSubTab("admin")} className={`pb-2 text-xs border-b-2 ${subTab === "admin" ? "border-pink-400 text-pink-400" : "border-transparent text-gray-500"}`}>
+            <button
+              onClick={() => setSubTab("admin")}
+              className={`pb-2 text-xs border-b-2 ${
+                subTab === "admin"
+                  ? "border-pink-400 text-pink-400"
+                  : `border-transparent ${ts}`
+              }`}
+            >
               마스터 · 관리자
             </button>
-            <button onClick={() => setSubTab("worker")} className={`pb-2 text-xs border-b-2 ${subTab === "worker" ? "border-blue-400 text-blue-400" : "border-transparent text-gray-500"}`}>
+            <button
+              onClick={() => setSubTab("worker")}
+              className={`pb-2 text-xs border-b-2 ${
+                subTab === "worker"
+                  ? "border-blue-400 text-blue-400"
+                  : `border-transparent ${ts}`
+              }`}
+            >
               작업자
             </button>
           </div>
           <div className="relative mb-1">
-            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
-            <input value={memberSearch} onChange={e => setMemberSearch(e.target.value)} placeholder="이름 / 아이디 검색"
-              className={`border rounded-lg pl-7 pr-2.5 py-1.5 text-[11px] outline-none ${inp} focus:border-blue-500 w-44`} />
+            <Search
+              size={12}
+              className={`absolute left-2 top-1/2 -translate-y-1/2 ${ts}`}
+            />
+            <input
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
+              placeholder="이름 / 아이디 검색"
+              className={`border rounded-lg pl-7 pr-2.5 py-1.5 text-[11px] outline-none ${inp} focus:border-blue-500 w-44`}
+            />
           </div>
         </div>
 
@@ -340,59 +569,100 @@ export function MembersTab({ dark = true }: Props) {
         <div className="flex-1 overflow-y-auto min-h-0">
           {subTab === "admin" ? (
             <>
-              <GroupSection title="마스터" items={masters} color="bg-red-500/10 text-red-400" sectionKey="masters" />
-              <GroupSection title="관리자" items={managers} color="bg-purple-500/10 text-purple-400" sectionKey="managers" />
+              <GroupSection
+                title="마스터"
+                items={masters}
+                color="bg-red-500/10 text-red-400"
+                sectionKey="masters"
+              />
+              <GroupSection
+                title="관리자"
+                items={managers}
+                color="bg-purple-500/10 text-purple-400"
+                sectionKey="managers"
+              />
             </>
           ) : (
-            <GroupSection title="작업자" items={workers} color="bg-blue-500/10 text-blue-400" sectionKey="workers" />
+            <GroupSection
+              title="작업자"
+              items={workers}
+              color="bg-blue-500/10 text-blue-400"
+              sectionKey="workers"
+            />
           )}
         </div>
       </div>
 
-      {/* ──────── 우측: 권한 요청 ──────── */}
+      {/* ──────── 우측: 워크스페이스 권한 편집 ──────── */}
       <div className="w-[360px] shrink-0 flex flex-col min-h-0">
         <div className="flex items-center gap-2 mb-4 shrink-0">
-          <Bell size={18} className="text-yellow-400" />
-          <h2 className="text-base font-bold">권한 요청</h2>
-          {permRequests.length > 0 && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 font-medium">{permRequests.length}건</span>
-          )}
+          <Shield size={18} className="text-green-400" />
+          <h2 className="text-base font-bold">워크스페이스 권한</h2>
         </div>
 
-        <div className={`flex-1 overflow-y-auto min-h-0 ${card} border ${bd} rounded-xl`}>
-          {permRequests.length === 0 ? (
-            <div className={`py-12 text-center text-sm ${ts}`}>대기 중인 요청이 없습니다</div>
-          ) : (
-            <div className="divide-y divide-gray-800">
-              {permRequests.map(req => (
-                <div key={req.id} className="px-4 py-3">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium">{req.user_name}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400">{req.broadcaster}</span>
-                    </div>
-                    <span className={`text-[9px] ${ts}`}>{req.created_at ? new Date(req.created_at).toLocaleDateString("ko") : ""}</span>
-                  </div>
-                  {req.reason && (
-                    <div className={`text-[11px] ${ts} mb-2 bg-gray-800 rounded px-2.5 py-1.5`}>{req.reason}</div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleReviewRequest(req.id, "approved")}
-                      className="text-[10px] px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
-                    >승인</button>
-                    <button
-                      onClick={() => handleReviewRequest(req.id, "rejected")}
-                      className="text-[10px] px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium"
-                    >거절</button>
-                  </div>
-                </div>
-              ))}
+        <div className={`flex-1 ${card} border ${bd} rounded-xl flex flex-col min-h-0`}>
+          {!selectedUser ? (
+            <div className={`flex-1 flex items-center justify-center text-xs ${ts} text-center px-6`}>
+              왼쪽에서 사용자를 선택하면<br />
+              워크스페이스 권한을 편집할 수 있습니다.
             </div>
+          ) : (
+            <>
+              {/* 헤더 */}
+              <div className={`px-4 py-3 border-b ${bd} shrink-0`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-medium text-sm truncate">
+                      {selectedUser.display_name || selectedUser.username}
+                    </span>
+                    {roleBadge(selectedUser.role)}
+                  </div>
+                  <button
+                    onClick={() => setSelectedUser(null)}
+                    className={`shrink-0 ${ts} hover:opacity-70`}
+                    title="닫기"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {/* 안내 박스 */}
+              <div className={`mx-4 mt-3 p-2.5 rounded ${innerBg} text-[10px] ${ts} leading-relaxed shrink-0`}>
+                상위 워크스페이스 권한은 모든 하위에 자동 적용됩니다.
+                상위에 권한이 있으면 자식은 별도 부여 불필요(체크 비활성).
+              </div>
+
+              {/* 트리 */}
+              <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0">
+                {loadingPerms ? (
+                  <div className={`text-xs ${ts} py-8 text-center`}>로딩 중...</div>
+                ) : (
+                  renderPermissionTree()
+                )}
+              </div>
+
+              {/* 저장 */}
+              <div className={`px-4 py-3 border-t ${bd} flex items-center justify-end gap-2 shrink-0`}>
+                <button
+                  onClick={() => selectUserForPermissions(selectedUser)}
+                  disabled={savingPerms || loadingPerms}
+                  className={`text-xs px-3 py-1.5 rounded ${ts} hover:opacity-80`}
+                >
+                  되돌리기
+                </button>
+                <button
+                  onClick={savePermissions}
+                  disabled={savingPerms || loadingPerms}
+                  className="text-xs px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium"
+                >
+                  {savingPerms ? "저장 중..." : "저장"}
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>
-
     </div>
   );
 }

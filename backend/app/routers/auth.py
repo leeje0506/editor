@@ -15,6 +15,7 @@ from app.services.auth import (
     hash_password, verify_password, create_token,
     get_current_user, require_role,
 )
+from app.services.permission_service import get_direct_permissions, to_workspace_brief
 
 router = APIRouter()
 
@@ -34,11 +35,8 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(400, "비활성화된 계정입니다")
     token = create_token(user.id, user.role)
 
-    # 방송사 권한 조회
-    from app.models import UserBroadcasterPermission
-    perms = db.query(UserBroadcasterPermission).filter(
-        UserBroadcasterPermission.user_id == user.id
-    ).all()
+    # 워크스페이스 권한 조회 (직접 부여받은 노드만, 후손 전개는 안 함)
+    perms = get_direct_permissions(db, user)
 
     return {
         "token": token,
@@ -47,7 +45,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             "username": user.username,
             "display_name": user.display_name,
             "role": user.role,
-            "broadcaster_permissions": [p.broadcaster for p in perms],
+            "workspace_permissions": [to_workspace_brief(p.workspace) for p in perms],
         },
     }
 
@@ -56,10 +54,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    from app.models import UserBroadcasterPermission
-    perms = db.query(UserBroadcasterPermission).filter(
-        UserBroadcasterPermission.user_id == current_user.id
-    ).all()
+    perms = get_direct_permissions(db, current_user)
 
     return {
         "id": current_user.id,
@@ -68,7 +63,7 @@ def get_me(current_user: User = Depends(get_current_user), db: Session = Depends
         "role": current_user.role,
         "is_active": current_user.is_active,
         "created_at": _dt_str(current_user.created_at),
-        "broadcaster_permissions": [p.broadcaster for p in perms],
+        "workspace_permissions": [to_workspace_brief(p.workspace) for p in perms],
     }
 
 

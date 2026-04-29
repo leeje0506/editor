@@ -8,6 +8,7 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { usePlayback } from "../../hooks/usePlayback";
 import { projectsApi } from "../../api/projects";
+import { isReadOnly } from "../../utils/statusLabel";
 import type { Project } from "../../types";
 import { TopNav } from "../nav/TopNav";
 import { VideoPlayer } from "../video/VideoPlayer";
@@ -26,14 +27,6 @@ type EditorMode = "srt" | "json";
 const DEFAULT_VIDEO_W = 960;
 const DEFAULT_EDITOR_H = 160;
 const DEFAULT_TL_H = 220;
-
-function isReadOnly(project: Project | null, isWorker: boolean): boolean {
-  if (!project) return false;
-  if (project.status === "approved") return true;
-  if (project.status === "submitted") return true;
-  if (project.status === "rejected" && !isWorker) return true;
-  return false;
-}
 
 function HResizeHandle({
   dark,
@@ -130,7 +123,7 @@ export function AppLayout() {
   const loadSettings = useSettingsStore((s) => s.load);
   const [videoKey, setVideoKey] = useState(0);
 
-  const readOnly = isReadOnly(project, isWorker);
+  const readOnly = project ? isReadOnly(project.status, isWorker) : false;
 
   const handleVideoWidthChange = useCallback((w: number) => {
     const maxW = Math.floor(window.innerWidth * 0.7);
@@ -218,7 +211,7 @@ export function AppLayout() {
 
         await init(pid);
 
-        if (p.status !== "submitted" && p.status !== "approved") {
+        if (p.status !== "submitted" && p.status !== "completed") {
           const posMs = (p as any).last_position_ms || 0;
           const selId = (p as any).last_selected_id || null;
 

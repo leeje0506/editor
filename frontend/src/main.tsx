@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { LoginPage } from "./components/auth/LoginPage";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { HomePage } from "./components/home/HomePage";
+import { WorkspaceExplorer } from "./components/home/WorkspaceExplorer";
 import { AppLayout } from "./components/layout/AppLayout";
 import { SettingsPage } from "./components/settings/SettingsPage";
 import { ActivityController } from "./components/activity/ActivityController";
@@ -24,7 +25,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<RootRedirect />} />
         <Route path="/dashboard" element={<ProtectedRoute roles={["master","manager"]}><HomePage /></ProtectedRoute>} />
-        <Route path="/projects" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
+        <Route path="/projects" element={<ProtectedRoute><WorkspaceExplorer /></ProtectedRoute>} />
+        <Route path="/projects/:workspaceId" element={<ProtectedRoute><WorkspaceExplorer /></ProtectedRoute>} />
         <Route path="/editor/:projectId" element={<ProtectedRoute><AppLayout /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
         <Route path="/settings/:tab" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />

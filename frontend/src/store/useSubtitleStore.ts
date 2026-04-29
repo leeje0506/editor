@@ -28,6 +28,11 @@ interface SubtitleState {
   updateLocal: (id: number, data: Partial<Subtitle>) => void;
   updateOne: (id: number, data: SubtitleUpdate) => Promise<void>;
 
+  /** 외부에서 직접 호출 가능. dirtyMap에 변경사항 있으면 서버에 일괄 반영.
+   * v8.3 수동 저장 트리거: DropCell 변경, 텍스트 셀 blur/Enter,
+   * 다운로드 버튼, 설정 모달 열기, 홈 이동, 화자 일괄변경 직전 등에서 호출. */
+  flushDirty: () => Promise<void>;
+
   addAfter: (options?: AddAfterOptions) => Promise<void>;
   deleteSelected: () => Promise<void>;
   splitSelected: () => Promise<void>;
@@ -57,24 +62,6 @@ function findSelectedIdByIndex(subtitles: Subtitle[], index: number): number | n
   if (subtitles.length === 0) return null;
   const safeIndex = Math.max(0, Math.min(index, subtitles.length - 1));
   return subtitles[safeIndex]?.id ?? null;
-}
-
-/**
- * dirtyMap에 변경사항이 있으면 서버에 먼저 반영 (flush).
- * 이후 서버의 save_snapshot이 항상 최신 상태를 기록하게 됨.
- */
-async function flushDirty(
-  get: () => SubtitleState,
-  set: (partial: Partial<SubtitleState>) => void,
-) {
-  const { projectId, subtitles, dirtyMap } = get();
-  if (!projectId || dirtyMap.size === 0) return;
-
-  const subs = await subtitlesApi.batchUpdate(projectId, subtitles);
-  set({
-    subtitles: subs,
-    dirtyMap: new Map(),
-  });
 }
 
 export const useSubtitleStore = create<SubtitleState>((set, get) => ({
@@ -241,11 +228,22 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     });
   },
 
+  flushDirty: async () => {
+    const { projectId, subtitles, dirtyMap } = get();
+    if (!projectId || dirtyMap.size === 0) return;
+
+    const subs = await subtitlesApi.batchUpdate(projectId, subtitles);
+    set({
+      subtitles: subs,
+      dirtyMap: new Map(),
+    });
+  },
+
   addAfter: async (options) => {
     const state = get();
     if (!state.projectId) return;
 
-    await flushDirty(get, set);
+    await get().flushDirty();
 
     const { projectId, subtitles, selectedId } = get();
     if (!projectId) return;
@@ -286,7 +284,7 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const state = get();
     if (!state.projectId || state.multiSelect.size === 0) return;
 
-    await flushDirty(get, set);
+    await get().flushDirty();
 
     const { projectId, multiSelect, subtitles } = get();
     if (!projectId) return;
@@ -311,7 +309,7 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const state = get();
     if (!state.projectId || !state.selectedId) return;
 
-    await flushDirty(get, set);
+    await get().flushDirty();
 
     const { projectId, selectedId, subtitles } = get();
     if (!projectId || !selectedId) return;
@@ -341,7 +339,7 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const state = get();
     if (!state.projectId || state.multiSelect.size < 2) return;
 
-    await flushDirty(get, set);
+    await get().flushDirty();
 
     const { projectId, multiSelect, subtitles } = get();
     if (!projectId) return;
@@ -368,7 +366,7 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     const state = get();
     if (!state.projectId) return;
 
-    await flushDirty(get, set);
+    await get().flushDirty();
 
     const { projectId, selectedId } = get();
     if (!projectId) return;
@@ -404,7 +402,7 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     if (!projectId) return;
 
     // undo 전에 dirty flush — 서버 스냅샷에 최신 상태 반영
-    await flushDirty(get, set);
+    await get().flushDirty();
 
     const currentIndex = selectedId
       ? get().subtitles.findIndex((sub) => sub.id === selectedId)

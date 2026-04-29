@@ -10,6 +10,7 @@ import { GridFilters, type Filters } from "./GridFilters";
 import { FileText, Loader2 } from "lucide-react";
 import { projectsApi } from "../../api/projects";
 import { validateSubtitleLocal } from "../../utils/validation";
+import type { Subtitle } from "../../types";
 
 interface Props {
   dark: boolean;
@@ -264,6 +265,17 @@ export function SubtitleGrid({
   const toggleMulti = useSubtitleStore((s) => s.toggleMulti);
   const selectRange = useSubtitleStore((s) => s.selectRange);
   const updateLocal = useSubtitleStore((s) => s.updateLocal);
+  const flushDirty = useSubtitleStore((s) => s.flushDirty);
+
+  /** v8.3 강화 저장 정책: DropCell 변경 / 텍스트 셀 확정 시 즉시 서버 반영.
+   * updateLocal로 dirtyMap에 기록한 직후 flushDirty()를 fire-and-forget으로 호출. */
+  const updateAndFlush = useCallback(
+    (id: number, data: Partial<Subtitle>) => {
+      updateLocal(id, data);
+      void flushDirty();
+    },
+    [updateLocal, flushDirty],
+  );
 
   const playing = usePlayerStore((s) => s.playing);
   const setVideoPreviewMs = usePlayerStore((s) => s.setVideoPreviewMs);
@@ -719,7 +731,7 @@ export function SubtitleGrid({
                           { v: "dialogue", label: "대사" },
                           { v: "effect", label: "효과" },
                         ]}
-                        onSelect={(v) => updateLocal(sub.id, { type: v as "dialogue" | "effect" })}
+                        onSelect={(v) => updateAndFlush(sub.id, { type: v as "dialogue" | "effect" })}
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
@@ -731,7 +743,7 @@ export function SubtitleGrid({
                         value={sub.speaker}
                         label={sub.speaker || "(없음)"}
                         options={speakerOptions}
-                        onSelect={(v) => updateLocal(sub.id, { speaker: v })}
+                        onSelect={(v) => updateAndFlush(sub.id, { speaker: v })}
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
@@ -749,7 +761,7 @@ export function SubtitleGrid({
                           { v: "true", label: "삭제" },
                         ]}
                         onSelect={(v) =>
-                          updateLocal(sub.id, { speaker_deleted: v === "true" })
+                          updateAndFlush(sub.id, { speaker_deleted: v === "true" })
                         }
                         onCellClick={() => triggerSelect(sub.id)}
                       />
@@ -765,7 +777,7 @@ export function SubtitleGrid({
                         disabled={readOnly}
                         fontSize={listFontSize}
                         className="leading-snug"
-                        onChange={(v) => updateLocal(sub.id, { text: v })}
+                        onChange={(v) => updateAndFlush(sub.id, { text: v })}
                         onCellClick={() => triggerSelect(sub.id)}
                       />
                     </td>
@@ -783,7 +795,7 @@ export function SubtitleGrid({
                           { v: "true", label: "삭제" },
                         ]}
                         onSelect={(v) =>
-                          updateLocal(sub.id, { text_deleted: v === "true" })
+                          updateAndFlush(sub.id, { text_deleted: v === "true" })
                         }
                         onCellClick={() => triggerSelect(sub.id)}
                       />
@@ -803,7 +815,7 @@ export function SubtitleGrid({
                         ]}
                         onSelect={(v) => {
                           const pos = v as "default" | "top";
-                          updateLocal(sub.id, { speaker_pos: pos, text_pos: pos });
+                          updateAndFlush(sub.id, { speaker_pos: pos, text_pos: pos });
                         }}
                         onCellClick={() => triggerSelect(sub.id)}
                       />

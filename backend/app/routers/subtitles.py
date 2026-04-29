@@ -14,7 +14,8 @@ from app.schemas import (
     BatchDeleteRequest, MergeRequest, SplitRequest, BulkSpeakerRequest,
 )
 from app.services.subtitle_service import (
-    resequence_and_validate, save_snapshot, restore_snapshot, smart_split_text,
+    save_snapshot, restore_snapshot, smart_split_text, post_subtitle_change,
+    _mark_modified_if_changed,
 )
 from app.services.auth import get_current_user
 from app.models import User as UserModel
@@ -57,10 +58,11 @@ def create_subtitle(project_id: int, data: SubtitleCreate, db: Session = Depends
         speaker_pos=data.speaker_pos, text_pos=data.text_pos,
         speaker_deleted=False, text_deleted=False,
         text=data.text, seq=0,
+        is_modified=True,
     )
     db.add(sub)
     db.commit()
-    return resequence_and_validate(db, project_id)
+    return post_subtitle_change(db, project_id)
 
 
 @router.patch("/{subtitle_id}", response_model=SubtitleResponse)
@@ -70,10 +72,9 @@ def update_subtitle(project_id: int, subtitle_id: int, data: SubtitleUpdate, db:
     if not sub:
         raise HTTPException(404, "Subtitle not found")
     save_snapshot(db, project_id, "update")
-    for k, v in data.model_dump(exclude_unset=True).items():
-        setattr(sub, k, v)
+    _mark_modified_if_changed(sub, data.model_dump(exclude_unset=True))
     db.commit()
-    subs = resequence_and_validate(db, project_id)
+    subs = post_subtitle_change(db, project_id)
     return next((s for s in subs if s.id == subtitle_id), None)
 
 
@@ -86,7 +87,7 @@ def delete_subtitle(project_id: int, subtitle_id: int, db: Session = Depends(get
     save_snapshot(db, project_id, "delete")
     db.delete(sub)
     db.commit()
-    return resequence_and_validate(db, project_id)
+    return post_subtitle_change(db, project_id)
 
 
 @router.post("/batch-delete", response_model=List[SubtitleResponse])
@@ -95,7 +96,7 @@ def batch_delete(project_id: int, data: BatchDeleteRequest, db: Session = Depend
     save_snapshot(db, project_id, "batch_delete")
     db.query(Subtitle).filter(Subtitle.project_id == project_id, Subtitle.id.in_(data.ids)).delete(synchronize_session=False)
     db.commit()
-    return resequence_and_validate(db, project_id)
+    return post_subtitle_change(db, project_id)
 
 
 @router.post("/{subtitle_id}/split", response_model=List[SubtitleResponse])
@@ -120,6 +121,7 @@ def split_subtitle(project_id: int, subtitle_id: int, data: SplitRequest, db: Se
 
     sub.end_ms = split_at
     sub.text = text_first
+    sub.is_modified = True
 
     db.add(Subtitle(
         project_id=project_id, start_ms=split_at, end_ms=original_end,
@@ -127,9 +129,10 @@ def split_subtitle(project_id: int, subtitle_id: int, data: SplitRequest, db: Se
         speaker_pos=sub.speaker_pos, text_pos=sub.text_pos,
         speaker_deleted=sub.speaker_deleted, text_deleted=sub.text_deleted,
         text=text_second,
+        is_modified=True,
     ))
     db.commit()
-    return resequence_and_validate(db, project_id)
+    return post_subtitle_change(db, project_id)
 
 
 @router.post("/merge", response_model=List[SubtitleResponse])
@@ -143,10 +146,11 @@ def merge_subtitles(project_id: int, data: MergeRequest, db: Session = Depends(g
     save_snapshot(db, project_id, "merge")
     subs[0].end_ms = subs[-1].end_ms
     subs[0].text = "\n".join(s.text for s in subs)
+    subs[0].is_modified = True
     for s in subs[1:]:
         db.delete(s)
     db.commit()
-    return resequence_and_validate(db, project_id)
+    return post_subtitle_change(db, project_id)
 
 
 @router.post("/bulk-speaker", response_model=List[SubtitleResponse])
@@ -154,9 +158,11 @@ def bulk_speaker(project_id: int, data: BulkSpeakerRequest, db: Session = Depend
     _get_project(project_id, db)
     save_snapshot(db, project_id, "bulk_speaker")
     for sub in db.query(Subtitle).filter(Subtitle.project_id == project_id, Subtitle.speaker == data.from_speaker).all():
+        if sub.speaker != data.to_speaker:
+            sub.is_modified = True
         sub.speaker = data.to_speaker
     db.commit()
-    return resequence_and_validate(db, project_id)
+    return post_subtitle_change(db, project_id)
 
 
 @router.put("/batch-update", response_model=List[SubtitleResponse])
@@ -166,10 +172,9 @@ def batch_update(project_id: int, items: List[SubtitleBatchItem], db: Session = 
     for item in items:
         sub = db.query(Subtitle).filter(Subtitle.id == item.id, Subtitle.project_id == project_id).first()
         if sub:
-            for k, v in item.model_dump(exclude={"id"}).items():
-                setattr(sub, k, v)
+            _mark_modified_if_changed(sub, item.model_dump(exclude={"id"}))
     db.commit()
-    return resequence_and_validate(db, project_id)
+    return post_subtitle_change(db, project_id)
 
 
 @router.post("/undo", response_model=List[SubtitleResponse])
@@ -183,6 +188,7 @@ def undo(project_id: int, db: Session = Depends(get_db)):
     db.commit()
     return restore_snapshot(db, project_id, snapshot)
 
+
 @router.post("/restore", response_model=List[SubtitleResponse])
 def restore_from_snapshot(project_id: int, items: List[SubtitleBatchItem], db: Session = Depends(get_db)):
     """Redo용: 스냅샷으로 전체 교체 (삭제 포함)"""
@@ -193,11 +199,13 @@ def restore_from_snapshot(project_id: int, items: List[SubtitleBatchItem], db: S
     db.query(Subtitle).filter(Subtitle.project_id == project_id).delete(synchronize_session=False)
     db.flush()
 
-    # 스냅샷 자막 전체 INSERT
+    # 스냅샷 자막 전체 INSERT — Redo는 사용자 의도된 변경 결과라 is_modified=True
     for item in items:
         data = item.model_dump(exclude={"id"})
+        # 스키마에 is_modified 필드가 있으면 덮어쓰기, 없으면 추가
+        data["is_modified"] = True
         sub = Subtitle(project_id=project_id, **data)
         db.add(sub)
 
     db.commit()
-    return resequence_and_validate(db, project_id)
+    return post_subtitle_change(db, project_id)

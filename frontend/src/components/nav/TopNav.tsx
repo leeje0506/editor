@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Home, Moon, Sun, Save, Send, Settings, Clock, Download, Lock, LogOut, Type, FileJson, FileText, Users } from "lucide-react";
+import { Home, Moon, Sun, Save, Send, Settings, Clock, Download, Lock, LogOut, FileJson, FileText, Users } from "lucide-react";
 import { ProjectSettingsModal } from "../modals/ProjectSettingsModal";
 import { BulkSpeakerModal } from "../modals/BulkSpeakerModal";
 import type { Project } from "../../types";
@@ -47,31 +47,53 @@ export function TopNav({
   const ts = dm ? "text-gray-400" : "text-gray-500";
   const bd = dm ? "border-gray-700" : "border-gray-200";
 
-  const statusLabel = project?.status === "submitted" ? "제출됨" : project?.status === "approved" ? "승인됨" : "";
-  const statusColor = project?.status === "submitted" ? "text-yellow-500 bg-yellow-500/10" : project?.status === "approved" ? "text-green-500 bg-green-500/10" : "";
+  // status 라벨 + 색상 (readOnly 상태에서만 배지로 표시)
+  const statusLabel =
+    project?.status === "submitted" ? "제출"
+    : project?.status === "completed" ? "완료"
+    : project?.status === "rejected" ? "반려"
+    : "";
+  const statusColor =
+    project?.status === "submitted" ? "text-yellow-500 bg-yellow-500/10"
+    : project?.status === "completed" ? "text-green-500 bg-green-500/10"
+    : project?.status === "rejected" ? "text-red-500 bg-red-500/10"
+    : "";
 
-  const isJson = editorMode === "json";
+  // 진척률 (progress_ms / video_duration_ms)
+  const hasProgressInfo = !!(project?.video_duration_ms && project.video_duration_ms > 0);
+  const progressPct = hasProgressInfo
+    ? Math.min(100, Math.round(((project!.progress_ms || 0) / project!.video_duration_ms!) * 100))
+    : 0;
+
+  // 워크스페이스 경로 (브레드크럼)
+  const workspacePath = project?.workspace_path ?? [];
 
   return (
     <>
       <div className={`h-11 shrink-0 ${card} border-b ${bd} flex items-center justify-between px-4 z-30`}>
-        <div className="flex items-center gap-3">
-          <button onClick={onHome} className={`w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`} title="홈으로">
+        <div className="flex items-center gap-3 min-w-0">
+          <button onClick={onHome} className={`shrink-0 w-7 h-7 flex items-center justify-center border ${bd} rounded ${ts} hover:opacity-80`} title="홈으로">
             <Home size={16} />
           </button>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-blue-500 font-bold bg-blue-500/10 px-1.5 py-0.5 rounded text-[10px]">
+              <span className="text-blue-500 font-bold bg-blue-500/10 px-1.5 py-0.5 rounded text-[10px] shrink-0">
                 {project?.broadcaster || "tv"}
               </span>
-              <h1 className={`text-sm font-bold ${tp}`}>{project?.name || "로딩 중..."}</h1>
-              {readOnly && (
-                <span className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${statusColor}`}>
+              <h1 className={`text-sm font-bold ${tp} truncate`}>{project?.name || "로딩 중..."}</h1>
+              {/* 워크스페이스 경로 미니 브레드크럼 */}
+              {workspacePath.length > 0 && (
+                <span className={`text-[10px] ${ts} truncate shrink min-w-0`}>
+                  {workspacePath.join(" › ")}
+                </span>
+              )}
+              {readOnly && statusLabel && (
+                <span className={`shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${statusColor}`}>
                   <Lock size={10} /> {statusLabel} (읽기전용)
                 </span>
               )}
               {!readOnly && (
-                <button onClick={() => setShowSettings(true)} className={`${ts} hover:opacity-60`}>
+                <button onClick={() => setShowSettings(true)} className={`shrink-0 ${ts} hover:opacity-60`}>
                   <Settings size={13} />
                 </button>
               )}
@@ -82,12 +104,28 @@ export function TopNav({
               <span className={`flex items-center gap-0.5 ${dm ? "text-yellow-400" : "text-yellow-600"}`}>
                 <Clock size={10} /> 소요 시간: {formatElapsed(elapsed)}
               </span>
-              {/* {project?.fps && <span className={ts}>FPS: {project.fps}</span>} */}
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-1.5">
+          {/* 진척률 미니 인디케이터 (영상 길이 있을 때만)
+          {hasProgressInfo && (
+            <>
+              <div className="flex items-center gap-1.5 px-2">
+                <span className={`text-[10px] ${ts}`}>진척</span>
+                <div className={`relative h-1.5 w-[54px] rounded ${dm ? "bg-gray-700" : "bg-gray-200"} overflow-hidden`}>
+                  <div
+                    className="absolute left-0 top-0 bottom-0 bg-emerald-500 rounded transition-all"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+                <span className={`text-[10px] font-mono ${ts} tabular-nums`}>{progressPct}%</span>
+              </div>
+              <div className={`h-4 w-px ${dm ? "bg-gray-700" : "bg-gray-200"} mx-1`} />
+            </>
+          )} */}
+
           {savedMsg && (
             <span className={`text-xs font-medium mr-1 ${
               savedMsg.includes("실패") || savedMsg.includes("불가") ? "text-red-500" : "text-emerald-500"
@@ -128,13 +166,6 @@ export function TopNav({
             </>
           ) : (
             <>
-              {/* <button
-                onClick={() => onToggleSubtitlePanel?.()}
-                className={`flex items-center gap-1 border ${bd} rounded ${ts} px-2 py-1 text-[10px] font-medium hover:opacity-80`}
-                title="자막 표시 설정"
-              >
-                <Type size={12} /> 자막설정
-              </button> */}
               <button onClick={() => setShowBulk(true)} className="flex items-center gap-0.5 text-purple-600 border border-purple-200 bg-purple-50 px-2 py-1 rounded text-[10px] font-medium hover:bg-purple-100">
                 <Users size={12} /> 화자 일괄변경
               </button>
