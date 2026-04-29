@@ -23,11 +23,12 @@ export const FIXED_SHORTCUTS: ShortcutAction[] = [
   { id: "delete", label: "삭제", description: "선택된 자막 삭제", category: "fixed" },
   { id: "shift_click", label: "범위 선택", description: "Shift+클릭으로 범위 선택", category: "fixed" },
   { id: "ctrl_click", label: "토글 선택", description: "Ctrl+클릭으로 개별 토글 선택", category: "fixed" },
+  { id: "play_pause", label: "재생/일시정지", description: "영상 재생 토글", category: "fixed" },
 ];
 
 /** 커스텀 단축키 (변경 가능) */
 export const CUSTOM_SHORTCUTS: ShortcutAction[] = [
-  { id: "play_pause", label: "재생/일시정지", description: "영상 재생 토글", category: "custom" },
+  { id: "play_pause_alt", label: "재생/일시정지 (보조)", description: "재생/일시정지 보조 키", category: "custom" },
   { id: "set_start", label: "시작 시간 설정", description: "선택 싱크 시작점을 현재시간으로", category: "custom" },
   { id: "set_end", label: "종료 시간 설정", description: "선택 싱크 종료점을 현재시간으로", category: "custom" },
   { id: "cycle_speed", label: "재생 배속 전환", description: "150%→200%→100%→150%→…", category: "custom" },
@@ -58,8 +59,9 @@ export const DEFAULT_SHORTCUTS: Record<string, string> = {
   delete: "Delete",
   shift_click: "Shift+Click",
   ctrl_click: "Ctrl+Click",
-  // 커스텀 (변경 가능)
   play_pause: "Space",
+  // 커스텀 (변경 가능)
+  play_pause_alt: "",
   set_start: "F1",
   set_end: "F2",
   cycle_speed: "Alt+Space",
@@ -73,7 +75,7 @@ export const DEFAULT_SHORTCUTS: Record<string, string> = {
   next_error: "",
   prev: "ArrowUp",
   next: "ArrowDown",
-  focus_text: "Enter",
+  focus_text: "Shift+Enter",
 };
 
 const FIXED_SHORTCUT_ID_SET = new Set(FIXED_SHORTCUTS.map((a) => a.id));
@@ -105,7 +107,7 @@ function normalizeShortcutKey(value: unknown): string | null {
  * 서버에서 내려온 단축키를 안전하게 정리
  * - fixed 단축키는 항상 기본값 유지
  * - custom 단축키만 반영
- * - 중복 키는 허용하지 않음
+ * - 중복 키는 허용하지 않음 (단, 빈 값은 허용)
  */
 function buildSafeShortcuts(raw?: unknown): Record<string, string> {
   const safe: Record<string, string> = {};
@@ -114,7 +116,7 @@ function buildSafeShortcuts(raw?: unknown): Record<string, string> {
     safe[action.id] = DEFAULT_SHORTCUTS[action.id];
   }
 
-  const usedKeys = new Set<string>(Object.values(safe));
+  const usedKeys = new Set<string>(Object.values(safe).filter(Boolean));
   const rawRecord = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
 
   for (const action of CUSTOM_SHORTCUTS) {

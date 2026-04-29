@@ -1,3 +1,47 @@
+// ─────────────────────────────────────────
+// Workspace
+// ─────────────────────────────────────────
+
+/** 사용자 권한 응답 등에서 워크스페이스를 간결히 표현 */
+export interface WorkspaceBrief {
+  id: number;
+  name: string;
+  depth: number;
+  parent_id: number | null;
+}
+
+/** 워크스페이스 통계 (재귀 합산). 관리자 응답에만 채워짐 */
+export interface WorkspaceStats {
+  sub_workspace_count: number;
+  project_count: number;
+  completed_count: number;
+  member_count: number;
+  total_progress_ms: number;
+  total_video_ms: number;
+  progress_ratio: number;  // 0.0 ~ 1.0
+}
+
+export interface Workspace {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  depth: number;
+  created_by: number | null;
+  created_by_name: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  stats: WorkspaceStats | null;  // 관리자에게만 채워짐
+  progress_ratio?: number;        // 0.0 ~ 1.0
+  sub_workspace_count?: number;
+  project_count?: number;
+  completed_count?: number;
+  member_count?: number;
+}
+
+// ─────────────────────────────────────────
+// User
+// ─────────────────────────────────────────
+
 export interface User {
   id: number;
   username: string;
@@ -5,10 +49,23 @@ export interface User {
   role: "master" | "manager" | "worker";
   is_active: boolean;
   created_at: string | null;
+  workspace_permissions?: WorkspaceBrief[];
 }
+
+// ─────────────────────────────────────────
+// Project
+// ─────────────────────────────────────────
+
+/** DB raw status (4값) */
+export type ProjectStatusRaw = "in_progress" | "submitted" | "rejected" | "completed";
+
+/** UI 표시용 라벨 (5종, 파생) */
+export type ProjectStatusLabel = "진행중" | "제출" | "반려" | "재작업" | "완료";
 
 export interface Project {
   id: number;
+  workspace_id: number;
+  workspace_path?: string[];  // 브레드크럼용 (root → current 이름 배열)
   name: string;
   broadcaster: string;
   description: string | null;
@@ -20,7 +77,7 @@ export interface Project {
   total_duration_ms: number;
   video_duration_ms: number | null;
   file_size_mb: number | null;
-  status: "draft" | "submitted" | "approved" | "rejected";
+  status: ProjectStatusRaw;
   elapsed_seconds: number;
   last_saved_at: string | null;
   submitted_at: string | null;
@@ -39,10 +96,17 @@ export interface Project {
   last_position_ms?: number;
   last_selected_id?: number | null;
   speaker_mode?: string;
+  progress_ms?: number;  // 진척률 기준값 (MAX(seq) 자막의 end_ms)
 }
 
+// ─────────────────────────────────────────
+// Subtitle
+// ─────────────────────────────────────────
+
 export type TrackType = "dialogue" | "sfx" | "bgm" | "ambience";
-export type Position = "default" | "top" | "deleted";
+
+/** 자막 위치. v8.3에서 "deleted" 제거 — 삭제는 speaker_deleted/text_deleted bool로 분리 */
+export type Position = "default" | "top";
 
 export interface Subtitle {
   id: number;
@@ -52,9 +116,6 @@ export interface Subtitle {
   type: "dialogue" | "effect";
   track_type: TrackType;
   speaker: string;
-  // speaker_pos: "default" | "top" | "deleted";
-  // text_pos: "default" | "top" | "deleted";
-  // position: Position;
   speaker_pos: "default" | "top";       // 위치만 (삭제값 제거)
   text_pos: "default" | "top";          // 위치만
   speaker_deleted: boolean;              // 화자 삭제 표시
@@ -71,8 +132,8 @@ export interface SubtitleCreate {
   type?: "dialogue" | "effect";
   track_type?: TrackType;
   speaker?: string;
-  speaker_pos?: "default" | "top" | "deleted";
-  text_pos?: "default" | "top" | "deleted";
+  speaker_pos?: "default" | "top";
+  text_pos?: "default" | "top";
   position?: Position;
   text?: string;
   source_id?: string;
@@ -84,8 +145,8 @@ export interface SubtitleUpdate {
   type?: "dialogue" | "effect";
   track_type?: TrackType;
   speaker?: string;
-  speaker_pos?: "default" | "top" | "deleted";
-  text_pos?: "default" | "top" | "deleted";
+  speaker_pos?: "default" | "top";
+  text_pos?: "default" | "top";
   position?: Position;
   text?: string;
   source_id?: string;

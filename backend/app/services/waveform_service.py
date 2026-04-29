@@ -10,6 +10,7 @@ import subprocess
 import struct
 import json
 import os
+import re
 
 # imageio-ffmpeg에서 ffmpeg 바이너리 경로 가져오기
 try:
@@ -17,7 +18,6 @@ try:
     FFMPEG_BIN = get_ffmpeg_exe()
 except ImportError:
     FFMPEG_BIN = "ffmpeg"
-
 
 WAVEFORM_DIR = "uploads/waveforms"
 os.makedirs(WAVEFORM_DIR, exist_ok=True)
@@ -33,7 +33,6 @@ def get_peaks_path(project_id: int) -> str:
 
 def get_video_duration_ms(filepath: str) -> int | None:
     """ffmpeg로 영상 duration 추출 (ffprobe 불필요)"""
-    import re
     try:
         result = subprocess.run(
             [FFMPEG_BIN, "-i", filepath, "-f", "null", "-"],
@@ -50,68 +49,69 @@ def get_video_duration_ms(filepath: str) -> int | None:
 
 def extract_waveform_peaks(video_path: str, project_id: int, duration_ms: int | None = None) -> str | None:
     """
-    영상에서 오디오 peaks 데이터 추출.
+    영상에서 오디오 peaks 데이터 추출 (최적화).
 
-    1) ffmpeg로 영상 → raw PCM (16bit mono, 8000Hz) 변환
-    2) PCM 데이터를 chunk 단위로 나눠서 각 chunk의 max amplitude를 peaks로 추출
-    3) JSON으로 저장
+    핵심 최적화:
+    - ffmpeg 단에서 저샘플레이트로 다운샘플 → 데이터량 줄어듦
+    - subprocess 스트리밍으로 메모리 사용 최소화 (전체 로드 X)
+    - chunk 단위 스트림 처리로 수 GB 영상도 일정 메모리로 처리
 
     Returns: peaks JSON 파일 경로. 실패 시 None.
     """
     peaks_path = get_peaks_path(project_id)
-    sample_rate = 8000  # 낮은 샘플레이트로 충분 (파형 시각화용)
+
+    # 낮은 샘플레이트: 초당 PEAKS_PER_SECOND개의 peak를 뽑으려면
+    # chunk_size = sample_rate / PEAKS_PER_SECOND 개의 샘플이 필요.
+    sample_rate = 4000
+    chunk_samples = sample_rate // PEAKS_PER_SECOND  # 400 samples per peak
+    chunk_bytes = chunk_samples * 2  # 16bit = 2 bytes per sample
 
     try:
-        # ffmpeg로 영상 → raw PCM 변환 (16bit signed little-endian, mono, 8kHz)
-        result = subprocess.run(
+        proc = subprocess.Popen(
             [
                 FFMPEG_BIN, "-y",
                 "-i", video_path,
-                "-vn",                    # 비디오 스트림 무시
-                "-ac", "1",               # 모노
-                "-ar", str(sample_rate),   # 8kHz
-                "-f", "s16le",            # raw PCM 16bit signed LE
+                "-vn",
+                "-ac", "1",
+                "-ar", str(sample_rate),
+                "-f", "s16le",
                 "-acodec", "pcm_s16le",
-                "pipe:1",                 # stdout으로 출력
+                "pipe:1",
             ],
-            capture_output=True,
-            timeout=300,  # 5분 타임아웃
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
         )
 
-        if result.returncode != 0:
-            print(f"ffmpeg failed: {result.stderr.decode()[:200]}")
-            return None
-
-        raw_data = result.stdout
-        if not raw_data:
-            return None
-
-        # PCM 데이터를 16bit signed 배열로 변환
-        sample_count = len(raw_data) // 2
-        samples = struct.unpack(f"<{sample_count}h", raw_data[:sample_count * 2])
-
-        # chunk 크기: 초당 PEAKS_PER_SECOND개의 peaks를 만들기 위한 샘플 수
-        chunk_size = sample_rate // PEAKS_PER_SECOND
-        if chunk_size < 1:
-            chunk_size = 1
-
-        # 각 chunk에서 max absolute amplitude 추출 → 0.0~1.0 정규화
         peaks = []
         max_val = 32768.0
+        total_samples = 0
 
-        for i in range(0, sample_count, chunk_size):
-            chunk = samples[i:i + chunk_size]
-            if not chunk:
+        while True:
+            data = proc.stdout.read(chunk_bytes)
+            if not data:
                 break
-            peak = max(abs(s) for s in chunk) / max_val
+
+            n_samples = len(data) // 2
+            if n_samples == 0:
+                break
+
+            total_samples += n_samples
+            samples = struct.unpack(f"<{n_samples}h", data[:n_samples * 2])
+            peak = max(abs(s) for s in samples) / max_val
             peaks.append(round(min(1.0, peak), 4))
 
-        # JSON 저장
+        proc.wait(timeout=10)
+
+        if not peaks:
+            return None
+
+        computed_duration = int(total_samples / sample_rate * 1000)
+
         peaks_data = {
             "project_id": project_id,
             "sample_rate": sample_rate,
             "peaks_per_second": PEAKS_PER_SECOND,
-            "duration_ms": duration_ms or int(len(samples) / sample_rate * 1000),
+            "duration_ms": duration_ms or computed_duration,
             "peaks": peaks,
         }
 
@@ -121,6 +121,8 @@ def extract_waveform_peaks(video_path: str, project_id: int, duration_ms: int | 
         return peaks_path
 
     except subprocess.TimeoutExpired:
+        if proc:
+            proc.kill()
         print(f"ffmpeg timeout for project {project_id}")
         return None
     except Exception as e:

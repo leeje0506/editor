@@ -1,17 +1,21 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Film, FileText, Monitor, Loader2 } from "lucide-react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { X, Film, FileText, Monitor, Loader2, Folder, ChevronRight } from "lucide-react";
 import { projectsApi } from "../../api/projects";
 import { useBroadcasterStore } from "../../store/useBroadcasterStore";
 import { useAuthStore } from "../../store/useAuthStore";
+import { useWorkspaceStore } from "../../store/useWorkspaceStore";
+import { nfcTrim } from "../../utils/normalize";
 import type { Project } from "../../types";
 
 interface Props {
   dark: boolean;
+  /** 모달 열 때 미리 선택된 워크스페이스 ID. null이면 트리 첫 노드 자동 선택 */
+  initialWorkspaceId?: number | null;
   onClose: () => void;
   onCreate: (project: Project) => void;
 }
 
-export function NewProjectModal({ dark, onClose, onCreate }: Props) {
+export function NewProjectModal({ dark, initialWorkspaceId, onClose, onCreate }: Props) {
   const [name, setName] = useState("");
   const [nameManual, setNameManual] = useState(false);
   const [broadcaster, setBroadcaster] = useState("");
@@ -24,12 +28,18 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const [error, setError] = useState("");
   const [videoDragOver, setVideoDragOver] = useState(false);
   const [subDragOver, setSubDragOver] = useState(false);
-  /** 업로드 중 안내 모달 표시 */
   const [showUploadModal, setShowUploadModal] = useState(false);
   const videoRef = useRef<HTMLInputElement>(null);
   const subRef = useRef<HTMLInputElement>(null);
   const bcStore = useBroadcasterStore();
   const user = useAuthStore((s) => s.user);
+
+  // ── 워크스페이스 ──
+  const tree = useWorkspaceStore((s) => s.tree);
+  const byId = useWorkspaceStore((s) => s.byId);
+  const fetchWorkspaces = useWorkspaceStore((s) => s.fetch);
+  const [workspaceId, setWorkspaceId] = useState<number | null>(initialWorkspaceId ?? null);
+  const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
 
   useEffect(() => {
     bcStore.fetch().then(() => {
@@ -37,21 +47,39 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
         setBroadcaster(bcStore.names[0]);
       }
     });
+    fetchWorkspaces();
   }, []);
 
-  /** 파일명에서 프로젝트명 추출 + 자동 설정 */
+  // 트리 로드 후 workspaceId 자동 선택 (initialWorkspaceId 없을 때)
+  useEffect(() => {
+    if (workspaceId === null && tree.length > 0) {
+      setWorkspaceId(tree[0].id);
+    }
+  }, [tree, workspaceId]);
+
+  // 현재 선택된 워크스페이스 브레드크럼
+  const workspacePath = useMemo(() => {
+    if (workspaceId === null || byId.size === 0) return [];
+    const path: string[] = [];
+    let cur = byId.get(workspaceId);
+    while (cur) {
+      path.push(cur.name);
+      if (cur.parent_id === null) break;
+      cur = byId.get(cur.parent_id);
+    }
+    return path.reverse();
+  }, [workspaceId, byId]);
+
   const autoSetName = useCallback((fileName: string, mode: "video" | "subtitle") => {
     if (nameManual) return;
     const withoutExt = fileName.replace(/\.[^.]+$/, "");
     const displayName = user?.display_name || user?.username || "작업자";
 
     if (mode === "subtitle") {
-      // {이름}_{접미사}.srt → {이름} 추출 (마지막 _ 앞)
       const lastUnderscore = withoutExt.lastIndexOf("_");
       const baseName = lastUnderscore > 0 ? withoutExt.slice(0, lastUnderscore) : withoutExt;
       setName(`${baseName}_${displayName}`);
     } else {
-      // 영상: 파일명 전체
       setName(`${withoutExt}_${displayName}`);
     }
   }, [nameManual, user]);
@@ -63,7 +91,6 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
 
   const handleSubtitleSelected = useCallback((file: File) => {
     setSubtitleFile(file);
-    // 영상이 아직 없을 때만 자막 파일명으로 자동 생성
     if (!videoFile) {
       autoSetName(file.name, "subtitle");
     }
@@ -79,28 +106,35 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const inpF = "focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
   const today = new Date().toISOString().split("T")[0];
 
-  /** 자막 파일 확장자로 import 타입 판별 */
   const getSubtitleImportType = (file: File): "srt" | "json" => {
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
     return ext === "json" ? "json" : "srt";
   };
 
   const handleCreate = async () => {
-    if (!name.trim()) { setError("프로젝트 명칭을 입력해주세요."); return; }
+    const cleanName = nfcTrim(name);
+    const cleanDescription = nfcTrim(description);
+
+    if (!cleanName) { setError("프로젝트 명칭을 입력해주세요."); return; }
+    if (workspaceId === null) { setError("워크스페이스를 선택해주세요."); return; }
+    if (!broadcaster) { setError("방송사를 선택해주세요."); return; }
+
     setCreating(true);
     setError("");
 
-    // 파일 업로드가 하나라도 있으면 업로드 모달 표시
     const hasFiles = !!(videoFile || subtitleFile);
     if (hasFiles) setShowUploadModal(true);
 
     try {
       setProgress("프로젝트 생성 중...");
       const project = await projectsApi.create({
-        name: name.trim(), broadcaster, description: description || undefined, deadline: deadline || undefined,
+        workspace_id: workspaceId,
+        name: cleanName,
+        broadcaster,
+        description: cleanDescription || undefined,
+        deadline: deadline || undefined,
       });
 
-      // 자막 업로드 (있을 때만)
       if (subtitleFile) {
         const importType = getSubtitleImportType(subtitleFile);
         if (importType === "json") {
@@ -112,7 +146,6 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
         }
       }
 
-      // 영상 업로드 (있을 때만)
       if (videoFile) {
         setProgress("영상 업로드 중...");
         await projectsApi.uploadVideo(project.id, videoFile);
@@ -161,10 +194,12 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
   const dropZoneActive = "border-blue-500 bg-blue-500/10";
   const dropZoneIdle = `${bd} hover:border-blue-500/50`;
 
-  /** 선택된 자막 파일의 타입 표시 */
   const subFileLabel = subtitleFile
     ? `${subtitleFile.name}${getSubtitleImportType(subtitleFile) === "json" ? " (JSON 모드)" : ""}`
     : null;
+
+  const noWorkspaces = tree.length === 0;
+  const submitDisabled = creating || noWorkspaces || workspaceId === null;
 
   return (
     <>
@@ -175,6 +210,60 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
             <button onClick={onClose} className={`${ts} hover:opacity-60`}><X size={20} /></button>
           </div>
           <div className="px-6 py-4 space-y-5">
+            {/* 워크스페이스 위치 */}
+            <div>
+              <label className={`block text-xs font-medium ${ts} mb-1.5`}>위치 <span className="text-red-500">*</span></label>
+              {noWorkspaces ? (
+                <div className={`rounded-lg p-3 text-xs ${dm ? "bg-orange-500/5 border border-orange-500/15 text-orange-400" : "bg-orange-50 border border-orange-200 text-orange-700"}`}>
+                  접근 가능한 워크스페이스가 없습니다. 관리자에게 권한을 요청해주세요.
+                </div>
+              ) : (
+                <div className={`border rounded-lg ${inp}`}>
+                  <button
+                    type="button"
+                    onClick={() => setShowWorkspacePicker((v) => !v)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 text-sm"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <Folder size={14} className={ts} />
+                      <span className="truncate">
+                        {workspacePath.length > 0 ? workspacePath.join(" › ") : "워크스페이스를 선택하세요"}
+                      </span>
+                    </span>
+                    <ChevronRight
+                      size={14}
+                      className={`shrink-0 transition-transform ${showWorkspacePicker ? "rotate-90" : ""} ${ts}`}
+                    />
+                  </button>
+                  {showWorkspacePicker && (
+                    <div className={`border-t ${bd} max-h-48 overflow-y-auto py-1`}>
+                      {tree.map((ws) => (
+                        <button
+                          key={ws.id}
+                          type="button"
+                          onClick={() => {
+                            setWorkspaceId(ws.id);
+                            setShowWorkspacePicker(false);
+                          }}
+                          style={{ paddingLeft: `${12 + (ws.depth - 1) * 16}px` }}
+                          className={`w-full text-left pr-3 py-1.5 text-sm flex items-center gap-2 ${
+                            ws.id === workspaceId
+                              ? "bg-blue-500/20 text-blue-400"
+                              : dm
+                                ? "hover:bg-gray-800"
+                                : "hover:bg-gray-100"
+                          }`}
+                        >
+                          <Folder size={12} className="shrink-0" />
+                          <span className="truncate">{ws.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* 프로젝트 명칭 */}
             <div>
               <label className={`block text-xs font-medium ${ts} mb-1.5`}>프로젝트 명칭 <span className="text-red-500">*</span></label>
@@ -189,8 +278,14 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
             {/* 방송사 */}
             <div>
               <label className={`block text-xs font-medium ${ts} mb-1.5`}>방송사 <span className="text-red-500">*</span></label>
-              <select value={broadcaster} onChange={(e) => setBroadcaster(e.target.value)} className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none ${inp} ${inpF}`}>
-                {bcStore.names.map((bc) => <option key={bc} value={bc}>{bc}</option>)}
+              <select
+                value={broadcaster}
+                onChange={(e) => setBroadcaster(e.target.value)}
+                className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none ${inp} ${inpF}`}
+              >
+                {bcStore.names.map((bc) => (
+                  <option key={bc} value={bc}>{bc}</option>
+                ))}
               </select>
               {rules && (
                 <div className={`mt-1.5 text-[11px] ${ts} ${dm ? "bg-gray-800" : "bg-gray-50"} rounded px-3 py-1.5`}>
@@ -251,7 +346,11 @@ export function NewProjectModal({ dark, onClose, onCreate }: Props) {
           </div>
           <div className={`px-6 py-4 border-t ${bd} flex items-center justify-end gap-3`}>
             <button onClick={onClose} className={`px-4 py-2 text-sm ${ts} hover:opacity-80`}>취소</button>
-            <button onClick={handleCreate} disabled={creating} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-bold flex items-center gap-2">
+            <button
+              onClick={handleCreate}
+              disabled={submitDisabled}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-bold flex items-center gap-2"
+            >
               <Monitor size={16} />{creating ? "생성 중..." : "워크스페이스 생성"}
             </button>
           </div>

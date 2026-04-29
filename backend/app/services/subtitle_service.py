@@ -118,6 +118,96 @@ def resequence_and_validate(db: Session, project_id: int) -> List[Subtitle]:
         db.refresh(sub)
     return subs
 
+def _mark_modified_if_changed(sub: Subtitle, updates: Dict) -> bool:
+    """자막에 적용할 변경값(updates)을 기존 값과 비교해 실제로 변경되는 필드가 있으면 is_modified=True.
+
+    - 비교 대상: text, start_ms, end_ms, speaker, type, speaker_pos, text_pos, speaker_deleted, text_deleted, track_type, position
+    - 비교 안 함: is_modified 자체, seq(서버가 재계산), error(서버 검증 결과), source_id 등
+    - 실제로 다른 값이 하나라도 있으면 sub의 모든 필드를 updates로 덮어쓰고 is_modified=True 세팅
+    - 다 같으면 아무것도 안 하고 False 반환
+
+    Returns: 실제 변경이 있어서 is_modified=True로 만들었으면 True
+    """
+    TRACKED = {
+        "text", "start_ms", "end_ms", "speaker", "type",
+        "speaker_pos", "text_pos", "speaker_deleted", "text_deleted",
+        "track_type", "position",
+    }
+    changed = False
+    for k, v in updates.items():
+        if k in TRACKED and getattr(sub, k, None) != v:
+            changed = True
+            break
+    # 변경 여부와 관계없이 필드는 적용 (기존 동작 유지). is_modified만 조건부.
+    for k, v in updates.items():
+        if k == "id":
+            continue
+        setattr(sub, k, v)
+    if changed:
+        sub.is_modified = True
+    return changed
+
+def update_project_progress(db: Session, project_id: int) -> int:
+    """프로젝트 진척률 기준값(progress_ms) 갱신.
+
+    progress_ms = is_modified=True 자막 중 MAX(seq) 자막의 end_ms.
+    수정된 자막이 없으면 0.
+    video_duration_ms를 초과하면 video_duration_ms로 cap.
+    """
+    last = (
+        db.query(Subtitle)
+        .filter(
+            Subtitle.project_id == project_id,
+            Subtitle.is_modified.is_(True),
+        )
+        .order_by(Subtitle.seq.desc())
+        .first()
+    )
+    project = db.query(Project).get(project_id)
+    if project is None:
+        return 0
+    raw = last.end_ms if last else 0
+    if project.video_duration_ms and project.video_duration_ms > 0:
+        raw = min(raw, project.video_duration_ms)
+    project.progress_ms = raw
+    db.commit()
+    return project.progress_ms
+
+def post_subtitle_change(db: Session, project_id: int) -> List[Subtitle]:
+    """자막 변경 API의 마지막 후처리 통합 헬퍼.
+
+    1. resequence + validate (순번 재계산 + 검수)
+    2. progress_ms 갱신 (MAX(seq) 자막의 end_ms로)
+    3. status='rejected'이면 'in_progress'로 자동 전환 (반려 → 재작업 라벨 전환)
+
+    자막 변경이 일어나는 모든 라우터의 마지막에서 호출.
+
+    Returns: 갱신된 자막 리스트 (resequence_and_validate 결과)
+    """
+    subs = resequence_and_validate(db, project_id)
+    update_project_progress(db, project_id)
+    auto_reactivate_if_rejected(db, project_id)
+    return subs
+
+def auto_reactivate_if_rejected(db: Session, project_id: int) -> bool:
+    """반려된 프로젝트를 자막 수정 시점에 자동으로 진행중으로 전환.
+
+    - status='rejected' → 'in_progress'로 변경
+    - reject_count는 그대로 유지 (UI에서 라벨이 '반려' → '재작업'으로 자연스럽게 전환됨)
+    - 그 외 status에서는 변화 없음
+
+    자막 변경 API에서 update_project_progress와 함께 호출.
+
+    Returns: 전환되었으면 True, 아니면 False
+    """
+    project = db.query(Project).get(project_id)
+    if project is None:
+        return False
+    if project.status == "rejected":
+        project.status = "in_progress"
+        db.commit()
+        return True
+    return False
 
 def save_snapshot(db: Session, project_id: int, action: str) -> None:
     subs = (
@@ -133,6 +223,7 @@ def save_snapshot(db: Session, project_id: int, action: str) -> None:
             "speaker_pos": s.speaker_pos, "text_pos": s.text_pos,
             "speaker_deleted": s.speaker_deleted, "text_deleted": s.text_deleted,
             "text": s.text,
+            "is_modified": s.is_modified,
         }
         for s in subs
     ]
@@ -160,9 +251,10 @@ def restore_snapshot(db: Session, project_id: int, snapshot: List[Dict]) -> List
             speaker_deleted=item.get("speaker_deleted", False),
             text_deleted=item.get("text_deleted", False),
             text=item["text"],
+            is_modified=item.get("is_modified", False),
         ))
     db.commit()
-    return resequence_and_validate(db, project_id)
+    return post_subtitle_change(db, project_id)
 
 
 def smart_split_text(text: str) -> Tuple[str, str]:

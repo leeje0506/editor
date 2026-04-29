@@ -1,18 +1,19 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useTimelineStore } from "../../store/useTimelineStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
+import { useBroadcasterStore } from "../../store/useBroadcasterStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { usePlayback } from "../../hooks/usePlayback";
 import { projectsApi } from "../../api/projects";
+import { isReadOnly } from "../../utils/statusLabel";
 import type { Project } from "../../types";
 import { TopNav } from "../nav/TopNav";
 import { VideoPlayer } from "../video/VideoPlayer";
 import { SubtitleGrid } from "../grid/SubtitleGrid";
-import { QuickEditor } from "../editor/QuickEditor";
 import { Timeline } from "../timeline/Timeline";
 import { SubtitleDisplayPanel } from "../video/SubtitleDisplayPanel";
 import { FindReplaceModal } from "../modals/FindReplaceModal";
@@ -24,16 +25,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL;
 type EditorMode = "srt" | "json";
 
 const DEFAULT_VIDEO_W = 960;
-const DEFAULT_EDITOR_H = 160;
 const DEFAULT_TL_H = 220;
-
-function isReadOnly(project: Project | null, isWorker: boolean): boolean {
-  if (!project) return false;
-  if (project.status === "approved") return true;
-  if (project.status === "submitted") return true;
-  if (project.status === "rejected" && !isWorker) return true;
-  return false;
-}
 
 function HResizeHandle({
   dark,
@@ -79,17 +71,13 @@ export function AppLayout() {
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [showFindReplace, setShowFindReplace] = useState(false);
+  const [downloadPending, setDownloadPending] = useState<"srt" | "json" | null>(null);
 
   const [editorMode, setEditorMode] = useState<EditorMode>("srt");
 
   const [videoWidth, setVideoWidth] = useState(() => {
     const saved = localStorage.getItem("editor_videoWidth");
     return saved ? Number(saved) : DEFAULT_VIDEO_W;
-  });
-
-  const [editorHeight, setEditorHeight] = useState(() => {
-    const saved = localStorage.getItem("editor_editorHeight");
-    return saved ? Number(saved) : DEFAULT_EDITOR_H;
   });
 
   const [timelineHeight, setTimelineHeight] = useState(() => {
@@ -102,10 +90,6 @@ export function AppLayout() {
   useEffect(() => {
     localStorage.setItem("editor_videoWidth", String(videoWidth));
   }, [videoWidth]);
-
-  useEffect(() => {
-    localStorage.setItem("editor_editorHeight", String(editorHeight));
-  }, [editorHeight]);
 
   useEffect(() => {
     localStorage.setItem("editor_timelineHeight", String(timelineHeight));
@@ -127,43 +111,45 @@ export function AppLayout() {
   const user = useAuthStore((s) => s.user);
   const isWorker = !user?.role || !["master", "manager"].includes(user.role);
   const loadSettings = useSettingsStore((s) => s.load);
+
+  // broadcaster store: 검수 룰의 진실의 원천
+  const bcRules = useBroadcasterStore((s) => s.rules);
+  const bcFetch = useBroadcasterStore((s) => s.fetch);
+
   const [videoKey, setVideoKey] = useState(0);
 
-  const readOnly = isReadOnly(project, isWorker);
+  const readOnly = project ? isReadOnly(project.status, isWorker) : false;
+
+  // 프로젝트 broadcaster 기준 최신 룰 (없으면 project 자체 값 fallback)
+  // const liveRule = useMemo(() => {
+  //   const rule = project?.broadcaster ? bcRules[project.broadcaster] : null;
+  //   return {
+  //     maxChars: rule?.max_chars_per_line ?? project?.max_chars_per_line ?? 18,
+  //     maxLines: rule?.max_lines ?? project?.max_lines ?? 2,
+  //     minDurationMs: rule?.min_duration_ms ?? (project as any)?.min_duration_ms ?? 500,
+  //     speakerMode: rule?.speaker_mode ?? project?.speaker_mode ?? "name",
+  //   };
+  // }, [project, bcRules]);
+  const liveRule = useMemo(() => {
+    const rule = project?.broadcaster ? bcRules[project.broadcaster] : null;
+    console.log("[liveRule]", {
+      broadcaster: project?.broadcaster,
+      rule,
+      allBcRules: bcRules,
+      project_max_chars: project?.max_chars_per_line,
+    });
+    return {
+      maxChars: rule?.max_chars_per_line ?? project?.max_chars_per_line ?? 18,
+      maxLines: rule?.max_lines ?? project?.max_lines ?? 2,
+      minDurationMs: rule?.min_duration_ms ?? (project as any)?.min_duration_ms ?? 500,
+      speakerMode: rule?.speaker_mode ?? project?.speaker_mode ?? "name",
+    };
+  }, [project, bcRules]);
 
   const handleVideoWidthChange = useCallback((w: number) => {
     const maxW = Math.floor(window.innerWidth * 0.7);
     setVideoWidth(Math.min(w, maxW));
   }, []);
-
-  const handleEditorTopDrag = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setDragging(true);
-
-      const startY = e.clientY;
-      const startEH = editorHeight;
-
-      const onMove = (ev: MouseEvent) => {
-        const dy = ev.clientY - startY;
-        setEditorHeight(Math.max(80, Math.min(400, startEH - dy)));
-      };
-
-      const onUp = () => {
-        setDragging(false);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-      };
-
-      document.body.style.cursor = "ns-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    },
-    [editorHeight],
-  );
 
   const handleTimelineTopDrag = useCallback(
     (e: React.MouseEvent) => {
@@ -217,7 +203,7 @@ export function AppLayout() {
 
         await init(pid);
 
-        if (p.status !== "submitted" && p.status !== "approved") {
+        if (p.status !== "submitted" && p.status !== "completed") {
           const posMs = (p as any).last_position_ms || 0;
           const selId = (p as any).last_selected_id || null;
 
@@ -246,7 +232,8 @@ export function AppLayout() {
       .catch(() => setPeaks(null));
 
     loadSettings();
-  }, [pid, init, loadSettings, navigate, setTimelineTotalMs, setTotalMs]);
+    bcFetch();  // 편집기 진입 시 broadcaster 룰 로드
+  }, [pid, init, loadSettings, bcFetch, navigate, setTimelineTotalMs, setTotalMs]);
 
   useEffect(() => {
     timerRef.current = window.setInterval(() => setElapsed((prev) => prev + 1), 1000);
@@ -368,17 +355,35 @@ export function AppLayout() {
     }
   };
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (!pid || !project) return;
+    setDownloadPending("srt");
+  };
+
+  const handleDownloadJson = () => {
+    if (!pid || !project) return;
+    setDownloadPending("json");
+  };
+
+  const executeDownload = async (suffix: string) => {
+    const type = downloadPending;
+    setDownloadPending(null);
+    if (!pid || !project || !type) return;
+
+    const endpoint = type === "json"
+      ? `/projects/${pid}/download/json`
+      : `/projects/${pid}/download/subtitle`;
 
     try {
-      const response = await api.get(`/projects/${pid}/download/subtitle`, {
+      const response = await api.get(endpoint, {
+        params: { suffix },
         responseType: "blob",
       });
 
-      const baseName = project.subtitle_file?.replace(/\.[^.]+$/, "") || project.name;
-      const worker = project.assigned_to_name || "worker";
-      const filename = `${baseName}_${worker}_final.srt`;
+      const header = response.headers["content-disposition"] || "";
+      const match = header.match(/filename\*=UTF-8''(.+)/);
+      const ext = type === "json" ? "json" : "srt";
+      const filename = match ? decodeURIComponent(match[1]) : `${project.name}_${suffix}.${ext}`;
 
       const url = URL.createObjectURL(response.data);
       const a = document.createElement("a");
@@ -393,33 +398,7 @@ export function AppLayout() {
       setTimeout(() => setSavedMsg(""), 2000);
     }
   };
-
-  const handleDownloadJson = async () => {
-    if (!pid || !project) return;
-
-    try {
-      const response = await api.get(`/projects/${pid}/download/json`, {
-        responseType: "blob",
-      });
-
-      const baseName = project.subtitle_file?.replace(/\.[^.]+$/, "") || project.name;
-      const worker = project.assigned_to_name || "worker";
-      const filename = `${baseName}_${worker}_export.json`;
-
-      const url = URL.createObjectURL(response.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      setSavedMsg("JSON 다운로드 실패");
-      setTimeout(() => setSavedMsg(""), 2000);
-    }
-  };
-
+  
   const handleSettingsClosed = async () => {
     if (!pid) return;
     try {
@@ -428,6 +407,7 @@ export function AppLayout() {
       setTotalMs(p.total_duration_ms);
       setTimelineTotalMs(p.total_duration_ms);
       setVideoKey((k) => k + 1);
+      await bcFetch();  // 방송사 룰도 다시 fetch
       await init(pid);
     } catch {}
   };
@@ -484,10 +464,10 @@ export function AppLayout() {
 
   useKeyboardShortcuts(
     handleSave,
-    project?.max_chars_per_line ?? 18,
+    liveRule.maxChars,
     () => setShowFindReplace(true),
+    liveRule.speakerMode,
   );
-  usePlayback();
 
   const dm = dark;
   const bg = dm ? "bg-gray-900" : "bg-gray-100";
@@ -547,32 +527,17 @@ export function AppLayout() {
 
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <div className={`flex-1 flex flex-col ${card} border-r ${bd} min-h-0 overflow-hidden`}>
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <SubtitleGrid
-              dark={dm}
-              readOnly={readOnly}
-              editorMode={editorMode}
-              projectId={pid}
-              maxChars={project?.max_chars_per_line ?? 18}
-              maxLines={project?.max_lines ?? 2}
-              minDurationMs={(project as any)?.min_duration_ms ?? 500}
-              onSubtitleUploaded={handleSubtitleUploaded}
-              speakerMode={project?.speaker_mode ?? "name"}
-            />
-          </div>
-
-          <HResizeHandle dark={dm} onMouseDown={handleEditorTopDrag} />
-
-          <div className="shrink-0 overflow-hidden" style={{ height: editorHeight }}>
-            <QuickEditor
-              dark={dm}
-              maxChars={project?.max_chars_per_line ?? 18}
-              maxLines={project?.max_lines ?? 2}
-              readOnly={readOnly}
-              editorMode={editorMode}
-              speakerMode={project?.speaker_mode ?? "name"}
-            />
-          </div>
+          <SubtitleGrid
+            dark={dm}
+            readOnly={readOnly}
+            editorMode={editorMode}
+            projectId={pid}
+            maxChars={liveRule.maxChars}
+            maxLines={liveRule.maxLines}
+            minDurationMs={liveRule.minDurationMs}
+            onSubtitleUploaded={handleSubtitleUploaded}
+            speakerMode={liveRule.speakerMode}
+          />
         </div>
 
         <div
@@ -602,6 +567,31 @@ export function AppLayout() {
 
       {showFindReplace && (
         <FindReplaceModal dark={dm} onClose={() => setShowFindReplace(false)} />
+      )}
+
+      {downloadPending && (
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center" onClick={() => setDownloadPending(null)}>
+          <div className={`${dm ? "bg-gray-900 text-gray-100" : "bg-white text-gray-900"} rounded-xl shadow-2xl w-72 overflow-hidden`} onClick={e => e.stopPropagation()}>
+            <div className={`px-5 py-3 border-b ${bd} flex items-center justify-between`}>
+              <span className="text-sm font-bold">다운로드 — 접미사 선택</span>
+              <span className={`text-[10px] ${dm ? "text-gray-500" : "text-gray-400"}`}>{downloadPending === "json" ? "JSON" : "SRT"}</span>
+            </div>
+            <div className="py-2">
+              {["싱크완료", "1차완료", "2차완료", "1차수정완료", "2차수정완료"].map(suffix => (
+                <button
+                  key={suffix}
+                  onClick={() => executeDownload(suffix)}
+                  className={`w-full text-left px-5 py-2.5 text-sm ${dm ? "hover:bg-gray-800" : "hover:bg-gray-100"} transition-colors`}
+                >
+                  {suffix}
+                </button>
+              ))}
+            </div>
+            <div className={`px-5 py-2.5 border-t ${bd}`}>
+              <button onClick={() => setDownloadPending(null)} className={`text-xs ${dm ? "text-gray-500" : "text-gray-400"}`}>취소</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
