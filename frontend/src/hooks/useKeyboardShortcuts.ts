@@ -2,12 +2,14 @@ import { useEffect } from "react";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useSubtitleStore } from "../store/useSubtitleStore";
 import { useSettingsStore, eventToKeyString } from "../store/useSettingsStore";
+import { calcSpeakerReserved } from "../utils/validation";
 
 /**
  * 입력 필드 포커스 중 차단할 액션들.
  */
 const BLOCK_IN_INPUT: Set<string> = new Set([
   "play_pause",
+  "play_pause_alt",
   "prev",
   "next",
   "delete",
@@ -28,7 +30,8 @@ const SPEED_CYCLE = [1.0, 1.5, 2.0];
 export function useKeyboardShortcuts(
   onSave: () => void,
   maxCharsPerLine: number = 20,
-  onReplace?: () => void
+  onReplace?: () => void,
+  speakerMode: string = "name",
 ) {
   const shortcuts = useSettingsStore((s) => s.shortcuts);
 
@@ -54,6 +57,7 @@ export function useKeyboardShortcuts(
 
       switch (actionId) {
         case "play_pause":
+        case "play_pause_alt":
           playerState.togglePlay();
           break;
 
@@ -90,13 +94,22 @@ export function useKeyboardShortcuts(
 
           const flat = sub.text.replace(/\n/g, " ").trim();
           const maxC = maxCharsPerLine;
+          // 첫 줄에는 화자 예약 글자수만큼 빠진 공간만 사용 가능
+          const speakerReserved = calcSpeakerReserved(
+            sub.speaker,
+            !!sub.speaker_deleted,
+            speakerMode,
+          );
+          const firstLineCap = Math.max(1, maxC - speakerReserved);
           const words = flat.split(/\s+/).filter(Boolean);
 
           const lines: string[] = [];
           let line = "";
 
           for (const w of words) {
-            if (line && (line + " " + w).length > maxC) {
+            // 현재 채우고 있는 줄의 한도 — 첫 줄(lines.length === 0)이면 firstLineCap, 그 외엔 maxC
+            const cap = lines.length === 0 ? firstLineCap : maxC;
+            if (line && (line + " " + w).length > cap) {
               lines.push(line);
               line = w;
             } else {
@@ -279,13 +292,13 @@ export function useKeyboardShortcuts(
           break;
         }
 
-        case "focus_text": {
-          const textarea = document.querySelector<HTMLTextAreaElement>(
-            "[data-quick-editor-textarea]"
-          );
-          textarea?.focus();
-          break;
-        }
+        // case "focus_text": {
+        //   const textarea = document.querySelector<HTMLTextAreaElement>(
+        //     "[data-quick-editor-textarea]"
+        //   );
+        //   textarea?.focus();
+        //   break;
+        // }
 
         case "save":
           onSave();
@@ -299,7 +312,7 @@ export function useKeyboardShortcuts(
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [shortcuts, onSave, maxCharsPerLine, onReplace]);
+  }, [shortcuts, onSave, maxCharsPerLine, onReplace, speakerMode]);
 }
 
 // re-export for other modules

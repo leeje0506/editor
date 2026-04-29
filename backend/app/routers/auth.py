@@ -15,6 +15,7 @@ from app.services.auth import (
     hash_password, verify_password, create_token,
     get_current_user, require_role,
 )
+from app.services.permission_service import get_direct_permissions, to_workspace_brief
 
 router = APIRouter()
 
@@ -33,6 +34,10 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(400, "비활성화된 계정입니다")
     token = create_token(user.id, user.role)
+
+    # 워크스페이스 권한 조회 (직접 부여받은 노드만, 후손 전개는 안 함)
+    perms = get_direct_permissions(db, user)
+
     return {
         "token": token,
         "user": {
@@ -40,6 +45,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             "username": user.username,
             "display_name": user.display_name,
             "role": user.role,
+            "workspace_permissions": [to_workspace_brief(p.workspace) for p in perms],
         },
     }
 
@@ -47,7 +53,9 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 # ── 내 정보 ──
 
 @router.get("/me", response_model=UserResponse)
-def get_me(current_user: User = Depends(get_current_user)):
+def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    perms = get_direct_permissions(db, current_user)
+
     return {
         "id": current_user.id,
         "username": current_user.username,
@@ -55,6 +63,7 @@ def get_me(current_user: User = Depends(get_current_user)):
         "role": current_user.role,
         "is_active": current_user.is_active,
         "created_at": _dt_str(current_user.created_at),
+        "workspace_permissions": [to_workspace_brief(p.workspace) for p in perms],
     }
 
 

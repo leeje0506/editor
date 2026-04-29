@@ -12,6 +12,7 @@ import {
   eventToKeyString,
 } from "../../store/useSettingsStore";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
+import { nfcTrim } from "../../utils/normalize";
 import type { Project } from "../../types";
 
 type Tab = "project" | "subtitle" | "shortcuts";
@@ -26,7 +27,11 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
   const { projectId } = useParams<{ projectId: string }>();
   const pid = Number(projectId);
   const initSubs = useSubtitleStore((s) => s.init);
-  const bcStore = useBroadcasterStore();
+
+  // 개별 selector로 가져와야 store 변경 시 정확히 리렌더됨
+  const bcRules = useBroadcasterStore((s) => s.rules);
+  const bcNames = useBroadcasterStore((s) => s.names);
+  const bcFetch = useBroadcasterStore((s) => s.fetch);
 
   const [tab, setTab] = useState<Tab>("project");
   const [project, setProject] = useState<Project | null>(null);
@@ -60,19 +65,34 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
   const tabActive = "border-blue-500 text-blue-500";
   const tabInactive = `border-transparent ${ts}`;
 
-  useEffect(() => { bcStore.fetch(); }, []);
+  // 모달 열릴 때 broadcaster 룰 fetch
+  useEffect(() => { bcFetch(); }, [bcFetch]);
 
+  // 프로젝트 로드
   useEffect(() => {
     if (!pid) return;
     projectsApi.get(pid).then((p) => {
       setProject(p);
       setName(p.name);
       setBroadcaster(p.broadcaster);
+      // 일단 project 자체 값으로 초기화 (broadcaster store 로드 전 fallback)
       setMaxLines(p.max_lines);
       setMaxChars(p.max_chars_per_line);
       setMinDuration(((p as any).min_duration_ms || 500) / 1000);
     });
   }, [pid]);
+
+  // broadcaster store 또는 broadcaster가 바뀌면 룰 자동 동기화 (최신 프리셋 반영)
+  useEffect(() => {
+    if (!broadcaster) return;
+    const rules = bcRules[broadcaster];
+    if (!rules) return;
+    setMaxLines(rules.max_lines);
+    setMaxChars(rules.max_chars_per_line);
+    if (rules.min_duration_ms != null) {
+      setMinDuration(rules.min_duration_ms / 1000);
+    }
+  }, [broadcaster, bcRules]);
 
   useEffect(() => {
     setPlayerFontSize(subtitleDisplay.fontSize);
@@ -83,21 +103,16 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
     setTopY(subtitleDisplay.topY);
   }, [subtitleDisplay]);
 
+  // 방송사 select 변경: state만 바꾸면 위 useEffect가 룰 동기화
   const handleBroadcasterChange = (bc: string) => {
     setBroadcaster(bc);
-    const rules = bcStore.rules[bc];
-    if (rules) {
-      setMaxLines(rules.max_lines);
-      setMaxChars(rules.max_chars_per_line);
-      if (rules.min_duration_ms) setMinDuration(rules.min_duration_ms / 1000);
-    }
   };
 
   const handleProjectSave = async () => {
     if (!pid) return;
     setSaving(true);
     try {
-      await projectsApi.update(pid, { name, broadcaster });
+      await projectsApi.update(pid, { name: nfcTrim(name), broadcaster });
       await initSubs(pid);
       onClose();  // 변경 성공 시 바로 닫기
     } catch {
@@ -185,6 +200,8 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
     return () => window.removeEventListener("keydown", handler, true);
   }, [editingAction, updateShortcut]);
 
+  const currentRule = bcRules[broadcaster];
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={onClose}>
       <div className={`${card} rounded-lg shadow-xl w-[560px] max-h-[80vh] flex flex-col ${tp}`} onClick={(e) => e.stopPropagation()}>
@@ -229,11 +246,8 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
               <div>
                 <label className={`block ${ts} mb-1`}>방송사</label>
                 <select value={broadcaster} onChange={(e) => handleBroadcasterChange(e.target.value)} className={`w-full border rounded px-2.5 py-2 ${inp}`}>
-                  {bcStore.names.map((bc) => {
-                    const r = bcStore.rules[bc];
-                    return <option key={bc} value={bc}>{bc} 
-                    {/* — {r?.max_lines}줄 / {r?.max_chars_per_line}자 */}
-                    </option>;
+                  {bcNames.map((bc) => {
+                    return <option key={bc} value={bc}>{bc}</option>;
                   })}
                 </select>
               </div>
@@ -242,10 +256,10 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 <span>줄 수: {maxLines}</span>
                 <span>글자 수: {maxChars}</span>
                 <span>최소 길이: {minDuration}초</span>
-                <span>오버랩: {bcStore.rules[broadcaster]?.allow_overlap ? "허용" : "미허용"}</span>
+                <span>오버랩: {currentRule?.allow_overlap ? "허용" : "미허용"}</span>
                 <span>화자: {
-                  bcStore.rules[broadcaster]?.speaker_mode === "hyphen" ? "하이픈(-)" :
-                  bcStore.rules[broadcaster]?.speaker_mode === "hyphen_space" ? "하이픈공백(- )" :
+                  currentRule?.speaker_mode === "hyphen" ? "하이픈(-)" :
+                  currentRule?.speaker_mode === "hyphen_space" ? "하이픈공백(- )" :
                   "이름표기"
                 }</span>
               </div>
@@ -342,7 +356,7 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                 />
               </div>
 
-              <div className={`border-t ${bd} pt-4`}>
+              {/* <div className={`border-t ${bd} pt-4`}>
                 <div className={`font-medium ${tp} text-sm mb-3`}>자막 위치</div>
 
                 <div className="mb-3">
@@ -368,7 +382,7 @@ export function ProjectSettingsModal({ dark, onClose, isAdmin }: Props) {
                     className="w-full accent-blue-500"
                   />
                 </div>
-              </div>
+              </div> */}
 
               <div className="flex gap-2 pt-2">
                 <button
