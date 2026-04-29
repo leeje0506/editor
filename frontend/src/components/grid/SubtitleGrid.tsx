@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, useCallback } from "react";
+import { useRef, useEffect, useMemo, useState, useCallback, memo } from "react";
 import { createPortal } from "react-dom";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
@@ -133,19 +133,14 @@ function DropCell({
   );
 }
 
-/* ── 인라인 단일행 텍스트 입력 (화자명) ──
-   - 타이핑 중: 부모(store)에 raw 값을 흘려보냄 — IME composition 중엔 차단
-   - composition 끝: 직전 입력 한 번 더 흘려보냄
-   - commit (blur / Enter / Shift+Enter): NFC 정규화 후 onCommit
-   - cancel (Esc): onCancel만 호출, 부모에 raw 흘렸던 값 복원은 부모가 처리
-*/
+/* ── 인라인 단일행 텍스트 입력 (화자) ── */
 interface InlineTextInputProps {
-  value: string;                        // 시작 시 텍스트 (이후엔 동기화 안 됨)
+  value: string;
   dark: boolean;
   fontSize: number;
-  onLiveChange?: (raw: string) => void; // 타이핑 중 raw 값 (IME 안전)
-  onCommit: (v: string) => void;        // 종료 + 저장 (NFC 적용됨)
-  onCancel: () => void;                 // 취소 (Esc / 같은 값)
+  onLiveChange?: (raw: string) => void;
+  onCommit: (v: string) => void;
+  onCancel: () => void;
 }
 
 function InlineTextInput({
@@ -174,13 +169,11 @@ function InlineTextInput({
       onChange={(e) => {
         const v = e.target.value;
         setDraft(v);
-        // IME composition 중이 아닐 때만 부모에 흘려보냄 (자소 분리 방지)
         if (!composingRef.current) onLiveChange?.(v);
       }}
       onCompositionStart={() => { composingRef.current = true; }}
       onCompositionEnd={(e) => {
         composingRef.current = false;
-        // 조합 끝난 직후 한 번 흘려보냄
         onLiveChange?.((e.target as HTMLInputElement).value);
       }}
       onClick={(e) => e.stopPropagation()}
@@ -200,7 +193,6 @@ function InlineTextInput({
           return;
         }
         if (e.key === "Enter") {
-          // 화자는 한 줄 입력 — Enter도 종료로 처리
           e.preventDefault();
           e.stopPropagation();
           const cleaned = nfc(draft);
@@ -222,12 +214,7 @@ function InlineTextInput({
   );
 }
 
-/* ── 인라인 텍스트 셀 (대사) ──
-   - 타이핑 중: 부모(store)에 raw 값을 흘려보냄 — IME composition 중엔 차단
-   - composition 끝: 직전 입력 한 번 더 흘려보냄
-   - commit (blur / Shift+Enter): NFC 정규화 후 onChange
-   - cancel (Esc): 원본 텍스트로 복원
-*/
+/* ── 인라인 텍스트 셀 (대사) ── */
 interface EditableTextCellProps {
   text: string;
   isEditing: boolean;
@@ -235,8 +222,8 @@ interface EditableTextCellProps {
   disabled?: boolean;
   fontSize: number;
   className?: string;
-  onLiveChange?: (raw: string) => void; // 타이핑 중 raw 값 (IME 안전)
-  onChange: (text: string) => void;      // 종료 + 저장 (NFC 적용됨)
+  onLiveChange?: (raw: string) => void;
+  onChange: (text: string) => void;
   onCellClick: () => void;
   onRequestEdit: () => void;
   onExitEdit: () => void;
@@ -249,7 +236,6 @@ function EditableTextCell({
   const [value, setValue] = useState(text);
   const composingRef = useRef(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  // 편집 진입 시점의 원본 텍스트 (Esc 취소용)
   const originalRef = useRef<string>(text);
 
   useEffect(() => {
@@ -319,7 +305,6 @@ function EditableTextCell({
         onChange={(e) => {
           const v = e.target.value;
           setValue(v);
-          // IME composition 중이 아닐 때만 부모에 흘려보냄
           if (!composingRef.current) onLiveChange?.(v);
         }}
         onCompositionStart={() => { composingRef.current = true; }}
@@ -344,7 +329,6 @@ function EditableTextCell({
           if (e.key === "Escape") {
             e.preventDefault();
             e.stopPropagation();
-            // 원본으로 복원 + 부모에도 알림
             setValue(originalRef.current);
             onLiveChange?.(originalRef.current);
             onExitEdit();
@@ -359,6 +343,213 @@ function EditableTextCell({
     </div>
   );
 }
+
+/* ── 자막 행 ── */
+interface SubtitleRowProps {
+  sub: Subtitle;
+  /** 편집 중 raw 텍스트 (편집 중일 때만 전달, 아니면 undefined) */
+  draftText?: string;
+  /** 편집 중 raw 화자 (편집 중일 때만 전달, 아니면 undefined) */
+  draftSpeaker?: string;
+  isSel: boolean;
+  isMulti: boolean;
+  overlap: { startErr: boolean; endErr: boolean } | undefined;
+  isEditingThis: boolean;
+  isEditingSpeakerThis: boolean;
+  speakerOptions: { v: string; label: string }[];
+  maxChars: number;
+  maxLines: number;
+  minDurationMs: number;
+  speakerMode: string;
+  dark: boolean;
+  readOnly: boolean;
+  fontSize: number;
+  cellCls: string;
+  cellStyle: React.CSSProperties;
+  errCellBg: string;
+  rowBgClasses: { sr: string; mr: string; hr: string; tp: string };
+  onClickRow: (id: number, e: React.MouseEvent) => void;
+  onDblClickRow: (id: number) => void;
+  onContextMenuRow: (e: React.MouseEvent, id: number) => void;
+  triggerSelect: (id: number) => void;
+  updateAndFlush: (id: number, data: Partial<Subtitle>) => void;
+  onLiveText: (id: number, raw: string) => void;
+  onLiveSpeaker: (id: number, raw: string) => void;
+  setEditingId: (id: number | null) => void;
+  setEditingSpeakerId: (id: number | null) => void;
+}
+
+const SubtitleRow = memo(function SubtitleRow({
+  sub, draftText, draftSpeaker,
+  isSel, isMulti, overlap,
+  isEditingThis, isEditingSpeakerThis, speakerOptions,
+  maxChars, maxLines, minDurationMs, speakerMode,
+  dark, readOnly, fontSize, cellCls, cellStyle, errCellBg, rowBgClasses,
+  onClickRow, onDblClickRow, onContextMenuRow,
+  triggerSelect, updateAndFlush,
+  onLiveText, onLiveSpeaker,
+  setEditingId, setEditingSpeakerId,
+}: SubtitleRowProps) {
+  const dm = dark;
+  const { sr, mr, hr, tp } = rowBgClasses;
+  const duration = sub.end_ms - sub.start_ms;
+
+  // 편집 중이면 draft 우선, 아니면 store 값
+  const effectiveText = draftText !== undefined ? draftText : sub.text;
+  const effectiveSpeaker = draftSpeaker !== undefined ? draftSpeaker : sub.speaker;
+
+  const localErrors = useMemo(() => {
+    const errs = new Set(validateSubtitleLocal(
+      effectiveText, effectiveSpeaker, !!sub.speaker_deleted,
+      sub.start_ms, sub.end_ms,
+      maxChars, maxLines, minDurationMs, speakerMode,
+    ));
+    if (sub.error?.includes("오버랩")) errs.add("오버랩");
+    return errs;
+  }, [
+    effectiveText, effectiveSpeaker, sub.speaker_deleted,
+    sub.start_ms, sub.end_ms, sub.error,
+    maxChars, maxLines, minDurationMs, speakerMode,
+  ]);
+
+  const rowBg = isSel ? sr : isMulti ? mr : "";
+  const startCellBg = overlap?.startErr ? errCellBg : "";
+  const endCellBg = overlap?.endErr ? errCellBg : "";
+  const durCellBg = localErrors.has("최소길이") ? errCellBg : "";
+  const textCellBg = localErrors.has("글자초과") ? errCellBg : "";
+
+  const spkDeleted = !!sub.speaker_deleted;
+  const txtDeleted = !!sub.text_deleted;
+  const isTop = sub.speaker_pos === "top" || sub.text_pos === "top";
+
+  return (
+    <tr
+      id={`row-${sub.id}`}
+      onClick={(e) => onClickRow(sub.id, e)}
+      onDoubleClick={() => onDblClickRow(sub.id)}
+      onContextMenu={(e) => onContextMenuRow(e, sub.id)}
+      className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
+    >
+      <td className={`${cellCls} relative`} style={cellStyle}>
+        {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
+        {sub.seq}
+      </td>
+      <td className={`${cellCls} font-mono ${tp} ${startCellBg}`} style={cellStyle}>
+        {msToTimecode(sub.start_ms)}
+      </td>
+      <td className={`${cellCls} font-mono ${tp} ${endCellBg}`} style={cellStyle}>
+        {msToTimecode(sub.end_ms)}
+      </td>
+      <td className={`${cellCls} font-mono ${tp} ${durCellBg}`} style={cellStyle}>
+        {msToDuration(duration)}
+      </td>
+      <td className={`${cellCls}`} style={cellStyle}>
+        <DropCell
+          dark={dm} disabled={readOnly} fontSize={fontSize}
+          value={sub.type}
+          label={sub.type === "effect" ? "효과" : "대사"}
+          options={[{ v: "dialogue", label: "대사" }, { v: "effect", label: "효과" }]}
+          onSelect={(v) => updateAndFlush(sub.id, { type: v as "dialogue" | "effect" })}
+          onCellClick={() => triggerSelect(sub.id)}
+        />
+      </td>
+      {/* 화자 */}
+      <td
+        className={`py-2 px-2 ${tp}`}
+        style={{ textAlign: "center", wordBreak: "break-word", whiteSpace: "normal" }}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        {isEditingSpeakerThis ? (
+          <InlineTextInput
+            value={sub.speaker}
+            dark={dm}
+            fontSize={fontSize}
+            onLiveChange={(raw) => onLiveSpeaker(sub.id, raw)}
+            onCommit={(v) => {
+              updateAndFlush(sub.id, { speaker: v });
+              setEditingSpeakerId(null);
+            }}
+            onCancel={() => setEditingSpeakerId(null)}
+          />
+        ) : (
+          <DropCell
+            dark={dm} disabled={readOnly} fontSize={fontSize}
+            value={sub.speaker}
+            label={sub.speaker || "(없음)"}
+            options={speakerOptions}
+            onSelect={(v) => updateAndFlush(sub.id, { speaker: v })}
+            onCellClick={() => triggerSelect(sub.id)}
+            onRequestEdit={() => {
+              if (readOnly) return;
+              triggerSelect(sub.id);
+              setEditingSpeakerId(sub.id);
+            }}
+          />
+        )}
+      </td>
+      <td className={`${cellCls}`} style={cellStyle}>
+        <DropCell
+          dark={dm} disabled={readOnly} fontSize={fontSize}
+          value={spkDeleted ? "true" : "false"}
+          label={spkDeleted ? "삭제" : "유지"}
+          colorCls={spkDeleted ? "text-red-500" : ""}
+          options={[{ v: "false", label: "유지" }, { v: "true", label: "삭제" }]}
+          onSelect={(v) => updateAndFlush(sub.id, { speaker_deleted: v === "true" })}
+          onCellClick={() => triggerSelect(sub.id)}
+        />
+      </td>
+      {/* 대사 */}
+      <td
+        className={`py-2 px-3 ${tp} ${textCellBg}`}
+        style={{ textAlign: "left", verticalAlign: "top" }}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        <EditableTextCell
+          text={sub.text}
+          isEditing={isEditingThis}
+          dark={dm}
+          disabled={readOnly}
+          fontSize={fontSize}
+          className="leading-snug"
+          onLiveChange={(raw) => onLiveText(sub.id, raw)}
+          onChange={(v) => updateAndFlush(sub.id, { text: v })}
+          onCellClick={() => triggerSelect(sub.id)}
+          onRequestEdit={() => {
+            if (readOnly) return;
+            triggerSelect(sub.id);
+            setEditingId(sub.id);
+          }}
+          onExitEdit={() => setEditingId(null)}
+        />
+      </td>
+      <td className={`${cellCls}`} style={cellStyle}>
+        <DropCell
+          dark={dm} disabled={readOnly} fontSize={fontSize}
+          value={txtDeleted ? "true" : "false"}
+          label={txtDeleted ? "삭제" : "유지"}
+          colorCls={txtDeleted ? "text-red-500" : ""}
+          options={[{ v: "false", label: "유지" }, { v: "true", label: "삭제" }]}
+          onSelect={(v) => updateAndFlush(sub.id, { text_deleted: v === "true" })}
+          onCellClick={() => triggerSelect(sub.id)}
+        />
+      </td>
+      <td className={`${cellCls}`} style={cellStyle}>
+        <DropCell
+          dark={dm} disabled={readOnly} fontSize={fontSize}
+          value={isTop ? "top" : "default"}
+          label={isTop ? "상단" : "하단"}
+          colorCls={isTop ? "text-blue-500" : ""}
+          options={[{ v: "default", label: "하단" }, { v: "top", label: "상단" }]}
+          onSelect={(v) => {
+            const pos = v as "default" | "top";
+            updateAndFlush(sub.id, { speaker_pos: pos, text_pos: pos });
+          }}
+          onCellClick={() => triggerSelect(sub.id)}
+        />
+      </td>
+    </tr>
+  );
+});
 
 /* ── SubtitleGrid ── */
 export function SubtitleGrid({
@@ -385,6 +576,9 @@ export function SubtitleGrid({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingSpeakerId, setEditingSpeakerId] = useState<number | null>(null);
 
+  /** 편집 중 raw 값 (store 안 건드림). id 단위로 관리. */
+  const [draft, setDraft] = useState<{ id: number; text?: string; speaker?: string } | null>(null);
+
   const subtitles = useSubtitleStore((s) => s.subtitles);
   const selectedId = useSubtitleStore((s) => s.selectedId);
   const multiSelect = useSubtitleStore((s) => s.multiSelect);
@@ -394,15 +588,6 @@ export function SubtitleGrid({
   const updateLocal = useSubtitleStore((s) => s.updateLocal);
   const flushDirty = useSubtitleStore((s) => s.flushDirty);
 
-  /** 타이핑 중 store만 갱신 (서버 저장 X). NFC도 안 함 — IME 안전. */
-  const updateLocalRaw = useCallback(
-    (id: number, data: Partial<Subtitle>) => {
-      updateLocal(id, data);
-    },
-    [updateLocal],
-  );
-
-  /** 종료 시 NFC 적용 + 서버 저장. */
   const updateAndFlush = useCallback(
     (id: number, data: Partial<Subtitle>) => {
       const normalized: Partial<Subtitle> = { ...data };
@@ -410,9 +595,33 @@ export function SubtitleGrid({
       if (typeof normalized.speaker === "string") normalized.speaker = nfc(normalized.speaker);
       updateLocal(id, normalized);
       void flushDirty();
+      // commit이 일어났으면 해당 필드의 draft는 클리어
+      setDraft((prev) => {
+        if (!prev || prev.id !== id) return prev;
+        const next = { ...prev };
+        if ("text" in normalized) delete next.text;
+        if ("speaker" in normalized) delete next.speaker;
+        if (next.text === undefined && next.speaker === undefined) return null;
+        return next;
+      });
     },
     [updateLocal, flushDirty],
   );
+
+  /** 타이핑 중 — 로컬 draft만 갱신, store 안 건드림 */
+  const onLiveText = useCallback((id: number, raw: string) => {
+    setDraft((prev) => {
+      if (prev && prev.id === id) return { ...prev, text: raw };
+      return { id, text: raw };
+    });
+  }, []);
+
+  const onLiveSpeaker = useCallback((id: number, raw: string) => {
+    setDraft((prev) => {
+      if (prev && prev.id === id) return { ...prev, speaker: raw };
+      return { id, speaker: raw };
+    });
+  }, []);
 
   const playing = usePlayerStore((s) => s.playing);
   const setVideoPreviewMs = usePlayerStore((s) => s.setVideoPreviewMs);
@@ -430,6 +639,8 @@ export function SubtitleGrid({
   const sr = dm ? "bg-blue-900/25" : "bg-blue-100";
   const mr = dm ? "bg-blue-900/10" : "bg-blue-50";
   const errCellBg = dm ? "bg-orange-900/50" : "bg-orange-100";
+
+  const rowBgClasses = useMemo(() => ({ sr, mr, hr, tp }), [sr, mr, hr, tp]);
 
   const speakerOptions = useMemo(() => {
     const names = [...new Set(subtitles.map((s) => s.speaker).filter(Boolean))].sort();
@@ -498,7 +709,7 @@ export function SubtitleGrid({
     }
   }, [selectedId]);
 
-  // ── 편집 진입 단축키 (focus_text) ──
+  // 편집 진입 단축키 (focus_text)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (readOnly) return;
@@ -531,37 +742,56 @@ export function SubtitleGrid({
     return () => window.removeEventListener("keydown", handler);
   }, [selectedId, editingId, editingSpeakerId, readOnly, focusTextKey]);
 
+  // 선택 변경 시 편집 종료 + draft 클리어
   useEffect(() => {
-    if (editingId != null && editingId !== selectedId) setEditingId(null);
-    if (editingSpeakerId != null && editingSpeakerId !== selectedId) setEditingSpeakerId(null);
+    if (editingId != null && editingId !== selectedId) {
+      setEditingId(null);
+    }
+    if (editingSpeakerId != null && editingSpeakerId !== selectedId) {
+      setEditingSpeakerId(null);
+    }
+    // 편집 중이 아닌 자막의 draft는 정리
+    setDraft((prev) => {
+      if (!prev) return prev;
+      if (prev.id !== selectedId) return null;
+      return prev;
+    });
   }, [selectedId, editingId, editingSpeakerId]);
 
-  const handleClick = (id: number, e: React.MouseEvent) => {
+  // 편집 모드 종료 시 draft 클리어 (commit 안 된 잔여 정리)
+  useEffect(() => {
+    if (editingId == null && editingSpeakerId == null) {
+      setDraft((prev) => (prev ? null : prev));
+    }
+  }, [editingId, editingSpeakerId]);
+
+  const handleClickRow = useCallback((id: number, e: React.MouseEvent) => {
     if (playing) return;
     if (e.shiftKey) selectRange(id);
     else if (e.ctrlKey || e.metaKey) toggleMulti(id);
     else selectSingle(id);
-    const sub = subtitles.find((s) => s.id === id);
+    const sub = useSubtitleStore.getState().subtitles.find((s) => s.id === id);
     if (sub) setVideoPreviewMs(sub.start_ms);
-  };
+  }, [playing, selectRange, toggleMulti, selectSingle, setVideoPreviewMs]);
 
-  const handleDblClick = (id: number) => {
+  const handleDblClickRow = useCallback((id: number) => {
     if (playing) return;
     selectSingle(id);
-    const sub = subtitles.find((s) => s.id === id);
+    const sub = useSubtitleStore.getState().subtitles.find((s) => s.id === id);
     if (sub) {
       usePlayerStore.getState().seekTo(sub.start_ms);
       ensureVisible(sub.start_ms);
       const { playing: isPlaying, togglePlay } = usePlayerStore.getState();
       if (!isPlaying) togglePlay();
     }
-  };
+  }, [playing, selectSingle, ensureVisible]);
 
-  const handleContextMenu = (e: React.MouseEvent, id: number) => {
+  const handleContextMenuRow = useCallback((e: React.MouseEvent, id: number) => {
     e.preventDefault();
-    if (!multiSelect.has(id)) selectSingle(id);
+    const ms = useSubtitleStore.getState().multiSelect;
+    if (!ms.has(id)) selectSingle(id);
     setContextMenu({ x: e.clientX, y: e.clientY });
-  };
+  }, [selectSingle]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -573,13 +803,14 @@ export function SubtitleGrid({
   const triggerSelect = useCallback(
     (subId: number) => {
       if (playing) return;
-      if (selectedId !== subId) {
+      const cur = useSubtitleStore.getState().selectedId;
+      if (cur !== subId) {
         selectSingle(subId);
-        const sub = subtitles.find((s) => s.id === subId);
+        const sub = useSubtitleStore.getState().subtitles.find((s) => s.id === subId);
         if (sub) setVideoPreviewMs(sub.start_ms);
       }
     },
-    [playing, selectedId, selectSingle, subtitles, setVideoPreviewMs],
+    [playing, selectSingle, setVideoPreviewMs],
   );
 
   const handleSubtitleFileUpload = useCallback(
@@ -662,7 +893,7 @@ export function SubtitleGrid({
     pos: "5%",
   };
   const cellCls = "py-2 overflow-hidden text-ellipsis whitespace-nowrap";
-  const cellStyle: React.CSSProperties = { textAlign: "center" };
+  const cellStyle: React.CSSProperties = useMemo(() => ({ textAlign: "center" }), []);
 
   const colGroup = (
     <colgroup>
@@ -701,14 +932,19 @@ export function SubtitleGrid({
     [subtitles, selectedId],
   );
 
+  // footer는 selectedSub + draft 기준 (편집 중인 자막이면 draft 우선)
   const footerInfo = useMemo(() => {
     if (!selectedSub) return null;
+    const isDraftForThis = draft && draft.id === selectedSub.id;
+    const effText = isDraftForThis && draft.text !== undefined ? draft.text : selectedSub.text;
+    const effSpeaker = isDraftForThis && draft.speaker !== undefined ? draft.speaker : selectedSub.speaker;
+
     const speakerReserved = calcSpeakerReserved(
-      selectedSub.speaker,
+      effSpeaker,
       !!selectedSub.speaker_deleted,
       speakerMode,
     );
-    const lines = selectedSub.text.split("\n");
+    const lines = effText.split("\n");
     const lineChars = lines.map((line) => countTextChars(line));
     const totalChars = lineChars.reduce((a, b) => a + b, 0);
     const totalWithSpeaker = totalChars + speakerReserved;
@@ -719,7 +955,7 @@ export function SubtitleGrid({
       lineChars, speakerReserved, totalWithSpeaker, limit, isOver,
       maxChars, errors: selectedSub.error,
     };
-  }, [selectedSub, speakerMode, maxChars]);
+  }, [selectedSub, draft, speakerMode, maxChars]);
 
   return (
     <div className={`h-full flex flex-col overflow-hidden border-b ${bd}`}>
@@ -806,156 +1042,40 @@ export function SubtitleGrid({
                 {filtered.map((sub) => {
                   const isSel = selectedId === sub.id;
                   const isMulti = multiSelect.has(sub.id) && !isSel;
-                  const duration = sub.end_ms - sub.start_ms;
-
-                  const localErrors = new Set(validateSubtitleLocal(
-                    sub.text, sub.speaker, !!sub.speaker_deleted,
-                    sub.start_ms, sub.end_ms,
-                    maxChars, maxLines, minDurationMs, speakerMode,
-                  ));
-                  if (sub.error?.includes("오버랩")) localErrors.add("오버랩");
-
-                  const overlap = overlapCellMap.get(sub.id);
-                  const rowBg = isSel ? sr : isMulti ? mr : "";
-                  const startCellBg = overlap?.startErr ? errCellBg : "";
-                  const endCellBg = overlap?.endErr ? errCellBg : "";
-                  const durCellBg = localErrors.has("최소길이") ? errCellBg : "";
-                  const textCellBg = localErrors.has("글자초과") ? errCellBg : "";
-
-                  const spkDeleted = !!sub.speaker_deleted;
-                  const txtDeleted = !!sub.text_deleted;
-                  const isTop = sub.speaker_pos === "top" || sub.text_pos === "top";
-
-                  const isEditingThis = editingId === sub.id;
-                  const isEditingSpeakerThis = editingSpeakerId === sub.id;
-
+                  const isDraftForThis = draft && draft.id === sub.id;
                   return (
-                    <tr
+                    <SubtitleRow
                       key={sub.id}
-                      id={`row-${sub.id}`}
-                      onClick={(e) => handleClick(sub.id, e)}
-                      onDoubleClick={() => handleDblClick(sub.id)}
-                      onContextMenu={(e) => handleContextMenu(e, sub.id)}
-                      className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
-                    >
-                      <td className={`${cellCls} relative`} style={cellStyle}>
-                        {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
-                        {sub.seq}
-                      </td>
-                      <td className={`${cellCls} font-mono ${tp} ${startCellBg}`} style={cellStyle}>
-                        {msToTimecode(sub.start_ms)}
-                      </td>
-                      <td className={`${cellCls} font-mono ${tp} ${endCellBg}`} style={cellStyle}>
-                        {msToTimecode(sub.end_ms)}
-                      </td>
-                      <td className={`${cellCls} font-mono ${tp} ${durCellBg}`} style={cellStyle}>
-                        {msToDuration(duration)}
-                      </td>
-                      <td className={`${cellCls}`} style={cellStyle}>
-                        <DropCell
-                          dark={dm} disabled={readOnly} fontSize={listFontSize}
-                          value={sub.type}
-                          label={sub.type === "effect" ? "효과" : "대사"}
-                          options={[{ v: "dialogue", label: "대사" }, { v: "effect", label: "효과" }]}
-                          onSelect={(v) => updateAndFlush(sub.id, { type: v as "dialogue" | "effect" })}
-                          onCellClick={() => triggerSelect(sub.id)}
-                        />
-                      </td>
-                      {/* 화자 */}
-                      <td
-                        className={`py-2 px-2 ${tp}`}
-                        style={{ textAlign: "center", wordBreak: "break-word", whiteSpace: "normal" }}
-                        onDoubleClick={(e) => e.stopPropagation()}
-                      >
-                        {isEditingSpeakerThis ? (
-                          <InlineTextInput
-                            value={sub.speaker}
-                            dark={dm}
-                            fontSize={listFontSize}
-                            onLiveChange={(raw) => updateLocalRaw(sub.id, { speaker: raw })}
-                            onCommit={(v) => {
-                              updateAndFlush(sub.id, { speaker: v });
-                              setEditingSpeakerId(null);
-                            }}
-                            onCancel={() => setEditingSpeakerId(null)}
-                          />
-                        ) : (
-                          <DropCell
-                            dark={dm} disabled={readOnly} fontSize={listFontSize}
-                            value={sub.speaker}
-                            label={sub.speaker || "(없음)"}
-                            options={speakerOptions}
-                            onSelect={(v) => updateAndFlush(sub.id, { speaker: v })}
-                            onCellClick={() => triggerSelect(sub.id)}
-                            onRequestEdit={() => {
-                              if (readOnly) return;
-                              triggerSelect(sub.id);
-                              setEditingSpeakerId(sub.id);
-                            }}
-                          />
-                        )}
-                      </td>
-                      <td className={`${cellCls}`} style={cellStyle}>
-                        <DropCell
-                          dark={dm} disabled={readOnly} fontSize={listFontSize}
-                          value={spkDeleted ? "true" : "false"}
-                          label={spkDeleted ? "삭제" : "유지"}
-                          colorCls={spkDeleted ? "text-red-500" : ""}
-                          options={[{ v: "false", label: "유지" }, { v: "true", label: "삭제" }]}
-                          onSelect={(v) => updateAndFlush(sub.id, { speaker_deleted: v === "true" })}
-                          onCellClick={() => triggerSelect(sub.id)}
-                        />
-                      </td>
-                      {/* 대사 */}
-                      <td
-                        className={`py-2 px-3 ${tp} ${textCellBg}`}
-                        style={{ textAlign: "left", verticalAlign: "top" }}
-                        onDoubleClick={(e) => e.stopPropagation()}
-                      >
-                        <EditableTextCell
-                          text={sub.text}
-                          isEditing={isEditingThis}
-                          dark={dm}
-                          disabled={readOnly}
-                          fontSize={listFontSize}
-                          className="leading-snug"
-                          onLiveChange={(raw) => updateLocalRaw(sub.id, { text: raw })}
-                          onChange={(v) => updateAndFlush(sub.id, { text: v })}
-                          onCellClick={() => triggerSelect(sub.id)}
-                          onRequestEdit={() => {
-                            if (readOnly) return;
-                            triggerSelect(sub.id);
-                            setEditingId(sub.id);
-                          }}
-                          onExitEdit={() => setEditingId(null)}
-                        />
-                      </td>
-                      <td className={`${cellCls}`} style={cellStyle}>
-                        <DropCell
-                          dark={dm} disabled={readOnly} fontSize={listFontSize}
-                          value={txtDeleted ? "true" : "false"}
-                          label={txtDeleted ? "삭제" : "유지"}
-                          colorCls={txtDeleted ? "text-red-500" : ""}
-                          options={[{ v: "false", label: "유지" }, { v: "true", label: "삭제" }]}
-                          onSelect={(v) => updateAndFlush(sub.id, { text_deleted: v === "true" })}
-                          onCellClick={() => triggerSelect(sub.id)}
-                        />
-                      </td>
-                      <td className={`${cellCls}`} style={cellStyle}>
-                        <DropCell
-                          dark={dm} disabled={readOnly} fontSize={listFontSize}
-                          value={isTop ? "top" : "default"}
-                          label={isTop ? "상단" : "하단"}
-                          colorCls={isTop ? "text-blue-500" : ""}
-                          options={[{ v: "default", label: "하단" }, { v: "top", label: "상단" }]}
-                          onSelect={(v) => {
-                            const pos = v as "default" | "top";
-                            updateAndFlush(sub.id, { speaker_pos: pos, text_pos: pos });
-                          }}
-                          onCellClick={() => triggerSelect(sub.id)}
-                        />
-                      </td>
-                    </tr>
+                      sub={sub}
+                      draftText={isDraftForThis ? draft.text : undefined}
+                      draftSpeaker={isDraftForThis ? draft.speaker : undefined}
+                      isSel={isSel}
+                      isMulti={isMulti}
+                      overlap={overlapCellMap.get(sub.id)}
+                      isEditingThis={editingId === sub.id}
+                      isEditingSpeakerThis={editingSpeakerId === sub.id}
+                      speakerOptions={speakerOptions}
+                      maxChars={maxChars}
+                      maxLines={maxLines}
+                      minDurationMs={minDurationMs}
+                      speakerMode={speakerMode}
+                      dark={dm}
+                      readOnly={!!readOnly}
+                      fontSize={listFontSize}
+                      cellCls={cellCls}
+                      cellStyle={cellStyle}
+                      errCellBg={errCellBg}
+                      rowBgClasses={rowBgClasses}
+                      onClickRow={handleClickRow}
+                      onDblClickRow={handleDblClickRow}
+                      onContextMenuRow={handleContextMenuRow}
+                      triggerSelect={triggerSelect}
+                      updateAndFlush={updateAndFlush}
+                      onLiveText={onLiveText}
+                      onLiveSpeaker={onLiveSpeaker}
+                      setEditingId={setEditingId}
+                      setEditingSpeakerId={setEditingSpeakerId}
+                    />
                   );
                 })}
               </tbody>
