@@ -1,5 +1,6 @@
 import { useRef, useEffect, useMemo, useState, useCallback, memo } from "react";
 import { createPortal } from "react-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSubtitleStore } from "../../store/useSubtitleStore";
 import { usePlayerStore } from "../../store/usePlayerStore";
 import { useTimelineStore } from "../../store/useTimelineStore";
@@ -32,6 +33,9 @@ interface Props {
 function msToDuration(ms: number): string {
   return (ms / 1000).toFixed(3);
 }
+
+/* ── 컬럼 너비 (table colgroup에서 옮겨옴, grid-template-columns로 사용) ── */
+const GRID_TEMPLATE_COLUMNS = "3% 9% 9% 5% 5% 8% 5% 1fr 5% 5%";
 
 /* ── 엑셀 스타일 드롭다운 셀 ── */
 interface DropCellProps {
@@ -425,28 +429,36 @@ const SubtitleRow = memo(function SubtitleRow({
   const txtDeleted = !!sub.text_deleted;
   const isTop = sub.speaker_pos === "top" || sub.text_pos === "top";
 
+  // div 그리드: 셀 컨테이너의 기본 정렬은 center (대사 셀만 top)
+  const cellBase = `${cellCls} flex items-center justify-center`;
+
   return (
-    <tr
+    <div
       id={`row-${sub.id}`}
       onClick={(e) => onClickRow(sub.id, e)}
       onDoubleClick={() => onDblClickRow(sub.id)}
       onContextMenu={(e) => onContextMenuRow(e, sub.id)}
-      className={`cursor-pointer transition-colors ${rowBg} ${hr}`}
+      className={`cursor-pointer transition-colors ${rowBg} ${hr} ${dm ? "border-b border-gray-600" : "border-b border-gray-200"}`}
+      style={{
+        display: "grid",
+        gridTemplateColumns: GRID_TEMPLATE_COLUMNS,
+        minHeight: "100%",
+      }}
     >
-      <td className={`${cellCls} relative`} style={cellStyle}>
+      <div className={`${cellBase} relative`} style={cellStyle}>
         {isSel && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />}
         {sub.seq}
-      </td>
-      <td className={`${cellCls} font-mono ${tp} ${startCellBg}`} style={cellStyle}>
+      </div>
+      <div className={`${cellBase} font-mono ${tp} ${startCellBg}`} style={cellStyle}>
         {msToTimecode(sub.start_ms)}
-      </td>
-      <td className={`${cellCls} font-mono ${tp} ${endCellBg}`} style={cellStyle}>
+      </div>
+      <div className={`${cellBase} font-mono ${tp} ${endCellBg}`} style={cellStyle}>
         {msToTimecode(sub.end_ms)}
-      </td>
-      <td className={`${cellCls} font-mono ${tp} ${durCellBg}`} style={cellStyle}>
+      </div>
+      <div className={`${cellBase} font-mono ${tp} ${durCellBg}`} style={cellStyle}>
         {msToDuration(duration)}
-      </td>
-      <td className={`${cellCls}`} style={cellStyle}>
+      </div>
+      <div className={`${cellBase}`} style={cellStyle}>
         <DropCell
           dark={dm} disabled={readOnly} fontSize={fontSize}
           value={sub.type}
@@ -455,42 +467,44 @@ const SubtitleRow = memo(function SubtitleRow({
           onSelect={(v) => updateAndFlush(sub.id, { type: v as "dialogue" | "effect" })}
           onCellClick={() => triggerSelect(sub.id)}
         />
-      </td>
+      </div>
       {/* 화자 */}
-      <td
-        className={`py-2 px-2 ${tp}`}
+      <div
+        className={`py-2 px-2 ${tp} flex items-center justify-center`}
         style={{ textAlign: "center", wordBreak: "break-word", whiteSpace: "normal" }}
         onDoubleClick={(e) => e.stopPropagation()}
       >
-        {isEditingSpeakerThis ? (
-          <InlineTextInput
-            value={sub.speaker}
-            dark={dm}
-            fontSize={fontSize}
-            onLiveChange={(raw) => onLiveSpeaker(sub.id, raw)}
-            onCommit={(v) => {
-              updateAndFlush(sub.id, { speaker: v });
-              setEditingSpeakerId(null);
-            }}
-            onCancel={() => setEditingSpeakerId(null)}
-          />
-        ) : (
-          <DropCell
-            dark={dm} disabled={readOnly} fontSize={fontSize}
-            value={sub.speaker}
-            label={sub.speaker || "(없음)"}
-            options={speakerOptions}
-            onSelect={(v) => updateAndFlush(sub.id, { speaker: v })}
-            onCellClick={() => triggerSelect(sub.id)}
-            onRequestEdit={() => {
-              if (readOnly) return;
-              triggerSelect(sub.id);
-              setEditingSpeakerId(sub.id);
-            }}
-          />
-        )}
-      </td>
-      <td className={`${cellCls}`} style={cellStyle}>
+        <div className="w-full">
+          {isEditingSpeakerThis ? (
+            <InlineTextInput
+              value={sub.speaker}
+              dark={dm}
+              fontSize={fontSize}
+              onLiveChange={(raw) => onLiveSpeaker(sub.id, raw)}
+              onCommit={(v) => {
+                updateAndFlush(sub.id, { speaker: v });
+                setEditingSpeakerId(null);
+              }}
+              onCancel={() => setEditingSpeakerId(null)}
+            />
+          ) : (
+            <DropCell
+              dark={dm} disabled={readOnly} fontSize={fontSize}
+              value={sub.speaker}
+              label={sub.speaker || "(없음)"}
+              options={speakerOptions}
+              onSelect={(v) => updateAndFlush(sub.id, { speaker: v })}
+              onCellClick={() => triggerSelect(sub.id)}
+              onRequestEdit={() => {
+                if (readOnly) return;
+                triggerSelect(sub.id);
+                setEditingSpeakerId(sub.id);
+              }}
+            />
+          )}
+        </div>
+      </div>
+      <div className={`${cellBase}`} style={cellStyle}>
         <DropCell
           dark={dm} disabled={readOnly} fontSize={fontSize}
           value={spkDeleted ? "true" : "false"}
@@ -500,32 +514,34 @@ const SubtitleRow = memo(function SubtitleRow({
           onSelect={(v) => updateAndFlush(sub.id, { speaker_deleted: v === "true" })}
           onCellClick={() => triggerSelect(sub.id)}
         />
-      </td>
-      {/* 대사 */}
-      <td
-        className={`py-2 px-3 ${tp} ${textCellBg}`}
-        style={{ textAlign: "left", verticalAlign: "top" }}
+      </div>
+      {/* 대사 — 유일하게 top 정렬 */}
+      <div
+        className={`py-2 px-3 ${tp} ${textCellBg} flex items-start`}
+        style={{ textAlign: "left" }}
         onDoubleClick={(e) => e.stopPropagation()}
       >
-        <EditableTextCell
-          text={sub.text}
-          isEditing={isEditingThis}
-          dark={dm}
-          disabled={readOnly}
-          fontSize={fontSize}
-          className="leading-snug"
-          onLiveChange={(raw) => onLiveText(sub.id, raw)}
-          onChange={(v) => updateAndFlush(sub.id, { text: v })}
-          onCellClick={() => triggerSelect(sub.id)}
-          onRequestEdit={() => {
-            if (readOnly) return;
-            triggerSelect(sub.id);
-            setEditingId(sub.id);
-          }}
-          onExitEdit={() => setEditingId(null)}
-        />
-      </td>
-      <td className={`${cellCls}`} style={cellStyle}>
+        <div className="w-full">
+          <EditableTextCell
+            text={sub.text}
+            isEditing={isEditingThis}
+            dark={dm}
+            disabled={readOnly}
+            fontSize={fontSize}
+            className="leading-snug"
+            onLiveChange={(raw) => onLiveText(sub.id, raw)}
+            onChange={(v) => updateAndFlush(sub.id, { text: v })}
+            onCellClick={() => triggerSelect(sub.id)}
+            onRequestEdit={() => {
+              if (readOnly) return;
+              triggerSelect(sub.id);
+              setEditingId(sub.id);
+            }}
+            onExitEdit={() => setEditingId(null)}
+          />
+        </div>
+      </div>
+      <div className={`${cellBase}`} style={cellStyle}>
         <DropCell
           dark={dm} disabled={readOnly} fontSize={fontSize}
           value={txtDeleted ? "true" : "false"}
@@ -535,8 +551,8 @@ const SubtitleRow = memo(function SubtitleRow({
           onSelect={(v) => updateAndFlush(sub.id, { text_deleted: v === "true" })}
           onCellClick={() => triggerSelect(sub.id)}
         />
-      </td>
-      <td className={`${cellCls}`} style={cellStyle}>
+      </div>
+      <div className={`${cellBase}`} style={cellStyle}>
         <DropCell
           dark={dm} disabled={readOnly} fontSize={fontSize}
           value={isTop ? "top" : "default"}
@@ -549,8 +565,8 @@ const SubtitleRow = memo(function SubtitleRow({
           }}
           onCellClick={() => triggerSelect(sub.id)}
         />
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 });
 
@@ -709,16 +725,29 @@ export function SubtitleGrid({
     return true;
   }, [multiSelect, subtitles]);
 
+  /* ── 가상 스크롤 ── */
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => Math.max(32, listFontSize * 2.4), // 폰트 기반 추정
+    overscan: 20, // 8 → 20
+    getItemKey: (index) => filtered[index]?.id ?? index,
+  });
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+
+  /* ── selectedId 변경 시 해당 행으로 스크롤 ── */
   useEffect(() => {
-  const row = document.getElementById(`row-${selectedId}`);
-  if (row && scrollRef.current) {
-    const playing = usePlayerStore.getState().playing;
-    row.scrollIntoView({
-      block: "nearest",
-      behavior: playing ? "auto" : "smooth"
+    if (selectedId == null) return;
+    const idx = filtered.findIndex((s) => s.id === selectedId);
+    if (idx < 0) return;
+    rowVirtualizer.scrollToIndex(idx, {
+      align: "auto", // block: "nearest"와 유사
+      behavior: usePlayerStore.getState().playing ? "auto" : "smooth",
     });
-  }
-}, [selectedId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   // 편집 진입 단축키 (focus_text)
   useEffect(() => {
@@ -892,48 +921,30 @@ export function SubtitleGrid({
     [readOnly, uploading, projectId, isSubtitleUploadFile, handleSubtitleFileUpload, resetSubtitleDragState],
   );
 
-  const cw = {
-    seq: "3%",
-    start: "9%",
-    end: "9%",
-    dur: "5%",
-    type: "5%",
-    spk: "8%",
-    spkDel: "5%",
-    txtDel: "5%",
-    pos: "5%",
-  };
   const cellCls = "py-2 overflow-hidden text-ellipsis whitespace-nowrap";
   const cellStyle: React.CSSProperties = useMemo(() => ({ textAlign: "center" }), []);
 
-  const colGroup = (
-    <colgroup>
-      <col style={{ width: cw.seq }} />
-      <col style={{ width: cw.start }} />
-      <col style={{ width: cw.end }} />
-      <col style={{ width: cw.dur }} />
-      <col style={{ width: cw.type }} />
-      <col style={{ width: cw.spk }} />
-      <col style={{ width: cw.spkDel }} />
-      <col />
-      <col style={{ width: cw.txtDel }} />
-      <col style={{ width: cw.pos }} />
-    </colgroup>
-  );
+  const headerCellCls = `${cellCls} font-medium flex items-center justify-center`;
 
   const headerRow = (
-    <tr>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>#</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>시작</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>종료</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>길이</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>유형</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>화자</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>화자삭제</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>대사</th>
-      <th className={`${cellCls} font-medium border-r ${bdl}`} style={cellStyle}>대사삭제</th>
-      <th className={`${cellCls} font-medium`} style={cellStyle}>위치</th>
-    </tr>
+    <div
+      className={`border-b ${bd} ${card} sticky top-0 z-10`}
+      style={{
+        display: "grid",
+        gridTemplateColumns: GRID_TEMPLATE_COLUMNS,
+      }}
+    >
+      <div className={`${headerCellCls} border-r ${bdl}`} style={cellStyle}>#</div>
+      <div className={`${headerCellCls} border-r ${bdl}`} style={cellStyle}>시작</div>
+      <div className={`${headerCellCls} border-r ${bdl}`} style={cellStyle}>종료</div>
+      <div className={`${headerCellCls} border-r ${bdl}`} style={cellStyle}>길이</div>
+      <div className={`${headerCellCls} border-r ${bdl}`} style={cellStyle}>유형</div>
+      <div className={`${headerCellCls} border-r ${bdl}`} style={cellStyle}>화자</div>
+      <div className={`${headerCellCls} border-r ${bdl}`} style={cellStyle}>화자삭제</div>
+      <div className={`${headerCellCls} border-r ${bdl}`} style={cellStyle}>대사</div>
+      <div className={`${headerCellCls} border-r ${bdl}`} style={cellStyle}>대사삭제</div>
+      <div className={`${headerCellCls}`} style={cellStyle}>위치</div>
+    </div>
   );
 
   const isEmpty = subtitles.length === 0;
@@ -1055,21 +1066,39 @@ export function SubtitleGrid({
         </div>
       ) : (
         <>
-          <div ref={scrollRef} className={`flex-1 overflow-y-auto overflow-x-hidden ${card} min-h-0`}>
-            <table
-              className={`w-full ${ts}`}
-              style={{ fontSize: `${listFontSize}px`, tableLayout: "fixed" }}
+          <div
+            ref={scrollRef}
+            className={`flex-1 overflow-y-auto overflow-x-hidden ${card} min-h-0 ${ts}`}
+            style={{ fontSize: `${listFontSize}px` }}
+          >
+            {headerRow}
+            <div
+              style={{
+                height: `${totalSize}px`,
+                width: "100%",
+                position: "relative",
+              }}
             >
-              {colGroup}
-              <thead className={`border-b ${bd} ${card} sticky top-0 z-10`}>{headerRow}</thead>
-              <tbody className={`divide-y ${dm ? "divide-gray-600" : "divide-gray-200"}`}>
-                {filtered.map((sub) => {
-                  const isSel = selectedId === sub.id;
-                  const isMulti = multiSelect.has(sub.id) && !isSel;
-                  const isDraftForThis = draft && draft.id === sub.id;
-                  return (
+              {virtualItems.map((virtualRow) => {
+                const sub = filtered[virtualRow.index];
+                if (!sub) return null;
+                const isSel = selectedId === sub.id;
+                const isMulti = multiSelect.has(sub.id) && !isSel;
+                const isDraftForThis = draft && draft.id === sub.id;
+                return (
+                  <div
+                    key={sub.id}
+                    data-index={virtualRow.index}
+                    ref={rowVirtualizer.measureElement}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
                     <SubtitleRow
-                      key={sub.id}
                       sub={sub}
                       draftText={isDraftForThis ? draft.text : undefined}
                       draftSpeaker={isDraftForThis ? draft.speaker : undefined}
@@ -1100,10 +1129,10 @@ export function SubtitleGrid({
                       setEditingId={setEditingId}
                       setEditingSpeakerId={setEditingSpeakerId}
                     />
-                  );
-                })}
-              </tbody>
-            </table>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* footer */}
