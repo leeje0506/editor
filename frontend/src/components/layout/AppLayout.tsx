@@ -326,7 +326,12 @@ export function AppLayout() {
     const subs = useSubtitleStore.getState().subtitles;
     const errorCount = subs.filter((s) => {
       if (!s.error) return false;
-      const errors = s.error.split(",").map((e) => e.trim()).filter((e) => e !== "오버랩");
+      const errors = s.error
+        .split(",")
+        .map((e) => e.trim())
+        .filter((e) => e !== "오버랩" 
+        // && e !== "최소길이"
+      );
       return errors.length > 0;
     }).length;
     if (errorCount > 0) {

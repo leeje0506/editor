@@ -74,6 +74,14 @@ function buildMockWavePath(tlLeft: number, visDur: number, totalMs: number): str
   return upper + lower + "Z";
 }
 
+/* ── 편집 중인 input/textarea를 먼저 blur해서 onBlur 커밋이 일어나게 함 ── */
+function blurActiveEditable() {
+  const active = document.activeElement as HTMLElement | null;
+  if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) {
+    active.blur();
+  }
+}
+
 export function Timeline({ dark, peaks, onReload, readOnly }: Props) {
   const tlRef = useRef<HTMLDivElement>(null);
 
@@ -175,6 +183,10 @@ export function Timeline({ dark, peaks, onReload, readOnly }: Props) {
   (e: React.MouseEvent, subId: number) => {
     if (readOnly) return;
     if ((e.target as HTMLElement).closest("[data-h]")) return;
+
+    // ★ 편집 중인 input/textarea가 있으면 먼저 blur해서 변경사항 커밋
+    blurActiveEditable();
+
     e.stopPropagation();
     e.preventDefault();
 
@@ -238,6 +250,9 @@ export function Timeline({ dark, peaks, onReload, readOnly }: Props) {
   /* ── 자막 시간 드래그 ── */
   const startDrag = useCallback(
   (e: React.MouseEvent, handle: "start" | "end", subId: number) => {
+    // ★ 편집 중인 input/textarea가 있으면 먼저 blur해서 변경사항 커밋
+    blurActiveEditable();
+
     e.stopPropagation();
     e.preventDefault();
     if (readOnly) return;
@@ -487,13 +502,13 @@ export function Timeline({ dark, peaks, onReload, readOnly }: Props) {
                   {/* 자막 텍스트 */}
                   <div className="absolute top-0.5 left-1 right-1 pointer-events-none overflow-hidden">
                     <span
-                      style={{ fontSize: `${waveFontSize}px` }}
-                      className={`leading-tight block whitespace-nowrap overflow-hidden font-medium
+                      style={{ fontSize: `${waveFontSize}px`, whiteSpace: "pre-line" }}
+                      className={`leading-tight block overflow-hidden font-medium
                       ${isSel ? "text-red-200 drop-shadow-[0_1px_3px_rgba(255,0,0,0.6)]"
                         : s.type === "effect" ? "text-yellow-400/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
                         : "text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"}`}
                     >
-                      {s.text.replace(/\n/g, " ")}
+                      {s.text}
                     </span>
                   </div>
 

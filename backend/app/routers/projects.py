@@ -329,6 +329,7 @@ def submit_project(project_id: int, current_user: User = Depends(get_current_use
         errors = set(e.strip() for e in sub.error.split(","))
         if allow_overlap:
             errors.discard("오버랩")
+        # errors.discard("최소길이")
         if errors:
             blocking += 1
 
