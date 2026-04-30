@@ -703,11 +703,15 @@ export function SubtitleGrid({
   }, [multiSelect, subtitles]);
 
   useEffect(() => {
-    const row = document.getElementById(`row-${selectedId}`);
-    if (row && scrollRef.current) {
-      row.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }
-  }, [selectedId]);
+  const row = document.getElementById(`row-${selectedId}`);
+  if (row && scrollRef.current) {
+    const playing = usePlayerStore.getState().playing;
+    row.scrollIntoView({
+      block: "nearest",
+      behavior: playing ? "auto" : "smooth"
+    });
+  }
+}, [selectedId]);
 
   // 편집 진입 단축키 (focus_text)
   useEffect(() => {
