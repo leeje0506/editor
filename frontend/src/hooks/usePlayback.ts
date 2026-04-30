@@ -13,7 +13,7 @@ export function usePlayback() {
   const logTimeRef = useRef(0);
 
   useEffect(() => {
-    console.log("[playback] effect fire, playing =", playing);
+    // console.log("[playback] effect fire, playing =", playing);
     if (playing) {
       lastActiveIdRef.current = null;
       tickCountRef.current = 0;
@@ -46,20 +46,20 @@ export function usePlayback() {
         const now = performance.now();
         if (now - logTimeRef.current > 1000) {
           logTimeRef.current = now;
-          console.log("[playback]", {
-            tickPerSec: tickCountRef.current,
-            currentMs: nextMs,
-            subsCount: subtitles.length,
-            activeId: active?.id ?? null,
-            selectedId,
-            lastRef: lastActiveIdRef.current,
-          });
+          // console.log("[playback]", {
+          //   tickPerSec: tickCountRef.current,
+          //   currentMs: nextMs,
+          //   subsCount: subtitles.length,
+          //   activeId: active?.id ?? null,
+          //   selectedId,
+          //   lastRef: lastActiveIdRef.current,
+          // });
           tickCountRef.current = 0;
         }
 
         if (active) {
           if (active.id !== lastActiveIdRef.current && active.id !== selectedId) {
-            console.log("[playback] CALLING selectSingle:", active.id);
+            // console.log("[playback] CALLING selectSingle:", active.id);
             lastActiveIdRef.current = active.id;
             selectSingle(active.id);
           } else if (active.id !== lastActiveIdRef.current) {
