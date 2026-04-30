@@ -85,6 +85,45 @@ export function useKeyboardShortcuts(
           break;
         }
 
+        // case "auto_wrap": {
+        //   const selId = subtitleState.selectedId;
+        //   if (!selId) break;
+
+        //   const sub = subtitleState.subtitles.find((s) => s.id === selId);
+        //   if (!sub) break;
+
+        //   const flat = sub.text.replace(/\n/g, " ").trim();
+        //   const maxC = maxCharsPerLine;
+        //   // 첫 줄에는 화자 예약 글자수만큼 빠진 공간만 사용 가능
+        //   const speakerReserved = calcSpeakerReserved(
+        //     sub.speaker,
+        //     !!sub.speaker_deleted,
+        //     speakerMode,
+        //   );
+        //   const firstLineCap = Math.max(1, maxC - speakerReserved);
+        //   const words = flat.split(/\s+/).filter(Boolean);
+
+        //   const lines: string[] = [];
+        //   let line = "";
+
+        //   for (const w of words) {
+        //     // 현재 채우고 있는 줄의 한도 — 첫 줄(lines.length === 0)이면 firstLineCap, 그 외엔 maxC
+        //     const cap = lines.length === 0 ? firstLineCap : maxC;
+        //     if (line && (line + " " + w).length > cap) {
+        //       lines.push(line);
+        //       line = w;
+        //     } else {
+        //       line = line ? line + " " + w : w;
+        //     }
+        //   }
+
+        //   if (line) lines.push(line);
+
+        //   subtitleState.updateLocal(selId, {
+        //     text: lines.length > 0 ? lines.join("\n") : "",
+        //   });
+        //   break;
+        // }
         case "auto_wrap": {
           const selId = subtitleState.selectedId;
           if (!selId) break;
@@ -92,36 +131,43 @@ export function useKeyboardShortcuts(
           const sub = subtitleState.subtitles.find((s) => s.id === selId);
           if (!sub) break;
 
-          const flat = sub.text.replace(/\n/g, " ").trim();
+          // 이미 여러 줄이면 동작 안 함
+          if (sub.text.includes("\n")) break;
+
+          const text = sub.text;
           const maxC = maxCharsPerLine;
-          // 첫 줄에는 화자 예약 글자수만큼 빠진 공간만 사용 가능
+          // 화자 예약 글자수 (첫 줄에 포함되는 가상 글자수)
           const speakerReserved = calcSpeakerReserved(
             sub.speaker,
             !!sub.speaker_deleted,
             speakerMode,
           );
           const firstLineCap = Math.max(1, maxC - speakerReserved);
-          const words = flat.split(/\s+/).filter(Boolean);
 
-          const lines: string[] = [];
-          let line = "";
+          // 한 줄 한도 초과 안 하면 동작 안 함
+          if (text.length <= firstLineCap) break;
 
-          for (const w of words) {
-            // 현재 채우고 있는 줄의 한도 — 첫 줄(lines.length === 0)이면 firstLineCap, 그 외엔 maxC
-            const cap = lines.length === 0 ? firstLineCap : maxC;
-            if (line && (line + " " + w).length > cap) {
-              lines.push(line);
-              line = w;
-            } else {
-              line = line ? line + " " + w : w;
-            }
+          // 중간값 기준 가장 가까운 공백에서 분할
+          const mid = Math.floor(text.length / 2);
+
+          let splitAt = -1;
+          for (let offset = 0; offset <= text.length; offset++) {
+            const left = mid - offset;
+            const right = mid + offset;
+            if (left >= 0 && text[left] === " ") { splitAt = left; break; }
+            if (right < text.length && text[right] === " ") { splitAt = right; break; }
           }
 
-          if (line) lines.push(line);
+          let result: string;
+          if (splitAt < 0) {
+            // 공백이 아예 없으면 mid에서 강제 분할
+            result = text.slice(0, mid) + "\n" + text.slice(mid);
+          } else {
+            // 공백 자리에서 분할 (공백은 제거)
+            result = text.slice(0, splitAt) + "\n" + text.slice(splitAt + 1);
+          }
 
-          subtitleState.updateLocal(selId, {
-            text: lines.length > 0 ? lines.join("\n") : "",
-          });
+          subtitleState.updateLocal(selId, { text: result });
           break;
         }
 
