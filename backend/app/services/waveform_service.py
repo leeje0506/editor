@@ -31,19 +31,45 @@ def get_peaks_path(project_id: int) -> str:
     return os.path.join(WAVEFORM_DIR, f"project_{project_id}_peaks.json")
 
 
+def _decode_ffmpeg_stderr(filepath: str) -> str:
+    """
+    ★ v8.5 fix: Windows 한글 경로 + cp949 stderr 호환을 위해 utf-8 → cp949 폴백.
+    `-i` 단독 호출은 ffmpeg가 메타데이터만 출력하고 즉시 종료 (returncode=1, 정상).
+    """
+    abs_path = os.path.abspath(filepath)
+    # 1차: utf-8 시도
+    result = subprocess.run(
+        [FFMPEG_BIN, "-i", abs_path],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+    )
+    stderr = result.stderr or ""
+    if "Duration:" in stderr:
+        return stderr
+    # 2차: cp949 시도 (Windows 환경 폴백)
+    result = subprocess.run(
+        [FFMPEG_BIN, "-i", abs_path],
+        capture_output=True,
+        encoding="cp949",
+        errors="replace",
+        timeout=30,
+    )
+    return result.stderr or ""
+
+
 def get_video_duration_ms(filepath: str) -> int | None:
     """ffmpeg로 영상 duration 추출 (ffprobe 불필요)"""
     try:
-        result = subprocess.run(
-            [FFMPEG_BIN, "-i", filepath, "-f", "null", "-"],
-            capture_output=True, text=True, timeout=30,
-        )
-        match = re.search(r"Duration:\s*(\d+):(\d+):(\d+)\.(\d+)", result.stderr)
+        stderr = _decode_ffmpeg_stderr(filepath)  # ★ v8.5 fix
+        match = re.search(r"Duration:\s*(\d+):(\d+):(\d+)\.(\d+)", stderr)
         if match:
             h, m, s, cs = match.groups()
             return int(h) * 3600000 + int(m) * 60000 + int(s) * 1000 + int(cs) * 10
         return None
-    except Exception:
+    except Exception as e:
+        print(f"get_video_duration_ms failed: {e}")  # ★ v8.5 fix: 디버그 로그 추가
         return None
 
 
@@ -66,11 +92,13 @@ def extract_waveform_peaks(video_path: str, project_id: int, duration_ms: int | 
     chunk_samples = sample_rate // PEAKS_PER_SECOND  # 400 samples per peak
     chunk_bytes = chunk_samples * 2  # 16bit = 2 bytes per sample
 
+    proc = None  # ★ v8.5 fix: 예외 처리에서 참조하기 위해 미리 선언
     try:
+        abs_path = os.path.abspath(video_path)  # ★ v8.5 fix: 절대 경로
         proc = subprocess.Popen(
             [
                 FFMPEG_BIN, "-y",
-                "-i", video_path,
+                "-i", abs_path,
                 "-vn",
                 "-ac", "1",
                 "-ar", str(sample_rate),
