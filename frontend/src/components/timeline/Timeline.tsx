@@ -502,13 +502,13 @@ export function Timeline({ dark, peaks, onReload, readOnly }: Props) {
                   {/* 자막 텍스트 */}
                   <div className="absolute top-0.5 left-1 right-1 pointer-events-none overflow-hidden">
                     <span
-                      style={{ fontSize: `${waveFontSize}px` }}
-                      className={`leading-tight block whitespace-nowrap overflow-hidden font-medium
+                      style={{ fontSize: `${waveFontSize}px`, whiteSpace: "pre-line" }}
+                      className={`leading-tight block overflow-hidden font-medium
                       ${isSel ? "text-red-200 drop-shadow-[0_1px_3px_rgba(255,0,0,0.6)]"
                         : s.type === "effect" ? "text-yellow-400/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
                         : "text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"}`}
                     >
-                      {s.text.replace(/\n/g, " ")}
+                      {s.text}
                     </span>
                   </div>
 
