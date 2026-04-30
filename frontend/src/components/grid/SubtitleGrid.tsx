@@ -416,7 +416,7 @@ const SubtitleRow = memo(function SubtitleRow({
   const startCellBg = overlap?.startErr ? errCellBg : "";
   const endCellBg = overlap?.endErr ? errCellBg : "";
   const durCellBg = localErrors.has("최소길이") ? errCellBg : "";
-  const textCellBg = localErrors.has("글자초과") ? errCellBg : "";
+  const textCellBg = (localErrors.has("글자초과") || localErrors.has("줄초과")) ? errCellBg : "";
 
   const spkDeleted = !!sub.speaker_deleted;
   const txtDeleted = !!sub.text_deleted;
@@ -942,28 +942,41 @@ export function SubtitleGrid({
 
   // footer는 selectedSub + draft 기준 (편집 중인 자막이면 draft 우선)
   const footerInfo = useMemo(() => {
-    if (!selectedSub) return null;
-    const isDraftForThis = draft && draft.id === selectedSub.id;
-    const effText = isDraftForThis && draft.text !== undefined ? draft.text : selectedSub.text;
-    const effSpeaker = isDraftForThis && draft.speaker !== undefined ? draft.speaker : selectedSub.speaker;
+  if (!selectedSub) return null;
+  const isDraftForThis = draft && draft.id === selectedSub.id;
+  const effText = isDraftForThis && draft.text !== undefined ? draft.text : selectedSub.text;
+  const effSpeaker = isDraftForThis && draft.speaker !== undefined ? draft.speaker : selectedSub.speaker;
 
-    const speakerReserved = calcSpeakerReserved(
-      effSpeaker,
-      !!selectedSub.speaker_deleted,
-      speakerMode,
-    );
-    const lines = effText.split("\n");
-    const lineChars = lines.map((line) => countTextChars(line));
-    const totalChars = lineChars.reduce((a, b) => a + b, 0);
-    const totalWithSpeaker = totalChars + speakerReserved;
-    const lineCount = Math.max(1, lines.length);
-    const limit = maxChars * lineCount;
-    const isOver = totalWithSpeaker > limit;
-    return {
-      lineChars, speakerReserved, totalWithSpeaker, limit, isOver,
-      maxChars, errors: selectedSub.error,
-    };
-  }, [selectedSub, draft, speakerMode, maxChars]);
+  const speakerReserved = calcSpeakerReserved(
+    effSpeaker,
+    !!selectedSub.speaker_deleted,
+    speakerMode,
+  );
+  const lines = effText.split("\n");
+  const lineChars = lines.map((line) => countTextChars(line));
+  const totalChars = lineChars.reduce((a, b) => a + b, 0);
+  const totalWithSpeaker = totalChars + speakerReserved;
+  const lineCount = Math.max(1, lines.length);
+  const limit = maxChars * lineCount;
+  const isOver = totalWithSpeaker > limit;
+
+  // ★ 로컬 검수 (글자초과/줄초과/최소길이 등) + 서버 검수(오버랩 등) 병합
+  const localErrs = validateSubtitleLocal(
+    effText, effSpeaker, !!selectedSub.speaker_deleted,
+    selectedSub.start_ms, selectedSub.end_ms,
+    maxChars, maxLines, minDurationMs, speakerMode,
+  );
+  const allErrs = new Set<string>(localErrs);
+  if (selectedSub.error) {
+    selectedSub.error.split(",").map((e) => e.trim()).filter(Boolean).forEach((e) => allErrs.add(e));
+  }
+  const errors = allErrs.size > 0 ? Array.from(allErrs).join(", ") : null;
+
+  return {
+    lineChars, speakerReserved, totalWithSpeaker, limit, isOver,
+    maxChars, errors,
+  };
+}, [selectedSub, draft, speakerMode, maxChars, maxLines, minDurationMs]);
 
   return (
     <div className={`h-full flex flex-col overflow-hidden border-b ${bd}`}>
