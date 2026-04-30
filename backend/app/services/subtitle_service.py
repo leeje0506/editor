@@ -92,12 +92,16 @@ def resequence_and_validate(db: Session, project_id: int) -> List[Subtitle]:
     rule = _get_broadcaster_rule(db, project)
     min_duration_ms = rule.min_duration_ms if rule else 0
 
-    # 1단계: 순번 재계산 + 기본 검수 (글자초과/줄초과/시간오류/최소길이)
+    # 1단계: 순번 재계산 + 기본 검수 (변경된 경우만 set → UPDATE 수 감소)
     for i, sub in enumerate(subs, start=1):
-        sub.seq = i
-        sub.error = validate_subtitle(sub, project, min_duration_ms)
+        if sub.seq != i:
+            sub.seq = i
+        new_error = validate_subtitle(sub, project, min_duration_ms)
+        # 오버랩 처리는 2단계에서 하니, 1단계에선 일단 기본 검수 결과만
+        if sub.error != new_error:
+            sub.error = new_error
 
-    # 2단계: 오버랩 검수 (항상 수행 — 허용 여부와 무관하게 표시)
+    # 2단계: 오버랩 검수 (정렬돼 있으니 인접만 비교, break로 cut-off)
     overlap_ids: set = set()
     for i in range(len(subs)):
         for j in range(i + 1, len(subs)):
@@ -106,16 +110,15 @@ def resequence_and_validate(db: Session, project_id: int) -> List[Subtitle]:
             overlap_ids.add(subs[i].id)
             overlap_ids.add(subs[j].id)
 
+    # 오버랩 표시 — 기존 값과 같으면 set 안 함 (불필요한 UPDATE 방지)
     for sub in subs:
         if sub.id in overlap_ids:
-            if sub.error:
-                sub.error = sub.error + ",오버랩"
-            else:
-                sub.error = "오버랩"
+            target = (sub.error + ",오버랩") if sub.error else "오버랩"
+            if sub.error != target:
+                sub.error = target
 
-    db.commit()
-    for sub in subs:
-        db.refresh(sub)
+    # commit은 post_subtitle_change에서 한 번만 (여기선 flush만)
+    db.flush()
     return subs
 
 def _mark_modified_if_changed(sub: Subtitle, updates: Dict) -> bool:
@@ -169,9 +172,10 @@ def update_project_progress(db: Session, project_id: int) -> int:
     raw = last.end_ms if last else 0
     if project.video_duration_ms and project.video_duration_ms > 0:
         raw = min(raw, project.video_duration_ms)
-    project.progress_ms = raw
-    db.commit()
-    return project.progress_ms
+    if project.progress_ms != raw:
+        project.progress_ms = raw
+    # commit은 post_subtitle_change에서 한 번만
+    return raw
 
 def post_subtitle_change(db: Session, project_id: int) -> List[Subtitle]:
     """자막 변경 API의 마지막 후처리 통합 헬퍼.
@@ -181,12 +185,14 @@ def post_subtitle_change(db: Session, project_id: int) -> List[Subtitle]:
     3. status='rejected'이면 'in_progress'로 자동 전환 (반려 → 재작업 라벨 전환)
 
     자막 변경이 일어나는 모든 라우터의 마지막에서 호출.
+    하위 함수들의 commit을 모아서 여기서 한 번만 commit (트랜잭션 일관성 + 성능).
 
     Returns: 갱신된 자막 리스트 (resequence_and_validate 결과)
     """
     subs = resequence_and_validate(db, project_id)
     update_project_progress(db, project_id)
     auto_reactivate_if_rejected(db, project_id)
+    db.commit()
     return subs
 
 def auto_reactivate_if_rejected(db: Session, project_id: int) -> bool:
@@ -205,7 +211,7 @@ def auto_reactivate_if_rejected(db: Session, project_id: int) -> bool:
         return False
     if project.status == "rejected":
         project.status = "in_progress"
-        db.commit()
+        # commit은 post_subtitle_change에서 한 번만
         return True
     return False
 
