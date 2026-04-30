@@ -43,6 +43,11 @@ export const CUSTOM_SHORTCUTS: ShortcutAction[] = [
   { id: "prev", label: "이전 싱크로 이동", description: "이전 자막으로 이동", category: "custom" },
   { id: "next", label: "다음 싱크로 이동", description: "다음 자막으로 이동", category: "custom" },
   { id: "focus_text", label: "텍스트 입력 포커스", description: "텍스트 입력창 포커스", category: "custom" },
+  { id: "set_start_extend_prev", label: "시작 지점 정하고 이전 끝 지점 설정", description: "playhead로 선택 자막 시작 + 이전 자막 끝 동시 이동", category: "custom" },
+  { id: "move_word_up_in_sub", label: "다음 줄 첫 단어를 위로 (자막 내)", description: "2줄일 때만, 다음 줄 첫 단어를 윗줄 끝으로", category: "custom" },
+  { id: "move_word_down_in_sub", label: "첫 줄 마지막 단어를 아래로 (자막 내)", description: "2줄일 때만, 첫 줄 마지막 단어를 다음 줄 앞으로", category: "custom" },
+  { id: "move_word_up_between_subs", label: "다음 자막 첫 단어를 위로 (자막 간)", description: "두 자막 모두 1줄일 때만, 다음 자막 첫 단어를 현재 자막으로", category: "custom" },
+  { id: "move_word_down_between_subs", label: "마지막 단어를 아래로 (자막 간)", description: "두 자막 모두 1줄일 때만, 현재 자막 마지막 단어를 다음 자막으로", category: "custom" },
 ];
 
 export const ALL_SHORTCUTS: ShortcutAction[] = [...FIXED_SHORTCUTS, ...CUSTOM_SHORTCUTS];
@@ -76,6 +81,11 @@ export const DEFAULT_SHORTCUTS: Record<string, string> = {
   prev: "ArrowUp",
   next: "ArrowDown",
   focus_text: "Shift+Enter",
+  set_start_extend_prev: "Alt+F3",
+  move_word_up_in_sub: "Alt+Q",
+  move_word_down_in_sub: "Alt+W",
+  move_word_up_between_subs: "Alt+E",
+  move_word_down_between_subs: "Alt+R",
 };
 
 const FIXED_SHORTCUT_ID_SET = new Set(FIXED_SHORTCUTS.map((a) => a.id));
@@ -298,6 +308,18 @@ export function eventToKeyString(e: KeyboardEvent): string {
   if (e.altKey) parts.push("Alt");
 
   let key = e.key;
+
+  // macOS Alt+문자/숫자 조합은 e.key가 특수문자로 바뀌므로 e.code 사용
+  // (예: Alt+Q → e.key="œ", e.code="KeyQ")
+  if (e.altKey && e.code) {
+    if (e.code.startsWith("Key") && e.code.length === 4) {
+      // KeyA ~ KeyZ → A ~ Z
+      key = e.code.slice(3);
+    } else if (e.code.startsWith("Digit") && e.code.length === 6) {
+      // Digit0 ~ Digit9 → 0 ~ 9
+      key = e.code.slice(5);
+    }
+  }
 
   if (key === " ") key = "Space";
   if (["Control", "Meta", "Shift", "Alt"].includes(key)) return "";

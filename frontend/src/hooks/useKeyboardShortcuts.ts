@@ -22,6 +22,11 @@ const BLOCK_IN_INPUT: Set<string> = new Set([
   "next_error",
   "undo",   // textarea에서는 브라우저 기본 Undo
   "redo",   // textarea에서는 브라우저 기본 Redo
+  "set_start_extend_prev",
+  "move_word_up_in_sub",
+  "move_word_down_in_sub",
+  "move_word_up_between_subs",
+  "move_word_down_between_subs",
 ]);
 
 /** 배속 순환: 100% → 150% → 200% → 100% → ... */
@@ -361,6 +366,179 @@ export function useKeyboardShortcuts(
         case "delete":
           void subtitleState.deleteSelected();
           break;
+
+        case "set_start_extend_prev": {
+          const { subtitles, selectedId } = subtitleState;
+          if (!selectedId) break;
+          const idx = subtitles.findIndex((s) => s.id === selectedId);
+          if (idx < 0) break;
+
+          const sel = subtitles[idx];
+          const prev = idx > 0 ? subtitles[idx - 1] : null;
+          const playhead = playerState.currentMs;
+
+          // 선택 자막 시작 = playhead
+          subtitleState.updateLocal(selectedId, { start_ms: playhead });
+
+          // 이전 자막이 있으면 끝 = playhead
+          if (prev) {
+            subtitleState.updateLocal(prev.id, { end_ms: playhead });
+          }
+
+          void subtitleState.flushDirty();
+          break;
+        }
+
+        case "move_word_up_in_sub": {
+          const { subtitles, selectedId } = subtitleState;
+          if (!selectedId) break;
+          const sub = subtitles.find((s) => s.id === selectedId);
+          if (!sub) break;
+
+          const lines = sub.text.split("\n");
+          if (lines.length !== 2) break;
+
+          const [first, second] = lines;
+          // 다음 줄(second)에서 첫 단어 분리
+          const trimmedSecond = second.replace(/^ +/, ""); // 맨앞공백 제거
+          const spaceIdx = trimmedSecond.indexOf(" ");
+
+          let firstWord: string;
+          let restOfSecond: string;
+          if (spaceIdx < 0) {
+            // 다음 줄에 단어가 1개뿐 → 합쳐서 1줄로
+            firstWord = trimmedSecond;
+            restOfSecond = "";
+          } else {
+            firstWord = trimmedSecond.slice(0, spaceIdx);
+            restOfSecond = trimmedSecond.slice(spaceIdx + 1);
+          }
+
+          if (!firstWord) break; // 옮길 단어 없음
+
+          let newText: string;
+          if (restOfSecond === "") {
+            // 합쳐서 1줄
+            newText = first + " " + firstWord;
+          } else {
+            newText = first + " " + firstWord + "\n" + restOfSecond;
+          }
+
+          subtitleState.updateLocal(selectedId, { text: newText });
+          void subtitleState.flushDirty();
+          break;
+        }
+
+        case "move_word_down_in_sub": {
+          const { subtitles, selectedId } = subtitleState;
+          if (!selectedId) break;
+          const sub = subtitles.find((s) => s.id === selectedId);
+          if (!sub) break;
+
+          const lines = sub.text.split("\n");
+          if (lines.length !== 2) break;
+
+          const [first, second] = lines;
+          // 첫 줄에서 마지막 단어 분리
+          const trimmedFirst = first.replace(/ +$/, ""); // 마지막 공백 제거
+          const spaceIdx = trimmedFirst.lastIndexOf(" ");
+
+          let lastWord: string;
+          let restOfFirst: string;
+          if (spaceIdx < 0) {
+            // 첫 줄에 단어가 1개뿐 → 합쳐서 1줄로
+            lastWord = trimmedFirst;
+            restOfFirst = "";
+          } else {
+            lastWord = trimmedFirst.slice(spaceIdx + 1);
+            restOfFirst = trimmedFirst.slice(0, spaceIdx);
+          }
+
+          if (!lastWord) break;
+
+          let newText: string;
+          if (restOfFirst === "") {
+            // 합쳐서 1줄
+            newText = lastWord + " " + second;
+          } else {
+            newText = restOfFirst + "\n" + lastWord + " " + second;
+          }
+
+          subtitleState.updateLocal(selectedId, { text: newText });
+          void subtitleState.flushDirty();
+          break;
+        }
+
+        case "move_word_up_between_subs": {
+          const { subtitles, selectedId } = subtitleState;
+          if (!selectedId) break;
+          const idx = subtitles.findIndex((s) => s.id === selectedId);
+          if (idx < 0 || idx >= subtitles.length - 1) break;
+
+          const cur = subtitles[idx];
+          const next = subtitles[idx + 1];
+
+          // 두 자막 모두 1줄일 때만
+          if (cur.text.includes("\n") || next.text.includes("\n")) break;
+
+          // 다음 자막에서 첫 단어 분리
+          const trimmedNext = next.text.replace(/^ +/, "");
+          const spaceIdx = trimmedNext.indexOf(" ");
+
+          let firstWord: string;
+          let restOfNext: string;
+          if (spaceIdx < 0) {
+            firstWord = trimmedNext;
+            restOfNext = "";
+          } else {
+            firstWord = trimmedNext.slice(0, spaceIdx);
+            restOfNext = trimmedNext.slice(spaceIdx + 1);
+          }
+
+          if (!firstWord) break;
+
+          const newCurText = cur.text + " " + firstWord;
+          subtitleState.updateLocal(cur.id, { text: newCurText });
+          subtitleState.updateLocal(next.id, { text: restOfNext });
+          void subtitleState.flushDirty();
+          break;
+        }
+
+        case "move_word_down_between_subs": {
+          const { subtitles, selectedId } = subtitleState;
+          if (!selectedId) break;
+          const idx = subtitles.findIndex((s) => s.id === selectedId);
+          if (idx < 0 || idx >= subtitles.length - 1) break;
+
+          const cur = subtitles[idx];
+          const next = subtitles[idx + 1];
+
+          // 두 자막 모두 1줄일 때만
+          if (cur.text.includes("\n") || next.text.includes("\n")) break;
+
+          // 현재 자막에서 마지막 단어 분리
+          const trimmedCur = cur.text.replace(/ +$/, "");
+          const spaceIdx = trimmedCur.lastIndexOf(" ");
+
+          let lastWord: string;
+          let restOfCur: string;
+          if (spaceIdx < 0) {
+            lastWord = trimmedCur;
+            restOfCur = "";
+          } else {
+            lastWord = trimmedCur.slice(spaceIdx + 1);
+            restOfCur = trimmedCur.slice(0, spaceIdx);
+          }
+
+          if (!lastWord) break;
+
+          const newNextText = next.text === "" ? lastWord : lastWord + " " + next.text;
+          subtitleState.updateLocal(cur.id, { text: restOfCur });
+          subtitleState.updateLocal(next.id, { text: newNextText });
+          void subtitleState.flushDirty();
+          break;
+        }
+        
       }
     };
 
