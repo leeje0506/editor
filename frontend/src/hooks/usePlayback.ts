@@ -6,18 +6,23 @@ import { useTimelineStore } from "../store/useTimelineStore";
 export function usePlayback() {
   const rafRef = useRef<number | null>(null);
   const lastActiveIdRef = useRef<number | null>(null);
-  const lastSelectTimeRef = useRef(0);
-  const { playing } = usePlayerStore();
+  const playing = usePlayerStore((s) => s.playing);
+
+  // 디버그용 카운터
+  const tickCountRef = useRef(0);
+  const logTimeRef = useRef(0);
 
   useEffect(() => {
+    console.log("[playback] effect fire, playing =", playing);
     if (playing) {
       lastActiveIdRef.current = null;
+      tickCountRef.current = 0;
+      logTimeRef.current = performance.now();
 
       const tick = () => {
         const video = document.querySelector("video");
         const { totalMs } = usePlayerStore.getState();
 
-        // 영상이 있으면 video.currentTime 기준, 없으면 기존 증분 방식
         let nextMs: number;
         if (video && !video.paused && video.readyState >= 2) {
           nextMs = Math.round(video.currentTime * 1000);
@@ -30,21 +35,38 @@ export function usePlayback() {
 
         usePlayerStore.setState({ currentMs: nextMs });
 
-        // 자막 자동 추적 — 500ms throttle
-        const now = performance.now();
-        const { subtitles, selectSingle } = useSubtitleStore.getState();
+        // 자막 자동 추적
+        const { subtitles, selectSingle, selectedId } = useSubtitleStore.getState();
         const active = subtitles.find(
           (s) => nextMs >= s.start_ms && nextMs < s.end_ms
         );
-        if (active && active.id !== lastActiveIdRef.current) {
-          lastActiveIdRef.current = active.id;
-          if (now - lastSelectTimeRef.current > 500) {
-            lastSelectTimeRef.current = now;
+
+        // ★ 1초마다 한 번만 로그 (스팸 방지)
+        tickCountRef.current++;
+        const now = performance.now();
+        if (now - logTimeRef.current > 1000) {
+          logTimeRef.current = now;
+          console.log("[playback]", {
+            tickPerSec: tickCountRef.current,
+            currentMs: nextMs,
+            subsCount: subtitles.length,
+            activeId: active?.id ?? null,
+            selectedId,
+            lastRef: lastActiveIdRef.current,
+          });
+          tickCountRef.current = 0;
+        }
+
+        if (active) {
+          if (active.id !== lastActiveIdRef.current && active.id !== selectedId) {
+            console.log("[playback] CALLING selectSingle:", active.id);
+            lastActiveIdRef.current = active.id;
             selectSingle(active.id);
+          } else if (active.id !== lastActiveIdRef.current) {
+            lastActiveIdRef.current = active.id;
           }
         }
 
-        // 뷰 밖이면 스크롤
         const tlState = useTimelineStore.getState();
         const visDur = tlState.visibleDuration();
         const viewRight = tlState.scrollMs + visDur;

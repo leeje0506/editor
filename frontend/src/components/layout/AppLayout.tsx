@@ -132,12 +132,12 @@ export function AppLayout() {
   // }, [project, bcRules]);
   const liveRule = useMemo(() => {
     const rule = project?.broadcaster ? bcRules[project.broadcaster] : null;
-    console.log("[liveRule]", {
-      broadcaster: project?.broadcaster,
-      rule,
-      allBcRules: bcRules,
-      project_max_chars: project?.max_chars_per_line,
-    });
+    // console.log("[liveRule]", {
+    //   broadcaster: project?.broadcaster,
+    //   rule,
+    //   allBcRules: bcRules,
+    //   project_max_chars: project?.max_chars_per_line,
+    // });
     return {
       maxChars: rule?.max_chars_per_line ?? project?.max_chars_per_line ?? 18,
       maxLines: rule?.max_lines ?? project?.max_lines ?? 2,
@@ -468,6 +468,7 @@ export function AppLayout() {
     () => setShowFindReplace(true),
     liveRule.speakerMode,
   );
+  usePlayback();
 
   const dm = dark;
   const bg = dm ? "bg-gray-900" : "bg-gray-100";

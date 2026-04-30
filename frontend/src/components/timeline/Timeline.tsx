@@ -172,14 +172,20 @@ export function Timeline({ dark, peaks, onReload, readOnly }: Props) {
 
   /* ── 자막 블록 전체 드래그 이동 ── */
   const startMoveDrag = useCallback(
-    (e: React.MouseEvent, subId: number) => {
-      if (readOnly) return;
-      // 경계선 핸들이면 무시 (startDrag가 처리)
-      if ((e.target as HTMLElement).closest("[data-h]")) return;
-      e.stopPropagation();
-      e.preventDefault();
+  (e: React.MouseEvent, subId: number) => {
+    if (readOnly) return;
+    if ((e.target as HTMLElement).closest("[data-h]")) return;
+    e.stopPropagation();
+    e.preventDefault();
 
-      const sub = subtitles.find((s) => s.id === subId);
+    // ★ 비선택 자막이면 선택만 하고 return (드래그 시작 안 함)
+    const currentSelectedId = useSubtitleStore.getState().selectedId;
+    if (currentSelectedId !== subId) {
+      selectSingle(subId);
+      return;
+    }
+
+    const sub = subtitles.find((s) => s.id === subId);
       if (!sub || !tlRef.current) return;
 
       const rect = tlRef.current.getBoundingClientRect();
@@ -231,11 +237,18 @@ export function Timeline({ dark, peaks, onReload, readOnly }: Props) {
 
   /* ── 자막 시간 드래그 ── */
   const startDrag = useCallback(
-    (e: React.MouseEvent, handle: "start" | "end", subId: number) => {
-      e.stopPropagation();
-      e.preventDefault();
-      if (readOnly) return;
-      const field = handle === "start" ? "start_ms" : "end_ms";
+  (e: React.MouseEvent, handle: "start" | "end", subId: number) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (readOnly) return;
+
+    // ★ 비선택 자막이면 선택만 하고 return
+    const currentSelectedId = useSubtitleStore.getState().selectedId;
+    if (currentSelectedId !== subId) {
+      useSubtitleStore.getState().selectSingle(subId);
+      return;
+    }
+    const field = handle === "start" ? "start_ms" : "end_ms";
       let lastMs = 0;
       const onMove = (ev: MouseEvent) => {
         if (!tlRef.current) return;
