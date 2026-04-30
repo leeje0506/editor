@@ -90,13 +90,32 @@ def delete_subtitle(project_id: int, subtitle_id: int, db: Session = Depends(get
     return post_subtitle_change(db, project_id)
 
 
+# @router.post("/batch-delete", response_model=List[SubtitleResponse])
+# def batch_delete(project_id: int, data: BatchDeleteRequest, db: Session = Depends(get_db)):
+#     _get_project(project_id, db)
+#     save_snapshot(db, project_id, "batch_delete")
+#     db.query(Subtitle).filter(Subtitle.project_id == project_id, Subtitle.id.in_(data.ids)).delete(synchronize_session=False)
+#     db.commit()
+#     return post_subtitle_change(db, project_id)
 @router.post("/batch-delete", response_model=List[SubtitleResponse])
 def batch_delete(project_id: int, data: BatchDeleteRequest, db: Session = Depends(get_db)):
+    import time
+    t0 = time.time()
     _get_project(project_id, db)
+    t1 = time.time()
     save_snapshot(db, project_id, "batch_delete")
+    t2 = time.time()
     db.query(Subtitle).filter(Subtitle.project_id == project_id, Subtitle.id.in_(data.ids)).delete(synchronize_session=False)
     db.commit()
-    return post_subtitle_change(db, project_id)
+    t3 = time.time()
+    result = post_subtitle_change(db, project_id)
+    t4 = time.time()
+    print(f"[batch_delete] get_project: {(t1-t0)*1000:.1f}ms, "
+          f"save_snapshot: {(t2-t1)*1000:.1f}ms, "
+          f"delete+commit: {(t3-t2)*1000:.1f}ms, "
+          f"post_change: {(t4-t3)*1000:.1f}ms, "
+          f"total: {(t4-t0)*1000:.1f}ms")
+    return result
 
 
 @router.post("/{subtitle_id}/split", response_model=List[SubtitleResponse])
@@ -135,22 +154,50 @@ def split_subtitle(project_id: int, subtitle_id: int, data: SplitRequest, db: Se
     return post_subtitle_change(db, project_id)
 
 
+# @router.post("/merge", response_model=List[SubtitleResponse])
+# def merge_subtitles(project_id: int, data: MergeRequest, db: Session = Depends(get_db)):
+#     _get_project(project_id, db)
+#     if len(data.ids) < 2:
+#         raise HTTPException(400, "2개 이상 선택 필요")
+#     subs = db.query(Subtitle).filter(Subtitle.project_id == project_id, Subtitle.id.in_(data.ids)).order_by(Subtitle.seq).all()
+#     if len(subs) < 2:
+#         raise HTTPException(404)
+#     save_snapshot(db, project_id, "merge")
+#     subs[0].end_ms = subs[-1].end_ms
+#     subs[0].text = "\n".join(s.text for s in subs)
+#     subs[0].is_modified = True
+#     for s in subs[1:]:
+#         db.delete(s)
+#     db.commit()
+#     return post_subtitle_change(db, project_id)
 @router.post("/merge", response_model=List[SubtitleResponse])
 def merge_subtitles(project_id: int, data: MergeRequest, db: Session = Depends(get_db)):
+    import time
+    t0 = time.time()
     _get_project(project_id, db)
     if len(data.ids) < 2:
         raise HTTPException(400, "2개 이상 선택 필요")
     subs = db.query(Subtitle).filter(Subtitle.project_id == project_id, Subtitle.id.in_(data.ids)).order_by(Subtitle.seq).all()
     if len(subs) < 2:
         raise HTTPException(404)
+    t1 = time.time()
     save_snapshot(db, project_id, "merge")
+    t2 = time.time()
     subs[0].end_ms = subs[-1].end_ms
     subs[0].text = "\n".join(s.text for s in subs)
     subs[0].is_modified = True
     for s in subs[1:]:
         db.delete(s)
     db.commit()
-    return post_subtitle_change(db, project_id)
+    t3 = time.time()
+    result = post_subtitle_change(db, project_id)
+    t4 = time.time()
+    print(f"[merge] prep: {(t1-t0)*1000:.1f}ms, "
+          f"save_snapshot: {(t2-t1)*1000:.1f}ms, "
+          f"merge+commit: {(t3-t2)*1000:.1f}ms, "
+          f"post_change: {(t4-t3)*1000:.1f}ms, "
+          f"total: {(t4-t0)*1000:.1f}ms")
+    return result
 
 
 @router.post("/bulk-speaker", response_model=List[SubtitleResponse])
