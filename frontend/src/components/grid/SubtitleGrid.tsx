@@ -643,8 +643,12 @@ export function SubtitleGrid({
   const rowBgClasses = useMemo(() => ({ sr, mr, hr, tp }), [sr, mr, hr, tp]);
 
   const speakerOptions = useMemo(() => {
-    const names = [...new Set(subtitles.map((s) => s.speaker).filter(Boolean))].sort();
-    return [{ v: "", label: "(없음)" }, ...names.map((n) => ({ v: n, label: n }))];
+    const names = [...new Set(subtitles.map((s) => s.speaker).filter(Boolean).filter((n) => n !== "-"))].sort();
+    return [
+      { v: "", label: "(없음)" },
+      { v: "-", label: "-" },
+      ...names.map((n) => ({ v: n, label: n })),
+    ];
   }, [subtitles]);
 
   const filtered = useMemo(() => {
