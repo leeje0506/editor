@@ -178,31 +178,39 @@ export function useKeyboardShortcuts(
           void subtitleState.addAfter();
           break;
 
+        // case "insert_at_playhead": {
+        //   const { currentMs } = playerState;
+        //   const { subtitles } = subtitleState;
+
+        //   const prev = [...subtitles].reverse().find((s) => s.start_ms <= currentMs) ?? null;
+        //   const next = subtitles.find((s) => s.start_ms > currentMs) ?? null;
+
+        //   let startMs = currentMs;
+        //   if (prev && startMs <= prev.end_ms) {
+        //     // startMs = prev.end_ms + 1;
+        //   }
+
+        //   let endMs = startMs + 1000;
+        //   if (next && endMs >= next.start_ms) {
+        //     endMs = next.start_ms - 1;
+        //   }
+
+        //   if (endMs <= startMs) {
+        //     endMs = startMs + 1;
+        //   }
+
+        //   void subtitleState.addAfter({
+        //     afterId: prev?.id ?? null,
+        //     startMs,
+        //     endMs,
+        //   });
+        //   break;
+        // }
         case "insert_at_playhead": {
           const { currentMs } = playerState;
-          const { subtitles } = subtitleState;
-
-          const prev = [...subtitles].reverse().find((s) => s.start_ms <= currentMs) ?? null;
-          const next = subtitles.find((s) => s.start_ms > currentMs) ?? null;
-
-          let startMs = currentMs;
-          if (prev && startMs <= prev.end_ms) {
-            startMs = prev.end_ms + 1;
-          }
-
-          let endMs = startMs + 1000;
-          if (next && endMs >= next.start_ms) {
-            endMs = next.start_ms - 1;
-          }
-
-          if (endMs <= startMs) {
-            endMs = startMs + 1;
-          }
-
           void subtitleState.addAfter({
-            afterId: prev?.id ?? null,
-            startMs,
-            endMs,
+            afterId: null,
+            startMs: currentMs,
           });
           break;
         }

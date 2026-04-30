@@ -315,7 +315,7 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     if (!projectId || !selectedId) return;
 
     const splitAtMs = usePlayerStore.getState().currentMs;
-    const textarea = document.querySelector<HTMLTextAreaElement>("[data-quick-editor-textarea]");
+    const textarea = document.querySelector<HTMLTextAreaElement>("[data-subtitle-text-textarea]");
     const textSplitPos = textarea?.selectionStart ?? undefined;
 
     const currentIndex = subtitles.findIndex((sub) => sub.id === selectedId);

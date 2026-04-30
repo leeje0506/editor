@@ -301,6 +301,7 @@ function EditableTextCell({
     <div className={className} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <textarea
         ref={taRef}
+        data-subtitle-text-textarea
         value={value}
         onChange={(e) => {
           const v = e.target.value;
@@ -334,7 +335,9 @@ function EditableTextCell({
             onExitEdit();
             return;
           }
-          e.stopPropagation();
+          // 그 외 키는 window의 단축키 핸들러로 전파 허용
+          // (split_at_cursor 등 textarea 안에서 동작해야 하는 단축키 지원)
+          // BLOCK_IN_INPUT에 등록된 단축키는 useKeyboardShortcuts에서 자동 차단됨
         }}
         rows={1}
         style={{ fontSize: `${fontSize}px` }}
