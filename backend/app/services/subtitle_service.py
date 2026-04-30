@@ -177,6 +177,23 @@ def update_project_progress(db: Session, project_id: int) -> int:
     # commit은 post_subtitle_change에서 한 번만
     return raw
 
+# def post_subtitle_change(db: Session, project_id: int) -> List[Subtitle]:
+#     """자막 변경 API의 마지막 후처리 통합 헬퍼.
+
+#     1. resequence + validate (순번 재계산 + 검수)
+#     2. progress_ms 갱신 (MAX(seq) 자막의 end_ms로)
+#     3. status='rejected'이면 'in_progress'로 자동 전환 (반려 → 재작업 라벨 전환)
+
+#     자막 변경이 일어나는 모든 라우터의 마지막에서 호출.
+#     하위 함수들의 commit을 모아서 여기서 한 번만 commit (트랜잭션 일관성 + 성능).
+
+#     Returns: 갱신된 자막 리스트 (resequence_and_validate 결과)
+#     """
+#     subs = resequence_and_validate(db, project_id)
+#     update_project_progress(db, project_id)
+#     auto_reactivate_if_rejected(db, project_id)
+#     db.commit()
+#     return subs
 def post_subtitle_change(db: Session, project_id: int) -> List[Subtitle]:
     """자막 변경 API의 마지막 후처리 통합 헬퍼.
 
@@ -189,10 +206,19 @@ def post_subtitle_change(db: Session, project_id: int) -> List[Subtitle]:
 
     Returns: 갱신된 자막 리스트 (resequence_and_validate 결과)
     """
+    import time
+    t0 = time.time()
     subs = resequence_and_validate(db, project_id)
+    t1 = time.time()
     update_project_progress(db, project_id)
+    t2 = time.time()
     auto_reactivate_if_rejected(db, project_id)
+    t3 = time.time()
     db.commit()
+    t4 = time.time()
+    print(f"[post_subtitle_change] reseq+validate: {(t1-t0)*1000:.1f}ms, "
+          f"progress: {(t2-t1)*1000:.1f}ms, reactivate: {(t3-t2)*1000:.1f}ms, "
+          f"final_commit: {(t4-t3)*1000:.1f}ms, total: {(t4-t0)*1000:.1f}ms")
     return subs
 
 def auto_reactivate_if_rejected(db: Session, project_id: int) -> bool:
